@@ -324,6 +324,7 @@ dist/                   静态构建产物（忽略）
 
 - [实现笔记](docs/design.md)
 - [测试记录](docs/verification.md)
+- [更新记录](CHANGELOG.md)
 - [wasm-bindgen 文档](https://wasm-bindgen.github.io/wasm-bindgen/)
 - [wasm-pack 构建说明](https://drager.github.io/wasm-pack/book/commands/build.html)
 - [Three.js 文档](https://threejs.org/docs/)
