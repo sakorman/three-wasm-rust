@@ -7,7 +7,7 @@
 
 页面里可以切换 Rust、Three.js 和混合模式，看同一组对象在三种模式下的表现。也附了几项小型基准测试，分别测场景更新、矩阵乘法和 JS / WASM 调用开销。
 
-目前只做了基础场景图和实例化渲染，还不能替代完整的 Three.js。WASM 部分使用 Cargo 和 wasm-bindgen 构建，浏览器交互仍由 JavaScript 处理。
+目前只做了基础场景图和实例化渲染，还不能替代完整的 Three.js。WASM 部分用 Rust 编写，前端和测试使用 TypeScript。Vite 会把前端编译成浏览器运行的 JavaScript。
 
 ![Three × Rust 中文交互演示](docs/demo.png)
 
@@ -60,6 +60,22 @@ npm run dev
 `npm run dev` 会先编译 Rust，生成 `pkg/` 中的 `.wasm`、JavaScript 绑定和 TypeScript 类型，再启动 Vite。首次运行会下载 Cargo 依赖及 wasm-bindgen 工具，耗时较长。`wasm-pack` 已锁定为 npm 开发依赖，无需另外全局安装。请勿直接双击 `index.html`，WASM 需要通过 HTTP 服务加载。
 
 只修改前端时可用 `npm run dev:web`；修改 Rust 后需再次执行 `npm run build:wasm` 并刷新页面。Vite 不会自动监视和编译 Rust。
+
+### TypeScript 类型从哪来
+
+`SceneGraph`、`RustRenderer` 和 WASM 初始化结果的类型由 wasm-bindgen 生成在 `pkg/three_wasm_rust.d.ts` 中，直接导入即可，不用手写一份。
+
+Three.js 使用 `@types/three`，版本与当前 r186 对齐。DOM、Canvas 和 TypedArray 使用 TypeScript 标准库；Vite 和 Playwright 的类型由各自的包提供。场景数据、运行模式和性能报告这几种项目自己的类型放在 `web/types.ts`。
+
+```bash
+# 第一次克隆或修改 Rust 接口后，先生成 WASM 和类型声明
+npm run build:wasm
+npm run typecheck
+```
+
+类型检查开启 `strict`，分别检查浏览器代码和 Node 配置、测试。`npm test` 和 `npm run build` 也会自动执行。Vite 热更新只转译 TS，不会替你检查类型；写前端时可以另外运行 `npm run typecheck`。
+
+数组长度、四元数有效性和 WASM 内存视图的生命周期仍需要运行时检查，TS 类型不能替代这些校验。
 
 ### 构建静态文件
 
@@ -236,12 +252,13 @@ npx playwright install chromium
 npm run check
 cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
 
-# 完整测试：Rust → WASM 构建 → Node 差分 → Chromium
+# 完整测试：Rust → WASM 构建 → TS 类型检查 → Node 差分 → Chromium
 npm test
 
 # 或分别执行
 npm run test:rust
 npm run build:wasm
+npm run typecheck
 npm run test:integration
 npm run test:e2e
 ```
@@ -254,7 +271,7 @@ npm run test:e2e
 - WASM 内存增长后旧视图失效、新视图正确；重复创建/释放。
 - 实际 WebGL 像素输出和错误码、三种模式、场景规模、相机操作、报告导出、390px 移动端布局、缺少 WebGL2 时的错误提示。
 
-CI 自动执行检查、测试与生产构建，保留截图/报告，并将 `dist/` 上传为 `static-demo` artifact。生成的 `.wasm` 不提交，因此需要先构建再执行独立的 integration/e2e 命令。
+CI 自动执行检查、测试与生产构建，保留截图/报告，并将 `dist/` 上传为 `static-demo` artifact。生成的 `.wasm` 和 `.d.ts` 不提交，因此首次运行独立的 typecheck、integration 或 e2e 命令前，需要先构建 WASM。Node 差分测试由 `tsx` 运行；Playwright 直接加载 TS 测试。
 
 ## GitHub Pages
 
@@ -274,20 +291,24 @@ src/
   math.rs                Rust 矩阵 / TRS 计算
   renderer.rs            Rust WebGL2 渲染与资源释放
 web/
-  main.js                演示状态、相机、三种模式
-  scene.js               固定种子数据与 Three.js 对照
-  benchmark.js           性能采样与结果元数据
+  main.ts                演示状态、相机、三种模式
+  scene.ts               固定种子数据与 Three.js 对照
+  benchmark.ts           性能采样与结果元数据
+  types.ts               场景数据和性能报告类型
+  dom.ts                 页面元素查找与类型检查
   shaders/               两种渲染器共享的 GLSL
   style.css              中文演示界面
 tests/
-  integration.test.mjs   真实 WASM 对比 Three.js
-  browser/demo.spec.js   浏览器功能与绘制检查
+  integration.test.ts    真实 WASM 对比 Three.js
+  browser/demo.spec.ts   浏览器功能与绘制检查
 docs/
   design.md              内核架构、数据布局与工程取舍
   verification.md        验证范围与本地验收记录
 .github/workflows/      CI 与手动 Pages 发布
 Cargo.lock              Rust 依赖锁定
 package-lock.json       npm 依赖锁定
+tsconfig.json           前端类型检查（strict）
+tsconfig.node.json      配置与测试的类型检查
 pkg/                    生成的 WASM、JS、类型声明（忽略）
 dist/                   静态构建产物（忽略）
 ```
@@ -309,6 +330,8 @@ dist/                   静态构建产物（忽略）
 **Apple Silicon 上出现 `Unrecognized target` / `Installing wasm-bindgen`**：wasm-pack 可能回退到从源码安装绑定工具，首次运行会较慢。可从 [wasm-bindgen 官方 Releases](https://github.com/wasm-bindgen/wasm-bindgen/releases) 下载与 `Cargo.lock` 中版本一致的 `aarch64-apple-darwin` 工具包，校验发布的 SHA-256 后将 `wasm-bindgen` 放入 PATH；也可执行 `cargo install wasm-bindgen-cli --version 0.2.129 --locked`。更新 Rust 依赖后，CLI 版本也必须同步。
 
 **找不到 `pkg/three_wasm_rust.js`**：先运行 `npm run build:wasm`；源码仓库不包含生成文件。
+
+**类型检查找不到 WASM 模块**：同样先运行 `npm run build:wasm`，它会生成 JS 绑定及 `.d.ts`。不要手改生成的声明；接口有变化时从 Rust 重新构建。
 
 **页面无图形**：检查页面错误提示、浏览器 WebGL2/硬件加速设置及控制台；若上下文丢失，请刷新。浏览器测试通过实际像素检测防止把空白画布误当成渲染成功。
 

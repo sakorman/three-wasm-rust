@@ -1,5 +1,14 @@
 # 验证范围
 
+## TypeScript 迁移（2026-10-10）
+
+- 前端、配置和测试全部使用 `.ts`，Rust 源码与 WASM 导出接口没有变化。
+- TypeScript 7.0.2，开启 `strict`；浏览器与 Node 两份配置均通过类型检查。
+- WASM 类型来自构建生成的 `.d.ts`，Three.js 类型使用 `@types/three` 0.186.0。
+- 7 项 Rust 测试、8 项 WASM 差分测试、5 项 Chromium 测试通过。
+- Rust 格式检查、Clippy 和带类型检查的生产构建通过。
+- 新增类型依赖和 tsx，原有依赖版本保持不变。
+
 ## 本次本地验收（2026-10-10）
 
 - 环境：macOS / Apple Silicon、Rust 1.99.0、Node.js 20.20.2、wasm-bindgen 0.2.129、Chromium 156。
