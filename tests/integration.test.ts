@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import init, { SceneGraph, RustRenderer, compose_transform, multiply_matrices, multiply_matrices_batch, transform_points } from '../pkg/three_wasm_rust.js';
-import { createSceneData, ThreeGraph, matrixView } from '../web/scene.js';
+import { createSceneData, ThreeGraph, matrixView } from '../web/scene.ts';
 
 const wasm = await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
-function close(actual, expected, label = '') {
+function close(actual: Float32Array, expected: ArrayLike<number>, label = '') {
   assert.equal(actual.length, expected.length);
   actual.forEach((value, i) => assert.ok(Number.isFinite(value) && Math.abs(value - expected[i]) < 0.0002 + Math.abs(expected[i]) * 0.00002,
     `${label}[${i}]: ${value} != ${expected[i]}`));
@@ -30,7 +30,7 @@ test('TRS, multiplication and point transforms match independent Three.js math',
     const rotation = new THREE.Matrix4().makeRotationY(0.72);
     close(multiply_matrices(Float32Array.from(matrix.elements), Float32Array.from(rotation.elements)), matrix.clone().multiply(rotation).elements, 'multiply');
     const points = new Float32Array([1, -2, 3, -3, 2, 1]);
-    const expected = [];
+    const expected: number[] = [];
     for (let j = 0; j < points.length; j += 3) new THREE.Vector3().fromArray(points, j).applyMatrix4(matrix).toArray(expected, j);
     close(transform_points(Float32Array.from(matrix.elements), points), expected, 'points');
   }

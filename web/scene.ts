@@ -1,7 +1,9 @@
 import * as THREE from 'three';
+import type { InitOutput, SceneGraph } from '../pkg/three_wasm_rust.js';
+import type { SceneData } from './types.ts';
 
 /** Fixed seed + identical Float32 inputs for all backends. */
-export function createSceneData(count, seed = 2026) {
+export function createSceneData(count: number, seed = 2026): SceneData {
   if (!Number.isInteger(count) || count < 0 || count > 100_000) throw new RangeError('Invalid node count');
   let state = seed >>> 0;
   const random = () => ((state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 4294967296);
@@ -26,7 +28,11 @@ export function createSceneData(count, seed = 2026) {
 
 /** Uses the actual Three.js Object3D implementation as the reference. */
 export class ThreeGraph {
-  constructor({ parents, transforms }) {
+  readonly nodes: THREE.Object3D[];
+  roots: THREE.Object3D[] = [];
+  private readonly output: Float32Array;
+
+  constructor({ parents, transforms }: SceneData) {
     this.nodes = Array.from(parents, (_, i) => {
       const node = new THREE.Object3D();
       const offset = i * 10;
@@ -48,7 +54,7 @@ export class ThreeGraph {
     for (const root of this.roots) root.updateMatrixWorld(true);
   }
 
-  animateDemo(seconds) {
+  animateDemo(seconds: number) {
     const t = Math.fround(seconds);
     const sx = Math.sin(t * 0.125), cx = Math.cos(t * 0.125);
     for (let i = 0; i < this.nodes.length; i++) {
@@ -66,7 +72,7 @@ export class ThreeGraph {
 }
 
 /** Do not retain this borrowed view across allocations or graph.free(). */
-export function matrixView(wasm, graph) {
+export function matrixView(wasm: Pick<InitOutput, 'memory'>, graph: SceneGraph) {
   const pointer = graph.matrices_ptr();
   const length = graph.matrices_len();
   return new Float32Array(wasm.memory.buffer, pointer, length);

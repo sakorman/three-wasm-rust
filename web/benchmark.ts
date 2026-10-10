@@ -1,21 +1,23 @@
 import * as THREE from 'three';
 import { SceneGraph, identity_value, multiply_matrices, multiply_matrices_batch } from '../pkg/three_wasm_rust.js';
-import { createSceneData, ThreeGraph, matrixView } from './scene.js';
+import type { InitOutput } from '../pkg/three_wasm_rust.js';
+import { createSceneData, ThreeGraph, matrixView } from './scene.ts';
+import type { BenchmarkReport, BenchmarkRow, TimingStats } from './types.ts';
 
-const pause = () => new Promise(resolve => setTimeout(resolve, 0));
+const pause = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 let sink = 0;
 
-function measure(fn, iterations) {
+function measure(fn: () => number, iterations: number) {
   const start = performance.now();
   for (let i = 0; i < iterations; i++) sink += fn() || 0;
   return (performance.now() - start) / iterations;
 }
 
-async function compare(name, unit, js, rust, iterations = 20) {
+async function compare(name: string, unit: string, js: () => number, rust: () => number, iterations = 20): Promise<BenchmarkRow> {
   // Warm both paths and alternate execution order to reduce ordering bias.
   measure(js, 10);
   measure(rust, 10);
-  const javascript = [], wasm = [];
+  const javascript: number[] = [], wasm: number[] = [];
   for (let sample = 0; sample < 7; sample++) {
     if (sample % 2 === 0) {
       javascript.push(measure(js, iterations)); wasm.push(measure(rust, iterations));
@@ -24,7 +26,7 @@ async function compare(name, unit, js, rust, iterations = 20) {
     }
     await pause();
   }
-  const stats = values => {
+  const stats = (values: number[]): TimingStats => {
     const sorted = [...values].sort((a, b) => a - b);
     return { medianMs: sorted[3], minMs: sorted[0], maxMs: sorted[6], samplesMs: values };
   };
@@ -33,12 +35,16 @@ async function compare(name, unit, js, rust, iterations = 20) {
   return { name, unit, javascript: jsStats, wasm: wasmStats, ratio, iterations };
 }
 
-export async function runBenchmarks(wasm, count, progress = () => {}) {
+export async function runBenchmarks(
+  wasm: InitOutput,
+  count: number,
+  progress: (rows: readonly BenchmarkRow[]) => void = () => {},
+): Promise<BenchmarkReport> {
   const data = createSceneData(count);
   const graph = new SceneGraph(data.parents, data.transforms);
   const reference = new ThreeGraph(data);
-  const rows = [];
-  const record = async (...args) => {
+  const rows: BenchmarkRow[] = [];
+  const record = async (...args: Parameters<typeof compare>) => {
     const result = await compare(...args);
     rows.push(result); progress(rows.slice()); await pause();
   };
@@ -68,7 +74,7 @@ export async function runBenchmarks(wasm, count, progress = () => {}) {
         return out[0];
       },
       () => { let result = 0; for (let i = 0; i < 1000; i++) result += multiply_matrices(oneA, oneB)[0]; return result; }, 5);
-    const jsIdentity = value => value;
+    const jsIdentity = (value: number) => value;
     await record('函数调用开销', '10,000 次调用 / 次',
       () => { let result = 0; for (let i = 0; i < 10_000; i++) result += jsIdentity(i); return result; },
       () => { let result = 0; for (let i = 0; i < 10_000; i++) result += identity_value(i); return result; }, 10);

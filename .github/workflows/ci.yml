@@ -24,7 +24,8 @@ jobs:
       - run: npm run check
       - run: cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
       - run: npx playwright install --with-deps chromium
-      - run: npm test
+      - name: Test Rust, TypeScript and browser demo
+        run: npm test
       - run: npm run build
       - uses: actions/upload-artifact@v4
         if: always()
