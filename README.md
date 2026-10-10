@@ -3,6 +3,8 @@
 [![CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-orange.svg)](LICENSE)
 
+[在线演示](https://sakorman.github.io/three-wasm-rust/)
+
 一个用 Rust 写的 WebAssembly 3D 实验。矩阵计算和场景更新放在 Rust 里，渲染可以直接走 WebGL2，也可以交给 Three.js。
 
 页面里可以切换 Rust、Three.js 和混合模式，看同一组对象在三种模式下的表现。也附了几项小型基准测试，分别测场景更新、矩阵乘法和 JS / WASM 调用开销。
@@ -275,13 +277,15 @@ CI 自动执行检查、测试与生产构建，保留截图/报告，并将 `di
 
 ## GitHub Pages
 
-仓库附带手动触发的 Pages 工作流，避免每次提交都自动发布：
+演示部署在 [sakorman.github.io/three-wasm-rust](https://sakorman.github.io/three-wasm-rust/)。更新线上版本时，在 **Actions → Deploy demo to GitHub Pages** 中点击 **Run workflow**，选择 `main` 即可。
+
+如果 fork 到自己的仓库，首次部署需要先配置 Pages：
 
 1. 在仓库 **Settings → Pages → Build and deployment → Source** 中选择 **GitHub Actions**。
 2. 打开 **Actions → Deploy demo to GitHub Pages → Run workflow**。
 3. 等待部署成功，访问工作流输出的地址；此仓库默认对应 `https://sakorman.github.io/three-wasm-rust/`。
 
-这个地址只有在 Pages 已配置且工作流成功后才可访问。普通 CI 的绿色状态不代表已经部署。
+Pages 工作流会编译 Rust、检查 TypeScript，再发布 `dist/`。普通 CI 只做验证，不会更新线上演示。
 
 ## 目录
 
