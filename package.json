@@ -1,6 +1,6 @@
 {
   "name": "three-wasm-rust",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Rust/WASM 场景引擎与 Three.js 完整流程对照",

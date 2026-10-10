@@ -1,5 +1,5 @@
 precision highp float;
-in vec3 position;
+layout(location = 0) in vec3 position;
 uniform mat4 modelMatrix;
 uniform mat4 viewProjection;
 out vec3 worldPosition;

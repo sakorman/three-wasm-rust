@@ -3,7 +3,7 @@ import { Engine } from './engine/Engine.ts';
 import { OrbitCamera } from './engine/camera.ts';
 import { createEngineScene } from './engine/scenes.ts';
 import { backendNames } from './engine/types.ts';
-import type { Backend, EngineScene, SceneBackend, FrameStats } from './engine/types.ts';
+import type { Backend, Comparison, EngineScene, SceneBackend, FrameStats } from './engine/types.ts';
 import { ThreeBackend } from './compare/ThreeBackend.ts';
 import { compareBackends } from './compare/benchmark.ts';
 import type { ComparisonReport } from './compare/benchmark.ts';
@@ -17,7 +17,10 @@ function element<T extends HTMLElement>(id: string, kind: { new (): T }): T {
 const ui = {
   scenario: element('scenario', HTMLSelectElement),
   count: element('count', HTMLSelectElement),
-  reference: element('reference', HTMLSelectElement),
+  comparison: element('comparison', HTMLSelectElement),
+  rustLabel: element('rust-label', HTMLSpanElement),
+  referenceLabel: element('reference-label', HTMLSpanElement),
+  policy: element('policy', HTMLParagraphElement),
   culling: element('culling', HTMLInputElement),
   pause: element('pause', HTMLButtonElement),
   reset: element('reset', HTMLButtonElement),
@@ -34,7 +37,7 @@ const ui = {
   results: element('results', HTMLTableSectionElement),
   context: element('report-context', HTMLElement),
 };
-const canvases: Record<Backend, HTMLCanvasElement> = {
+const canvases: Record<'rust' | 'three' | 'instanced', HTMLCanvasElement> = {
   rust: element('rust-canvas', HTMLCanvasElement),
   three: element('three-canvas', HTMLCanvasElement),
   instanced: element('instanced-canvas', HTMLCanvasElement),
@@ -43,7 +46,7 @@ const leftView = element('rust-view', HTMLDivElement),
   rightView = element('three-view', HTMLDivElement);
 const camera = new OrbitCamera();
 let data: EngineScene;
-let backends: Record<Backend, SceneBackend> | undefined;
+let backends: { rust: Engine; reference: ThreeBackend } | undefined;
 let animation = true,
   elapsed = 0,
   failed = false,
@@ -57,7 +60,7 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 const controls = [
   ui.scenario,
   ui.count,
-  ui.reference,
+  ui.comparison,
   ui.culling,
   ui.pause,
   ui.reset,
@@ -78,12 +81,23 @@ function failure(error: unknown) {
   lock(true);
   console.error(error);
 }
+function comparison(): Comparison {
+  return ui.comparison.value === 'instanced' ? 'instanced' : 'direct';
+}
 function selectedReference(): 'three' | 'instanced' {
-  return ui.reference.value === 'instanced' ? 'instanced' : 'three';
+  return comparison() === 'instanced' ? 'instanced' : 'three';
 }
 function showReference() {
   canvases.three.hidden = selectedReference() !== 'three';
   canvases.instanced.hidden = selectedReference() !== 'instanced';
+  const direct = comparison() === 'direct';
+  ui.rustLabel.textContent = direct ? '逐对象 · 全量矩阵更新' : '实例化 · 脏矩阵更新';
+  ui.referenceLabel.textContent = direct
+    ? '普通 Mesh · 全量矩阵更新'
+    : 'InstancedMesh · 脏矩阵更新';
+  ui.policy.textContent = direct
+    ? '两边均不实例化、不合并几何体，每帧重算全部节点，按场景顺序绘制。剔除默认关闭：每个对象对应一个 draw call。'
+    : '两边均使用实例化和脏矩阵更新，按相同的几何体、材质组合绘制。每个非空组对应一个 draw call。';
 }
 function resize() {
   const width = Math.floor(Math.min(leftView.clientWidth, rightView.clientWidth)),
@@ -119,13 +133,11 @@ function rebuild() {
   data = createEngineScene(scenario, Number(ui.count.value));
   const created: SceneBackend[] = [];
   try {
-    const rust = new Engine(canvases.rust, data);
+    const rust = new Engine(canvases.rust, data, comparison() === 'instanced');
     created.push(rust);
-    const three = new ThreeBackend(canvases.three, data, 'three');
-    created.push(three);
-    const instanced = new ThreeBackend(canvases.instanced, data, 'instanced');
-    created.push(instanced);
-    backends = { rust, three, instanced };
+    const reference = new ThreeBackend(canvases[selectedReference()], data, selectedReference());
+    created.push(reference);
+    backends = { rust, reference };
   } catch (error) {
     for (const backend of created) backend.dispose();
     throw error;
@@ -134,6 +146,7 @@ function rebuild() {
   lastStats = {};
   resetCamera();
   resize();
+  showReference();
   ui.summary.textContent = `${data.meshNodes.length.toLocaleString()} 个对象 · ${data.parents.length.toLocaleString()} 个节点 · ${data.batchGeometries.length} 种几何/材质组合 · ${data.animatedNodes.length} 个动画节点`;
   invalidate();
 }
@@ -155,14 +168,15 @@ function tick(now: number) {
   if (backends && !bench) {
     try {
       if (animation) elapsed += dt;
-      const frame = camera.frame(canvases.rust.width / canvases.rust.height),
-        mode = selectedReference();
-      lastStats.rust = backends.rust.frame(elapsed, frame, ui.culling.checked);
-      lastStats[mode] = backends[mode].frame(elapsed, frame, ui.culling.checked);
+      const frame = camera.frame(canvases.rust.width / canvases.rust.height);
+      const rustStats = backends.rust.frame(elapsed, frame, ui.culling.checked);
+      const referenceStats = backends.reference.frame(elapsed, frame, ui.culling.checked);
+      lastStats[backends.rust.kind] = rustStats;
+      lastStats[backends.reference.kind] = referenceStats;
       frames++;
       if (now - reportTime >= 500) {
-        updateMetrics('rust-metrics', lastStats.rust);
-        updateMetrics('three-metrics', lastStats[mode]!);
+        updateMetrics('rust-metrics', rustStats);
+        updateMetrics('three-metrics', referenceStats);
         ui.fps.textContent = ((frames * 1000) / (now - reportTime)).toFixed(0);
         frames = 0;
         reportTime = now;
@@ -199,7 +213,7 @@ function showReport(value: ComparisonReport) {
       return tr;
     }),
   );
-  ui.context.textContent = `${data.name} · ${value.objects.toLocaleString()} 对象 · ${value.width} × ${value.height} 像素 · 剔除${value.culling ? '开启' : '关闭'} · 动画${value.animation ? '开启' : '暂停'} · 每组 ${value.protocol.sampleFrames * value.protocol.rounds} 个帧样本。报告保存了采样时的相机和设置。`;
+  ui.context.textContent = `${value.comparison === 'direct' ? '不实例化 / 全量更新' : '实例化 / 脏更新'} · ${data.name} · ${value.objects.toLocaleString()} 对象 · ${value.width} × ${value.height} 像素 · 剔除${value.culling ? '开启' : '关闭'} · 动画${value.animation ? '开启' : '暂停'} · 每组 ${value.protocol.sampleFrames * value.protocol.rounds} 个帧样本。已核对两组可见对象和三角形数量。`;
   ui.download.hidden = false;
 }
 ui.benchmark.addEventListener('click', async () => {
@@ -207,7 +221,7 @@ ui.benchmark.addEventListener('click', async () => {
   bench = new AbortController();
   report = undefined;
   ui.results.innerHTML =
-    '<tr><td colspan="6" class="empty">正在采样，完成后显示三组结果。</td></tr>';
+    '<tr><td colspan="6" class="empty">正在采样，完成后显示两组结果。</td></tr>';
   ui.context.textContent = '';
   lock(true);
   ui.cancel.hidden = false;
@@ -219,12 +233,19 @@ ui.benchmark.addEventListener('click', async () => {
       : { sampleFrames: 24, warmupFrames: 8 };
   try {
     report = await compareBackends(
-      backends,
+      [backends.rust, backends.reference],
       data,
       camera.frame(canvases.rust.width / canvases.rust.height),
-      { ...options, rounds: 3, culling: ui.culling.checked, animation, signal: bench.signal },
+      {
+        ...options,
+        rounds: 4,
+        culling: ui.culling.checked,
+        animation,
+        signal: bench.signal,
+        comparison: comparison(),
+      },
       (mode, round, done, total) => {
-        ui.progress.textContent = `第 ${round + 1} / 3 轮 · ${backendNames[mode]} · ${done} / ${total} 帧（含预热）`;
+        ui.progress.textContent = `第 ${round + 1} / 4 轮 · ${backendNames[mode]} · ${done} / ${total} 帧（含预热）`;
       },
     );
     showReport(report);
@@ -232,6 +253,7 @@ ui.benchmark.addEventListener('click', async () => {
   } catch (error) {
     ui.progress.textContent = errorText(error);
     report = undefined;
+    ui.results.innerHTML = '<tr><td colspan="6" class="empty">本次采样未完成，请重新运行。</td></tr>';
     ui.context.textContent = '本次未生成有效报告。';
   } finally {
     bench = undefined;
@@ -253,7 +275,7 @@ ui.download.addEventListener('click', () => {
   );
   const link = document.createElement('a');
   link.href = url;
-  link.download = `engine-${report.scenario}-comparison.json`;
+  link.download = `engine-${report.scenario}-${report.comparison}.json`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
@@ -263,7 +285,14 @@ ui.pause.addEventListener('click', () => {
   invalidate();
 });
 ui.reset.addEventListener('click', resetCamera);
-ui.reference.addEventListener('change', showReference);
+ui.comparison.addEventListener('change', () => {
+  ui.culling.checked = comparison() === 'instanced';
+  try {
+    rebuild();
+  } catch (error) {
+    failure(error);
+  }
+});
 ui.culling.addEventListener('change', invalidate);
 for (const control of [ui.scenario, ui.count])
   control.addEventListener('change', () => {
@@ -296,6 +325,7 @@ window.addEventListener('pageshow', (event) => {
 // Read-only diagnostics used by integration tests and browser devtools.
 window.engineLab = {
   snapshot: () => ({
+    comparison: comparison(),
     scenario: data.scenario,
     objects: data.meshNodes.length,
     nodes: data.parents.length,

@@ -15,7 +15,7 @@
     <div class="shell">
       <header>
         <a class="brand" href="./"
-          ><span class="brand-icon">R</span> THREE × RUST <span class="tag">ENGINE 0.2</span></a
+          ><span class="brand-icon">R</span> THREE × RUST <span class="tag">ENGINE 0.3</span></a
         >
         <nav>
           <a href="./lab.html">CPU 小型测试 ↗</a
@@ -30,7 +30,7 @@
             <p class="eyebrow">SCENE ENGINE / WEBASSEMBLY</p>
             <h1>同一个场景，两边跑跑看<span>。</span></h1>
             <p class="subtitle">
-              Rust 管场景、剔除和批次；Three.js 直接绘制。相机、几何体和着色器保持一致。
+              先关掉实例化：两边逐对象绘制、全量更新矩阵，共用相机、几何体和着色器。
             </p>
           </div>
           <div class="status">
@@ -39,6 +39,12 @@
         </section>
         <section class="experiment" aria-label="引擎对照场景">
           <div class="toolbar">
+            <label
+              >对照<select id="comparison" disabled>
+                <option value="direct">逐对象 · 不实例化</option>
+                <option value="instanced">实例化 · 两边优化</option>
+              </select></label
+            >
             <label
               >场景<select id="scenario" disabled>
                 <option value="city">街区 · 稀疏更新</option>
@@ -55,9 +61,7 @@
                 <option value="20000">20,000</option>
               </select></label
             >
-            <label class="check"
-              ><input id="culling" type="checkbox" checked disabled />视锥剔除</label
-            >
+            <label class="check"><input id="culling" type="checkbox" disabled />视锥剔除</label>
             <div class="toolbar-actions">
               <button id="pause" disabled>暂停动画</button
               ><button id="reset" class="subtle" disabled>重置视角 ↺</button>
@@ -67,7 +71,7 @@
             <article class="viewport-panel">
               <div class="panel-heading">
                 <span class="live-dot"></span><strong>Rust 引擎</strong
-                ><span>脏标记 + 自动批次</span>
+                ><span id="rust-label">逐对象 · 全量矩阵更新</span>
               </div>
               <div class="viewport" id="rust-view">
                 <canvas id="rust-canvas" aria-label="Rust 引擎场景"></canvas
@@ -82,10 +86,7 @@
             <article class="viewport-panel">
               <div class="panel-heading">
                 <span class="live-dot blue"></span><strong>Three.js</strong
-                ><select id="reference" aria-label="Three.js 对照方式" disabled>
-                  <option value="three">普通 Mesh</option>
-                  <option value="instanced">实例化优化</option>
-                </select>
+                ><span id="reference-label">普通 Mesh · 全量矩阵更新</span>
               </div>
               <div class="viewport" id="three-view">
                 <canvas id="three-canvas" aria-label="Three.js 普通场景"></canvas
@@ -108,19 +109,23 @@
           <div class="section-heading">
             <div>
               <p class="eyebrow">FRAME BENCHMARK</p>
-              <h2>三组完整流程对照</h2>
+              <h2>同策略性能对照</h2>
             </div>
             <div class="bench-actions">
               <select id="quality" aria-label="测试长度">
-                <option value="quick">快速 · 24 帧 × 3 轮</option>
-                <option value="full">完整 · 60 帧 × 3 轮</option></select
+                <option value="quick">快速 · 24 帧 × 4 轮</option>
+                <option value="full">完整 · 60 帧 × 4 轮</option></select
               ><button id="download" class="subtle" hidden>导出 JSON ↓</button
               ><button id="cancel" class="subtle" hidden>取消测试</button
-              ><button id="benchmark" class="primary" disabled>运行三组对照 ↗</button>
+              ><button id="benchmark" class="primary" disabled>运行两组对照 ↗</button>
             </div>
           </div>
-          <p class="bench-note">
-            正式测试会暂停并排预览，每次只跑一组，轮换顺序。三组使用同一段动画、同一个视角和相同像素尺寸。
+          <p class="bench-note" id="policy">
+            两边均不实例化、不合并几何体，每帧重算全部节点，按场景顺序绘制。剔除默认关闭：每个对象对应一个
+            draw call。
+          </p>
+          <p class="footnote">
+            正式测试暂停并排预览，以 AB / BA / AB / BA 顺序逐组采样，共用动画、视角和像素尺寸。
           </p>
           <div id="bench-progress" role="status" aria-live="polite"></div>
           <div class="table-wrap">
@@ -159,8 +164,8 @@
           <div>
             <h3>怎么读这个对照</h3>
             <p>
-              普通 Mesh 和实例化的差距包含批次策略的收益。优化后的 Three.js
-              也会减少矩阵更新和绘制次数，不能把全部差距都算在语言上。
+              当前模式对齐绘制方式和矩阵更新策略，但引擎结构、绑定调用和 f32 / JS Number
+              仍不同。它比较两套实现，不能单独证明语言速度。
             </p>
           </div>
           <div>

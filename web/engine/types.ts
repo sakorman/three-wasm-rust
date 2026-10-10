@@ -1,4 +1,5 @@
-export type Backend = 'rust' | 'three' | 'instanced';
+export type Backend = 'rust' | 'rust-direct' | 'three' | 'instanced';
+export type Comparison = 'direct' | 'instanced';
 export type Scenario = 'city' | 'warehouse' | 'hierarchy';
 export interface GeometryData {
   name: string;
@@ -53,11 +54,13 @@ export interface DrawTimer {
   end(): void;
 }
 export const backendNames: Record<Backend, string> = {
-  rust: 'Rust 引擎 · 自动批次',
+  rust: 'Rust 引擎 · 实例化',
+  'rust-direct': 'Rust 引擎 · 逐对象',
   three: 'Three.js · 普通 Mesh',
   instanced: 'Three.js · 实例化',
 };
 export interface EngineSnapshot {
+  comparison: Comparison;
   scenario: Scenario;
   objects: number;
   nodes: number;

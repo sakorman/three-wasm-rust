@@ -1,5 +1,5 @@
 //! Resource registries and batched WebGL2 submission. The queue owns CPU culling.
-use crate::{queue::RenderQueue, renderer::shader, MAX_NODES};
+use crate::{queue::RenderQueue, renderer::shader, SceneGraph, MAX_NODES};
 use wasm_bindgen::{prelude::*, JsCast};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext as Gl, WebGlBuffer, WebGlProgram,
@@ -29,7 +29,8 @@ struct Material {
 pub struct EngineRenderer {
     gl: Gl,
     program: WebGlProgram,
-    instances: WebGlBuffer,
+    instances: Option<WebGlBuffer>,
+    model: Option<WebGlUniformLocation>,
     vp: WebGlUniformLocation,
     color: WebGlUniformLocation,
     unlit: WebGlUniformLocation,
@@ -44,7 +45,12 @@ pub struct EngineRenderer {
 #[wasm_bindgen]
 impl EngineRenderer {
     #[wasm_bindgen(constructor)]
-    pub fn new(canvas: HtmlCanvasElement, capacity: usize) -> Result<Self, JsValue> {
+    pub fn new(
+        canvas: HtmlCanvasElement,
+        capacity: usize,
+        instanced: Option<bool>,
+    ) -> Result<Self, JsValue> {
+        let instanced = instanced.unwrap_or(true);
         if capacity > MAX_NODES {
             return Err("instance capacity exceeds limit".into());
         }
@@ -55,7 +61,11 @@ impl EngineRenderer {
         let vertex = shader(
             &gl,
             Gl::VERTEX_SHADER,
-            include_str!("../web/engine/shaders/instanced.vert"),
+            if instanced {
+                include_str!("../web/engine/shaders/instanced.vert")
+            } else {
+                include_str!("../web/engine/shaders/mesh.vert")
+            },
         )?;
         let fragment = match shader(
             &gl,
@@ -96,16 +106,27 @@ impl EngineRenderer {
             gl.delete_program(Some(&program));
             return Err("missing shader uniforms".into());
         };
-        let Some(instances) = gl.create_buffer() else {
+        let model = gl.get_uniform_location(&program, "modelMatrix");
+        if !instanced && model.is_none() {
             gl.delete_program(Some(&program));
-            return Err("buffer allocation failed".into());
+            return Err("missing modelMatrix".into());
+        }
+        let instances = if instanced {
+            let Some(buffer) = gl.create_buffer() else {
+                gl.delete_program(Some(&program));
+                return Err("buffer allocation failed".into());
+            };
+            gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&buffer));
+            gl.buffer_data_with_i32(Gl::ARRAY_BUFFER, (capacity * 64) as i32, Gl::DYNAMIC_DRAW);
+            Some(buffer)
+        } else {
+            None
         };
-        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&instances));
-        gl.buffer_data_with_i32(Gl::ARRAY_BUFFER, (capacity * 64) as i32, Gl::DYNAMIC_DRAW);
         Ok(Self {
             gl,
             program,
             instances,
+            model,
             vp,
             color,
             unlit,
@@ -157,11 +178,20 @@ impl EngineRenderer {
             bytemuck::cast_slice(indices),
             Gl::STATIC_DRAW,
         );
-        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&self.instances));
-        for col in 0..4 {
-            gl.enable_vertex_attrib_array(col + 1);
-            gl.vertex_attrib_pointer_with_i32(col + 1, 4, Gl::FLOAT, false, 64, (col * 16) as i32);
-            gl.vertex_attrib_divisor(col + 1, 1);
+        if let Some(instances) = &self.instances {
+            gl.bind_buffer(Gl::ARRAY_BUFFER, Some(instances));
+            for col in 0..4 {
+                gl.enable_vertex_attrib_array(col + 1);
+                gl.vertex_attrib_pointer_with_i32(
+                    col + 1,
+                    4,
+                    Gl::FLOAT,
+                    false,
+                    64,
+                    (col * 16) as i32,
+                );
+                gl.vertex_attrib_divisor(col + 1, 1);
+            }
         }
         gl.bind_vertex_array(None);
         self.geometries.push(Geometry {
@@ -210,28 +240,15 @@ impl EngineRenderer {
     }
 
     pub fn render(&mut self, queue: &RenderQueue, view_projection: &[f32]) -> Result<(), JsValue> {
-        if queue.matrix_capacity() > self.capacity
-            || queue.ranges.len() != self.batches.len()
-            || view_projection.len() != 16
-            || view_projection.iter().any(|x| !x.is_finite())
-        {
-            return Err("invalid queue or camera".into());
+        if self.instances.is_none() || !queue.packed {
+            return Err(
+                "instanced rendering requires an instanced renderer and packed queue".into(),
+            );
         }
+        self.validate(queue, view_projection)?;
+        self.begin_frame(view_projection)?;
         let gl = &self.gl;
-        if gl.is_context_lost() {
-            return Err("WebGL context lost".into());
-        }
-        self.draws = 0;
-        self.triangles = 0;
-        gl.viewport(0, 0, gl.drawing_buffer_width(), gl.drawing_buffer_height());
-        gl.clear_color(0.035, 0.055, 0.075, 1.);
-        gl.clear(Gl::COLOR_BUFFER_BIT | Gl::DEPTH_BUFFER_BIT);
-        gl.enable(Gl::DEPTH_TEST);
-        gl.enable(Gl::CULL_FACE);
-        gl.disable(Gl::BLEND);
-        gl.use_program(Some(&self.program));
-        gl.uniform_matrix4fv_with_f32_array(Some(&self.vp), false, view_projection);
-        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&self.instances));
+        gl.bind_buffer(Gl::ARRAY_BUFFER, self.instances.as_ref());
         gl.buffer_sub_data_with_i32_and_u8_array(
             Gl::ARRAY_BUFFER,
             0,
@@ -270,6 +287,87 @@ impl EngineRenderer {
         gl.bind_vertex_array(None);
         Ok(())
     }
+
+    /// A real non-instanced drawElements call per visible mesh, in scene descriptor order.
+    pub fn render_direct(
+        &mut self,
+        queue: &RenderQueue,
+        scene: &SceneGraph,
+        view_projection: &[f32],
+    ) -> Result<(), JsValue> {
+        if self.instances.is_some()
+            || queue.packed
+            || self.model.is_none()
+            || queue
+                .nodes
+                .iter()
+                .any(|&id| id as usize >= scene.node_count())
+        {
+            return Err(
+                "direct rendering requires a direct renderer, unpacked queue and valid scene"
+                    .into(),
+            );
+        }
+        self.validate(queue, view_projection)?;
+        self.begin_frame(view_projection)?;
+        let gl = &self.gl;
+        let mut last_geometry = None;
+        let mut last_material = None;
+        for &item in &queue.visible_items {
+            let (g, m) = self.batches[queue.groups[item] as usize];
+            let geometry = &self.geometries[g];
+            if last_geometry != Some(g) {
+                gl.bind_vertex_array(Some(&geometry.vao));
+                last_geometry = Some(g);
+            }
+            if last_material != Some(m) {
+                let material = &self.materials[m];
+                gl.uniform3fv_with_f32_array(Some(&self.color), &material.color);
+                gl.uniform1f(Some(&self.unlit), if material.unlit { 1. } else { 0. });
+                last_material = Some(m);
+            }
+            let offset = queue.nodes[item] as usize * 16;
+            gl.uniform_matrix4fv_with_f32_array(
+                self.model.as_ref(),
+                false,
+                &scene.worlds[offset..offset + 16],
+            );
+            gl.draw_elements_with_i32(Gl::TRIANGLES, geometry.count, Gl::UNSIGNED_INT, 0);
+            self.draws += 1;
+            self.triangles += geometry.count as usize / 3;
+        }
+        gl.bind_vertex_array(None);
+        Ok(())
+    }
+
+    fn validate(&self, queue: &RenderQueue, view_projection: &[f32]) -> Result<(), JsValue> {
+        if queue.matrix_capacity() > self.capacity
+            || queue.ranges.len() != self.batches.len()
+            || view_projection.len() != 16
+            || view_projection.iter().any(|x| !x.is_finite())
+        {
+            return Err("invalid queue or camera".into());
+        }
+        Ok(())
+    }
+
+    fn begin_frame(&mut self, view_projection: &[f32]) -> Result<(), JsValue> {
+        let gl = &self.gl;
+        if gl.is_context_lost() {
+            return Err("WebGL context lost".into());
+        }
+        self.draws = 0;
+        self.triangles = 0;
+        gl.viewport(0, 0, gl.drawing_buffer_width(), gl.drawing_buffer_height());
+        gl.clear_color(0.035, 0.055, 0.075, 1.);
+        gl.clear(Gl::COLOR_BUFFER_BIT | Gl::DEPTH_BUFFER_BIT);
+        gl.enable(Gl::DEPTH_TEST);
+        gl.enable(Gl::CULL_FACE);
+        gl.disable(Gl::BLEND);
+        gl.use_program(Some(&self.program));
+        gl.uniform_matrix4fv_with_f32_array(Some(&self.vp), false, view_projection);
+        Ok(())
+    }
     pub fn draw_calls(&self) -> usize {
         self.draws
     }
@@ -279,7 +377,7 @@ impl EngineRenderer {
 }
 impl Drop for EngineRenderer {
     fn drop(&mut self) {
-        self.gl.delete_buffer(Some(&self.instances));
+        self.gl.delete_buffer(self.instances.as_ref());
         self.gl.delete_program(Some(&self.program));
     }
 }

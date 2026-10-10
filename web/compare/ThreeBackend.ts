@@ -40,6 +40,8 @@ export class ThreeBackend implements SceneBackend {
     if (!gl) throw new Error('WebGL2 unavailable');
     this.gl = gl;
     this.renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: true, alpha: false });
+    // The direct pair draws in scene traversal order, without material/depth sorting.
+    this.renderer.sortObjects = kind !== 'three';
     this.renderer.setClearColor(
       new THREE.Color().setRGB(0.035, 0.055, 0.075, THREE.SRGBColorSpace),
       1,
@@ -175,7 +177,7 @@ export class ThreeBackend implements SceneBackend {
       visible: this.kind === 'three' ? info.calls : visible,
       draws: info.calls,
       triangles: info.triangles,
-      updated: null,
+      updated: this.kind === 'three' ? this.data.parents.length : null,
     };
   }
   dispose() {

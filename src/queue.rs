@@ -38,14 +38,15 @@ pub(crate) fn radius_scale(m: &Mat4) -> f32 {
 
 #[wasm_bindgen]
 pub struct RenderQueue {
-    nodes: Vec<u32>,
-    groups: Vec<u32>,
+    pub(crate) nodes: Vec<u32>,
+    pub(crate) groups: Vec<u32>,
     radii: Vec<f32>,
-    visible: Vec<bool>,
     pub(crate) ranges: Vec<(usize, usize)>,
     pub(crate) matrices: Vec<f32>,
     visible_ids: Vec<u32>,
     cursors: Vec<usize>,
+    pub(crate) visible_items: Vec<usize>,
+    pub(crate) packed: bool,
 }
 
 #[wasm_bindgen]
@@ -76,15 +77,43 @@ impl RenderQueue {
             nodes: nodes.to_vec(),
             groups: groups.to_vec(),
             radii: radii.to_vec(),
-            visible: vec![false; nodes.len()],
             ranges: vec![(0, 0); group_count],
             matrices: vec![0.; nodes.len() * 16],
             visible_ids: Vec::with_capacity(nodes.len()),
             cursors: vec![0; group_count],
+            visible_items: Vec::with_capacity(nodes.len()),
+            packed: false,
         })
     }
 
     pub fn prepare(
+        &mut self,
+        scene: &SceneGraph,
+        view_projection: &[f32],
+        culling: bool,
+    ) -> Result<(), String> {
+        self.prepare_direct(scene, view_projection, culling)?;
+        let mut start = 0;
+        for range in &mut self.ranges {
+            range.0 = start;
+            start += range.1;
+        }
+        for (cursor, range) in self.cursors.iter_mut().zip(&self.ranges) {
+            *cursor = range.0;
+        }
+        for &i in &self.visible_items {
+            let group = self.groups[i] as usize;
+            let dst = self.cursors[group] * 16;
+            let src = self.nodes[i] as usize * 16;
+            self.matrices[dst..dst + 16].copy_from_slice(&scene.worlds[src..src + 16]);
+            self.cursors[group] += 1;
+        }
+        self.packed = true;
+        Ok(())
+    }
+
+    /// Preserve descriptor order. No grouping or instance matrix packing.
+    pub fn prepare_direct(
         &mut self,
         scene: &SceneGraph,
         view_projection: &[f32],
@@ -100,37 +129,22 @@ impl RenderQueue {
         }
         self.ranges.fill((0, 0));
         self.visible_ids.clear();
+        self.visible_items.clear();
+        self.packed = false;
         for i in 0..self.nodes.len() {
             let offset = self.nodes[i] as usize * 16;
             let m: &Mat4 = scene.worlds[offset..offset + 16].try_into().unwrap();
-            let radius = self.radii[i] * radius_scale(m);
-            let visible = !culling
-                || planes
+            let visible = !culling || {
+                let radius = self.radii[i] * radius_scale(m);
+                planes
                     .iter()
-                    .all(|p| p[0] * m[12] + p[1] * m[13] + p[2] * m[14] + p[3] >= -radius);
-            self.visible[i] = visible;
+                    .all(|p| p[0] * m[12] + p[1] * m[13] + p[2] * m[14] + p[3] >= -radius)
+            };
             if visible {
                 self.ranges[self.groups[i] as usize].1 += 1;
                 self.visible_ids.push(self.nodes[i]);
+                self.visible_items.push(i);
             }
-        }
-        let mut start = 0;
-        for range in &mut self.ranges {
-            range.0 = start;
-            start += range.1;
-        }
-        for (cursor, range) in self.cursors.iter_mut().zip(&self.ranges) {
-            *cursor = range.0;
-        }
-        for i in 0..self.nodes.len() {
-            if !self.visible[i] {
-                continue;
-            }
-            let group = self.groups[i] as usize;
-            let dst = self.cursors[group] * 16;
-            let src = self.nodes[i] as usize * 16;
-            self.matrices[dst..dst + 16].copy_from_slice(&scene.worlds[src..src + 16]);
-            self.cursors[group] += 1;
         }
         Ok(())
     }
@@ -151,7 +165,11 @@ impl RenderQueue {
         self.matrices.as_ptr()
     }
     pub fn matrices_len(&self) -> usize {
-        self.visible_count() * 16
+        if self.packed {
+            self.visible_count() * 16
+        } else {
+            0
+        }
     }
     pub fn matrix_capacity(&self) -> usize {
         self.nodes.len()
@@ -203,5 +221,22 @@ mod tests {
         scene.set_transform(0, &changed).unwrap();
         scene.update_world_matrices();
         assert_eq!(scene.updated_count(), 0);
+    }
+
+    #[test]
+    fn direct_queue_preserves_order_and_discards_old_instance_layout() {
+        let t = [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.];
+        let scene = SceneGraph::new(&[-1; 3], &t.repeat(3)).unwrap();
+        let mut queue = RenderQueue::new(&[2, 0, 1], &[1, 0, 1], &[0.1; 3], 2).unwrap();
+        queue.prepare(&scene, &IDENTITY, false).unwrap();
+        assert_eq!(queue.matrices_len(), 48);
+        queue.prepare_direct(&scene, &IDENTITY, false).unwrap();
+        assert_eq!(queue.visible_nodes(), vec![2, 0, 1]);
+        assert_eq!(queue.visible_items, vec![0, 1, 2]);
+        assert_eq!(queue.matrices_len(), 0);
+        assert!(!queue.packed);
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert!(queue.packed);
+        assert_eq!(queue.matrices_len(), 48);
     }
 }

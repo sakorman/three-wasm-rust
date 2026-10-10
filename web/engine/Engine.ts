@@ -3,7 +3,7 @@ import type { CameraFrame, EngineScene, SceneBackend, FrameStats, DrawTimer } fr
 
 /** The engine path has no Three.js dependency. Call init() from the WASM package first. */
 export class Engine implements SceneBackend {
-  readonly kind = 'rust' as const;
+  readonly kind: 'rust' | 'rust-direct';
   readonly gl: WebGL2RenderingContext;
   readonly graph: SceneGraph;
   readonly queue: RenderQueue;
@@ -14,7 +14,9 @@ export class Engine implements SceneBackend {
   constructor(
     canvas: HTMLCanvasElement,
     readonly data: EngineScene,
+    private readonly instanced = true,
   ) {
+    this.kind = instanced ? 'rust' : 'rust-direct';
     const gl = canvas.getContext('webgl2', {
       antialias: true,
       alpha: false,
@@ -35,7 +37,7 @@ export class Engine implements SceneBackend {
       throw error;
     }
     try {
-      this.renderer = new EngineRenderer(canvas, data.meshNodes.length);
+      this.renderer = new EngineRenderer(canvas, data.meshNodes.length, instanced);
     } catch (error) {
       this.queue.free();
       this.graph.free();
@@ -58,13 +60,16 @@ export class Engine implements SceneBackend {
       this.graph.animate_nodes(this.data.animatedNodes, time);
       this.lastTime = time;
     }
-    this.graph.update_world_matrices();
+    if (this.instanced) this.graph.update_world_matrices();
+    else this.graph.update_all_world_matrices();
     const afterUpdate = performance.now();
-    this.queue.prepare(this.graph, camera.viewProjection, culling);
+    if (this.instanced) this.queue.prepare(this.graph, camera.viewProjection, culling);
+    else this.queue.prepare_direct(this.graph, camera.viewProjection, culling);
     const afterPrepare = performance.now();
     timer?.begin();
     try {
-      this.renderer.render(this.queue, camera.viewProjection);
+      if (this.instanced) this.renderer.render(this.queue, camera.viewProjection);
+      else this.renderer.render_direct(this.queue, this.graph, camera.viewProjection);
     } finally {
       timer?.end();
     }

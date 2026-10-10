@@ -6,6 +6,7 @@ import type {
   EngineScene,
   FrameStats,
   SceneBackend,
+  Comparison,
 } from '../engine/types.ts';
 
 export interface ModeResult {
@@ -26,7 +27,8 @@ export interface ModeResult {
   samples: (FrameStats & { frameMs: number })[];
 }
 export interface ComparisonReport {
-  schemaVersion: 2;
+  schemaVersion: 3;
+  comparison: Comparison;
   createdAt: string;
   scenario: string;
   objects: number;
@@ -46,6 +48,9 @@ export interface ComparisonReport {
     sampleFrames: number;
     rounds: number;
     order: Backend[][];
+    instancing: boolean;
+    matrixUpdate: 'full' | 'dirty';
+    drawOrder: 'scene' | 'grouped';
     notes: string;
   };
   results: ModeResult[];
@@ -58,7 +63,7 @@ export function quantile(values: number[], q: number) {
 }
 
 export async function compareBackends(
-  backends: Record<Backend, SceneBackend>,
+  backends: readonly SceneBackend[],
   data: EngineScene,
   camera: CameraFrame,
   options: {
@@ -68,14 +73,26 @@ export async function compareBackends(
     warmupFrames: number;
     rounds: number;
     signal: AbortSignal;
+    comparison: Comparison;
   },
   progress: (mode: Backend, round: number, done: number, total: number) => void,
 ): Promise<ComparisonReport> {
-  const modes: Backend[] = ['rust', 'three', 'instanced'];
-  const samples: Record<Backend, ModeResult['samples']> = { rust: [], three: [], instanced: [] };
-  const gpu: Record<Backend, number[]> = { rust: [], three: [], instanced: [] };
+  const modes = backends.map((backend) => backend.kind);
+  const expected =
+    options.comparison === 'direct' ? ['rust-direct', 'three'] : ['rust', 'instanced'];
+  if (modes.length !== 2 || expected.some((mode, i) => mode !== modes[i]))
+    throw new Error('对照实现与所选模式不一致');
+  const byMode = new Map(backends.map((backend) => [backend.kind, backend]));
+  const samples: Record<Backend, ModeResult['samples']> = {
+    rust: [],
+    'rust-direct': [],
+    three: [],
+    instanced: [],
+  };
+  const gpu: Record<Backend, number[]> = { rust: [], 'rust-direct': [], three: [], instanced: [] };
   const gpuStatus: Record<Backend, string> = {
     rust: 'unsupported',
+    'rust-direct': 'unsupported',
     three: 'unsupported',
     instanced: 'unsupported',
   };
@@ -87,13 +104,10 @@ export async function compareBackends(
         : new Error('测试已取消');
     if (document.hidden) throw new Error('标签页已进入后台，请回到前台重新测试');
   };
-  const width = backends.rust.gl.drawingBufferWidth,
-    height = backends.rust.gl.drawingBufferHeight;
-  for (const mode of modes)
-    if (
-      backends[mode].gl.drawingBufferWidth !== width ||
-      backends[mode].gl.drawingBufferHeight !== height
-    )
+  const width = backends[0].gl.drawingBufferWidth,
+    height = backends[0].gl.drawingBufferHeight;
+  for (const backend of backends)
+    if (backend.gl.drawingBufferWidth !== width || backend.gl.drawingBufferHeight !== height)
       throw new Error('对照画布尺寸不一致');
   for (let round = 0; round < options.rounds; round++) {
     const sequence = modes.map((_, i) => modes[(i + round) % modes.length]);
@@ -101,7 +115,7 @@ export async function compareBackends(
     for (const mode of sequence) {
       check();
       progress(mode, round, 0, options.warmupFrames + options.sampleFrames);
-      const backend = backends[mode],
+      const backend = byMode.get(mode)!,
         timer = new GpuTimer(backend.gl);
       try {
         let boundary = await nextFrame();
@@ -138,6 +152,19 @@ export async function compareBackends(
       }
     }
   }
+  const left = samples[modes[0]],
+    right = samples[modes[1]];
+  if (
+    left.some(
+      (sample, i) =>
+        sample.visible !== right[i].visible ||
+        sample.triangles !== right[i].triangles ||
+        (options.comparison === 'direct' &&
+          (sample.draws !== sample.visible || right[i].draws !== right[i].visible)),
+    )
+  ) {
+    throw new Error('两组绘制工作量不一致，本次结果作废。可关闭剔除后重试。');
+  }
   const results = modes.map((mode): ModeResult => {
     const list = samples[mode],
       median = (key: keyof FrameStats) =>
@@ -170,7 +197,8 @@ export async function compareBackends(
     };
   });
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    comparison: options.comparison,
     createdAt: new Date().toISOString(),
     scenario: data.scenario,
     objects: data.meshNodes.length,
@@ -194,8 +222,11 @@ export async function compareBackends(
       sampleFrames: options.sampleFrames,
       rounds: options.rounds,
       order,
+      instancing: options.comparison === 'instanced',
+      matrixUpdate: options.comparison === 'direct' ? 'full' : 'dirty',
+      drawOrder: options.comparison === 'direct' ? 'scene' : 'grouped',
       notes:
-        'Sequential backends; identical deterministic time sequence, camera, geometry, shaders, AA and pixel size. CPU includes update+prepare+submit. rAF interval includes presentation/scheduling. GPU timer spans queued frame commands and is asynchronous; no gl.finish. Native Mesh culling occurs inside Three.js render. Precision: Rust f32 vs JS Number. Auto batching and dirty updates are algorithmic differences, not a language-only comparison.',
+        'Paired backends; identical animation, camera, geometry, shaders, AA and pixel size. Direct pair: no instancing, full matrix recomputation, scene order, culling off by default. Instanced pair: instancing and dirty updates on both sides. Matching visible/triangle counts are required; direct draws must equal visible objects. CPU includes update+prepare+submit; native Three.js culling occurs inside render. rAF includes presentation/scheduling. GPU queries wrap submission, not pure rasterization; no gl.finish. Rust f32 vs JS Number and engine/driver binding differences remain; this is not a language-only benchmark.',
     },
     results,
   };
