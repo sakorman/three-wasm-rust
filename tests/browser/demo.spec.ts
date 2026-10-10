@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 async function ready(page: Page) {
-  await page.goto('/');
+  await page.goto('/lab.html');
   await expect(page.locator('#status')).toHaveText('WASM 已就绪');
   await expect(page.locator('#fps')).not.toHaveText('—');
 }
@@ -113,7 +113,7 @@ test('missing WebGL2 produces a visible error instead of a blank canvas', async 
       },
     });
   });
-  await page.goto('/');
+  await page.goto('/lab.html');
   await expect(page.getByRole('alert')).toContainText('运行失败');
   await expect(page.locator('#mode')).toBeDisabled();
 });

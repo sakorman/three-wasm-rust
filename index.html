@@ -4,29 +4,179 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#10171d" />
-    <meta name="description" content="用 Rust 和 WebAssembly 做场景计算与 WebGL2 渲染，和 Three.js 跑一组对照测试。" />
-    <meta name="author" content="sakorman" />
-    <title>Three × Rust — WASM 3D 实验</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%23e89460%22/><text x=%2216%22 y=%2247%22 font-size=%2244%22>R</text></svg>" />
+    <meta
+      name="description"
+      content="Rust/WASM 场景引擎：层级更新、视锥剔除和自动批次，与 Three.js 普通及实例化渲染进行实测对照。"
+    />
+    <title>Three × Rust — 引擎对照</title>
+    <link rel="icon" href="data:," />
   </head>
   <body>
     <div class="shell">
-      <header><a class="brand" href="./"><span class="brand-icon">R</span> THREE × RUST <span class="tag">GRAPHICS LAB</span></a><a class="source" href="https://github.com/sakorman/three-wasm-rust" target="_blank" rel="noreferrer">源码与文档 ↗</a></header>
+      <header>
+        <a class="brand" href="./"
+          ><span class="brand-icon">R</span> THREE × RUST <span class="tag">ENGINE 0.2</span></a
+        >
+        <nav>
+          <a href="./lab.html">CPU 小型测试 ↗</a
+          ><a href="https://github.com/sakorman/three-wasm-rust" target="_blank" rel="noreferrer"
+            >源码与文档 ↗</a
+          >
+        </nav>
+      </header>
       <main>
-        <section class="intro"><div><p class="eyebrow">RUST / WEBASSEMBLY</p><h1>用 Rust 跑一个 3D 场景<span>。</span></h1><p class="subtitle">切换 Rust 和 Three.js，看看同一组对象的计算和渲染耗时。</p></div><div class="status"><span id="status-dot"></span><span id="status">正在加载 WASM</span></div></section>
-        <section class="experiment" aria-label="交互式三维演示">
-          <div class="toolbar">
-            <label>运行模式<select id="mode" disabled><option value="rust">Rust + WASM / 完整链路</option><option value="hybrid">Rust 计算 / Three.js 渲染</option><option value="javascript">Three.js / JavaScript 对照</option></select></label>
-            <label>场景规模<select id="count" disabled><option value="1000">1,000 个对象</option><option value="5000" selected>5,000 个对象</option><option value="10000">10,000 个对象</option><option value="20000">20,000 个对象</option></select></label>
-            <div class="toolbar-actions"><button id="pause" disabled>暂停动画</button><button id="reset" class="subtle" disabled>重置视角 ↺</button></div>
+        <section class="intro">
+          <div>
+            <p class="eyebrow">SCENE ENGINE / WEBASSEMBLY</p>
+            <h1>同一个场景，两边跑跑看<span>。</span></h1>
+            <p class="subtitle">
+              Rust 管场景、剔除和批次；Three.js 直接绘制。相机、几何体和着色器保持一致。
+            </p>
           </div>
-          <div id="stage"><canvas id="rust-canvas" aria-label="Rust WebGL2 三维场景"></canvas><canvas id="three-canvas" aria-label="Three.js 三维场景" hidden></canvas><div class="scene-label"><span class="live-dot"></span><span id="scene-label">RUST / WEBGL2</span></div><div class="scene-hint">拖动旋转 · 滚轮缩放</div><div id="error" role="alert" hidden></div></div>
-          <div class="metrics"><div><span>帧率</span><strong id="fps">—</strong><small>FPS · 受刷新率限制</small></div><div><span>变换计算</span><strong id="compute">—</strong><small>ms / 帧 · CPU</small></div><div><span>提交渲染</span><strong id="render">—</strong><small>ms / 帧 · 不含 GPU 等待</small></div><div><span>绘制调用</span><strong id="draws">1</strong><small>实例化 · 共享几何体</small></div></div>
+          <div class="status">
+            <span id="status-dot"></span><span id="status">正在加载 WASM</span>
+          </div>
         </section>
-        <section class="bench-section"><div class="section-heading"><div><p class="eyebrow">BENCHMARK</p><h2>跑一组性能测试</h2></div><div class="bench-actions"><button id="download" class="subtle" hidden>导出 JSON ↓</button><button id="benchmark" class="primary" disabled>运行性能对照 ↗</button></div></div><p class="bench-note">测试时会暂停动画。两种实现使用相同数据，预热后交替跑 7 轮，取中位数。</p><div id="bench-progress" role="status" aria-live="polite"></div><div class="table-wrap"><table><thead><tr><th>测试项目</th><th>JavaScript</th><th>Rust WASM</th><th>JS / WASM</th></tr></thead><tbody id="results"><tr><td colspan="4" class="empty">点击“运行性能对照”开始测试。</td></tr></tbody></table></div><p class="footnote">这里测的是 CPU 耗时，不含 GPU 完成时间。数组传输计入对应测试。Rust 使用 f32，JavaScript 使用 Number。</p></section>
+        <section class="experiment" aria-label="引擎对照场景">
+          <div class="toolbar">
+            <label
+              >场景<select id="scenario" disabled>
+                <option value="city">街区 · 稀疏更新</option>
+                <option value="warehouse">仓库 · 静态批次</option>
+                <option value="hierarchy">机械阵列 · 层级运动</option>
+              </select></label
+            >
+            <label
+              >对象<select id="count" disabled>
+                <option value="500">500</option>
+                <option value="2000" selected>2,000</option>
+                <option value="5000">5,000</option>
+                <option value="10000">10,000</option>
+                <option value="20000">20,000</option>
+              </select></label
+            >
+            <label class="check"
+              ><input id="culling" type="checkbox" checked disabled />视锥剔除</label
+            >
+            <div class="toolbar-actions">
+              <button id="pause" disabled>暂停动画</button
+              ><button id="reset" class="subtle" disabled>重置视角 ↺</button>
+            </div>
+          </div>
+          <div class="pair">
+            <article class="viewport-panel">
+              <div class="panel-heading">
+                <span class="live-dot"></span><strong>Rust 引擎</strong
+                ><span>脏标记 + 自动批次</span>
+              </div>
+              <div class="viewport" id="rust-view">
+                <canvas id="rust-canvas" aria-label="Rust 引擎场景"></canvas
+                ><span class="scene-hint">拖动任一画布同步视角 · 滚轮缩放</span>
+              </div>
+              <div class="panel-metrics" id="rust-metrics">
+                <span>CPU <b>—</b></span
+                ><span>Draw <b>—</b></span
+                ><span>可见 <b>—</b></span>
+              </div>
+            </article>
+            <article class="viewport-panel">
+              <div class="panel-heading">
+                <span class="live-dot blue"></span><strong>Three.js</strong
+                ><select id="reference" aria-label="Three.js 对照方式" disabled>
+                  <option value="three">普通 Mesh</option>
+                  <option value="instanced">实例化优化</option>
+                </select>
+              </div>
+              <div class="viewport" id="three-view">
+                <canvas id="three-canvas" aria-label="Three.js 普通场景"></canvas
+                ><canvas id="instanced-canvas" aria-label="Three.js 实例化场景" hidden></canvas>
+              </div>
+              <div class="panel-metrics" id="three-metrics">
+                <span>CPU <b>—</b></span
+                ><span>Draw <b>—</b></span
+                ><span>可见 <b>—</b></span>
+              </div>
+            </article>
+          </div>
+          <div class="scene-summary">
+            <span id="scene-summary">准备场景…</span
+            ><span>并排预览 <strong id="fps">—</strong> FPS · 同时运行两组</span>
+          </div>
+          <div id="error" role="alert" hidden></div>
+        </section>
+        <section class="bench-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">FRAME BENCHMARK</p>
+              <h2>三组完整流程对照</h2>
+            </div>
+            <div class="bench-actions">
+              <select id="quality" aria-label="测试长度">
+                <option value="quick">快速 · 24 帧 × 3 轮</option>
+                <option value="full">完整 · 60 帧 × 3 轮</option></select
+              ><button id="download" class="subtle" hidden>导出 JSON ↓</button
+              ><button id="cancel" class="subtle" hidden>取消测试</button
+              ><button id="benchmark" class="primary" disabled>运行三组对照 ↗</button>
+            </div>
+          </div>
+          <p class="bench-note">
+            正式测试会暂停并排预览，每次只跑一组，轮换顺序。三组使用同一段动画、同一个视角和相同像素尺寸。
+          </p>
+          <div id="bench-progress" role="status" aria-live="polite"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>实现</th>
+                  <th>CPU 中位 / P95</th>
+                  <th>帧间隔 / FPS</th>
+                  <th>GPU 中位</th>
+                  <th>Draw / 可见</th>
+                  <th>更新 / 准备 / 提交</th>
+                </tr>
+              </thead>
+              <tbody id="results">
+                <tr>
+                  <td colspan="6" class="empty">先选一个场景，再运行对照。结果取决于你的设备。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="footnote">
+            CPU 包含矩阵更新、可见性与批次准备、绘制提交。普通 Three.js
+            的剔除包含在提交阶段。帧间隔受刷新率和浏览器调度影响；GPU 查询不可用时不填估算值。
+          </p>
+          <p id="report-context" class="footnote"></p>
+        </section>
+        <section class="notes-grid">
+          <div>
+            <h3>这次多做了什么</h3>
+            <p>
+              场景层级与脏标记、球包围体剔除、几何体与材质注册、自动实例化批次、资源释放。Rust
+              引擎路径的相机和几何体也独立实现。
+            </p>
+          </div>
+          <div>
+            <h3>怎么读这个对照</h3>
+            <p>
+              普通 Mesh 和实例化的差距包含批次策略的收益。优化后的 Three.js
+              也会减少矩阵更新和绘制次数，不能把全部差距都算在语言上。
+            </p>
+          </div>
+          <div>
+            <h3>当前范围</h3>
+            <p>
+              面向不透明几何体的引擎原型，支持盒体、圆柱和球体。纹理、PBR、阴影、模型加载和 3DGS
+              尚未接入；光栅化仍由 GPU 完成。
+            </p>
+          </div>
+        </section>
       </main>
-      <footer><span>© 2026 <a href="https://github.com/sakorman">sakorman</a> · Three × Rust</span><span>Rust + WebAssembly · MIT License</span></footer>
+      <footer>
+        <span>© 2026 <a href="https://github.com/sakorman">sakorman</a> · Three × Rust</span
+        ><span>Rust + TypeScript · WebGL2</span>
+      </footer>
     </div>
-    <script type="module" src="/web/main.ts"></script>
+    <script type="module" src="/web/engine-main.ts"></script>
   </body>
 </html>
