@@ -1,0 +1,102 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import * as THREE from 'three';
+import init, { SceneGraph, RustRenderer, compose_transform, multiply_matrices, multiply_matrices_batch, transform_points } from '../pkg/three_wasm_rust.js';
+import { createSceneData, ThreeGraph, matrixView } from '../web/scene.js';
+
+const wasm = await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
+
+function close(actual, expected, label = '') {
+  assert.equal(actual.length, expected.length);
+  actual.forEach((value, i) => assert.ok(Number.isFinite(value) && Math.abs(value - expected[i]) < 0.0002 + Math.abs(expected[i]) * 0.00002,
+    `${label}[${i}]: ${value} != ${expected[i]}`));
+}
+
+test('the module is real WebAssembly and exports a Rust renderer', () => {
+  assert.ok(wasm.memory instanceof WebAssembly.Memory);
+  assert.equal(typeof RustRenderer, 'function');
+});
+
+test('TRS, multiplication and point transforms match independent Three.js math', () => {
+  const data = createSceneData(128);
+  for (let i = 0; i < 128; i++) {
+    const t = data.transforms.slice(i * 10, i * 10 + 10);
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(i * 0.03, i * -0.02, i * 0.07));
+    q.toArray(t, 3);
+    t[7] *= -1; t[8] *= 2; // negative and nonuniform scale
+    const matrix = new THREE.Matrix4().compose(new THREE.Vector3().fromArray(t), new THREE.Quaternion().fromArray(t, 3).normalize(), new THREE.Vector3().fromArray(t, 7));
+    close(compose_transform(t), matrix.elements, 'compose');
+    const rotation = new THREE.Matrix4().makeRotationY(0.72);
+    close(multiply_matrices(Float32Array.from(matrix.elements), Float32Array.from(rotation.elements)), matrix.clone().multiply(rotation).elements, 'multiply');
+    const points = new Float32Array([1, -2, 3, -3, 2, 1]);
+    const expected = [];
+    for (let j = 0; j < points.length; j += 3) new THREE.Vector3().fromArray(points, j).applyMatrix4(matrix).toArray(expected, j);
+    close(transform_points(Float32Array.from(matrix.elements), points), expected, 'points');
+  }
+});
+
+test('batch multiply handles several independent matrices', () => {
+  const a = new THREE.Matrix4().makeRotationX(0.3).elements;
+  const b = new THREE.Matrix4().makeTranslation(3, 2, 1).elements;
+  const expected = new THREE.Matrix4().fromArray(a).multiply(new THREE.Matrix4().fromArray(b)).elements;
+  close(multiply_matrices_batch(Float32Array.from([...a, ...b]), Float32Array.from([...b, ...a])), [...expected, ...new THREE.Matrix4().fromArray(b).multiply(new THREE.Matrix4().fromArray(a)).elements]);
+});
+
+test('real WASM scene and animation match Three.js at 5,000 nodes', () => {
+  const data = createSceneData(5000), graph = new SceneGraph(data.parents, data.transforms), reference = new ThreeGraph(data);
+  try {
+    close(graph.world_matrices(), reference.worldMatrices(), 'initial');
+    for (const time of [0, 0.5, 3.25, 100]) {
+      graph.animate_demo(time); reference.animateDemo(time);
+      close(matrixView(wasm, graph), reference.worldMatrices(), `t=${time}`);
+    }
+  } finally { graph.free(); }
+});
+
+test('reparenting a child to a later node preserves local TRS', () => {
+  const data = createSceneData(3); data.parents.fill(-1);
+  const graph = new SceneGraph(data.parents, data.transforms), reference = new ThreeGraph(data);
+  try {
+    graph.reparent(0, 2); graph.update_world_matrices();
+    reference.nodes[2].add(reference.nodes[0]);
+    reference.roots = [reference.nodes[1], reference.nodes[2]]; reference.updateWorldMatrices();
+    close(graph.world_matrices(), reference.worldMatrices());
+    assert.throws(() => graph.reparent(2, 0), /cycle/);
+    graph.update_world_matrices(); close(graph.world_matrices(), reference.worldMatrices());
+  } finally { graph.free(); }
+});
+
+test('copy and borrowed matrix APIs remain correct across memory growth', () => {
+  const data = createSceneData(2), graph = new SceneGraph(data.parents, data.transforms);
+  const copy = graph.world_matrices(), view = matrixView(wasm, graph);
+  wasm.memory.grow(1);
+  assert.equal(view.byteLength, 0);
+  close(matrixView(wasm, graph), copy);
+  graph.free();
+  assert.equal(copy.length, 32);
+});
+
+test('JS-facing validation rejects malformed data and keeps prior transforms', () => {
+  assert.throws(() => new SceneGraph(new Int32Array([1, 0]), new Float32Array(20)), /cycle/);
+  const data = createSceneData(2), graph = new SceneGraph(data.parents, data.transforms);
+  try {
+    const before = graph.world_matrices();
+    assert.throws(() => graph.set_transforms(new Float32Array(20)), /quaternion/);
+    assert.throws(() => graph.set_transform(0, new Float32Array(9)), /length/);
+    assert.throws(() => graph.animate_demo(Infinity), /finite/);
+    graph.update_world_matrices(); close(graph.world_matrices(), before);
+    const changed = data.transforms.slice(0, 10); changed[0] += 10;
+    graph.set_transform(0, changed); graph.update_world_matrices();
+    assert.ok(Math.abs(graph.world_matrices()[12] - before[12] - 10) < 0.0001);
+  } finally { graph.free(); }
+  assert.throws(() => multiply_matrices_batch(new Float32Array(17), new Float32Array(17)), /16/);
+  assert.throws(() => transform_points(new Float32Array(16), new Float32Array([1, 2, 3])), /infinity/);
+});
+
+test('zero nodes and repeated allocation / release work', () => {
+  for (let i = 0; i < 100; i++) {
+    const graph = new SceneGraph(new Int32Array(), new Float32Array());
+    graph.animate_demo(1); assert.equal(graph.node_count(), 0); graph.free();
+  }
+});

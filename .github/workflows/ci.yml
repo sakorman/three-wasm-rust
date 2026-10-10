@@ -1,0 +1,37 @@
+name: Validate Rust and browser demo
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npm run check
+      - run: cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-demo
+          path: dist/

@@ -1,0 +1,11 @@
+node_modules/
+target/
+pkg/
+dist/
+test-results/
+playwright-report/
+.DS_Store
+.confluence-mcp-temp/
+.env
+.env.*
+!.env.example

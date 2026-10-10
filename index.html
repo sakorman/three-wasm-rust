@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#10171d" />
+    <meta name="description" content="用 Rust 探索 Three.js 风格的场景图与 WebAssembly 渲染，附可复现性能对照实验。" />
+    <title>Three × Rust — WASM 实验室</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%23e89460%22/><text x=%2216%22 y=%2247%22 font-size=%2244%22>R</text></svg>" />
+  </head>
+  <body>
+    <div class="shell">
+      <header><a class="brand" href="./"><span class="brand-icon">R</span> THREE × RUST <span class="tag">EXPERIMENT 01</span></a><a class="source" href="https://github.com/sakorman/three-wasm-rust" target="_blank" rel="noreferrer">源码与文档 ↗</a></header>
+      <main>
+        <section class="intro"><div><p class="eyebrow">WEBASSEMBLY / GRAPHICS LAB</p><h1>让 Rust 驱动三维世界<span>。</span></h1><p class="subtitle">同一片场景，三条运行路径。观察计算、渲染与跨语言调用的真实差异。</p></div><div class="status"><span id="status-dot"></span><span id="status">正在加载 WASM</span></div></section>
+        <section class="experiment" aria-label="交互式三维演示">
+          <div class="toolbar">
+            <label>运行模式<select id="mode" disabled><option value="rust">Rust + WASM / 完整链路</option><option value="hybrid">Rust 计算 / Three.js 渲染</option><option value="javascript">Three.js / JavaScript 对照</option></select></label>
+            <label>场景规模<select id="count" disabled><option value="1000">1,000 个对象</option><option value="5000" selected>5,000 个对象</option><option value="10000">10,000 个对象</option><option value="20000">20,000 个对象</option></select></label>
+            <div class="toolbar-actions"><button id="pause" disabled>暂停动画</button><button id="reset" class="subtle" disabled>重置视角 ↺</button></div>
+          </div>
+          <div id="stage"><canvas id="rust-canvas" aria-label="Rust WebGL2 三维场景"></canvas><canvas id="three-canvas" aria-label="Three.js 三维场景" hidden></canvas><div class="scene-label"><span class="live-dot"></span><span id="scene-label">RUST / WEBGL2</span></div><div class="scene-hint">拖动旋转 · 滚轮缩放</div><div id="error" role="alert" hidden></div></div>
+          <div class="metrics"><div><span>帧率</span><strong id="fps">—</strong><small>FPS · 受刷新率限制</small></div><div><span>变换计算</span><strong id="compute">—</strong><small>ms / 帧 · CPU</small></div><div><span>提交渲染</span><strong id="render">—</strong><small>ms / 帧 · 不含 GPU 等待</small></div><div><span>绘制调用</span><strong id="draws">1</strong><small>实例化 · 共享几何体</small></div></div>
+        </section>
+        <section class="bench-section"><div class="section-heading"><div><p class="eyebrow">MEASURE, DON'T GUESS</p><h2>性能，用数据说话。</h2></div><div class="bench-actions"><button id="download" class="subtle" hidden>导出 JSON ↓</button><button id="benchmark" class="primary" disabled>运行性能对照 ↗</button></div></div><p class="bench-note">测试会暂停动画。两种实现使用相同输入，预热后交替采样 7 轮，显示中位数；结果取决于设备与浏览器，WASM 并不总是更快。</p><div id="bench-progress" role="status" aria-live="polite"></div><div class="table-wrap"><table><thead><tr><th>测试项目</th><th>JavaScript</th><th>Rust WASM</th><th>JS / WASM</th></tr></thead><tbody id="results"><tr><td colspan="4" class="empty">从一次测量开始，看看你的设备会给出什么答案。</td></tr></tbody></table></div><p class="footnote">所有计时均为 CPU 墙钟时间。场景矩阵更新不含 GPU 渲染；跨语言数组传输计入对应测试。数值精度：Rust f32 / JavaScript Number。</p></section>
+      </main>
+      <footer><span>灵感源自 <a href="https://github.com/takahirox/three.wasm-experimental">takahirox / three.wasm-experimental</a></span><span>Rust 内核 · 中文文档 · MIT License</span></footer>
+    </div>
+    <script type="module" src="/web/main.js"></script>
+  </body>
+</html>
