@@ -2,15 +2,32 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
-import init, { SceneGraph, RustRenderer, compose_transform, multiply_matrices, multiply_matrices_batch, transform_points } from '../pkg/three_wasm_rust.js';
+import init, {
+  SceneGraph,
+  RenderQueue,
+  RustRenderer,
+  compose_transform,
+  multiply_matrices,
+  multiply_matrices_batch,
+  transform_points,
+} from '../pkg/three_wasm_rust.js';
 import { createSceneData, ThreeGraph, matrixView } from '../web/scene.ts';
+import { createEngineScene } from '../web/engine/scenes.ts';
+import { OrbitCamera } from '../web/engine/camera.ts';
 
-const wasm = await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
+const wasm = await init({
+  module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)),
+});
 
 function close(actual: Float32Array, expected: ArrayLike<number>, label = '') {
   assert.equal(actual.length, expected.length);
-  actual.forEach((value, i) => assert.ok(Number.isFinite(value) && Math.abs(value - expected[i]) < 0.0002 + Math.abs(expected[i]) * 0.00002,
-    `${label}[${i}]: ${value} != ${expected[i]}`));
+  actual.forEach((value, i) =>
+    assert.ok(
+      Number.isFinite(value) &&
+        Math.abs(value - expected[i]) < 0.0002 + Math.abs(expected[i]) * 0.00002,
+      `${label}[${i}]: ${value} != ${expected[i]}`,
+    ),
+  );
 }
 
 test('the module is real WebAssembly and exports a Rust renderer', () => {
@@ -24,14 +41,24 @@ test('TRS, multiplication and point transforms match independent Three.js math',
     const t = data.transforms.slice(i * 10, i * 10 + 10);
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(i * 0.03, i * -0.02, i * 0.07));
     q.toArray(t, 3);
-    t[7] *= -1; t[8] *= 2; // negative and nonuniform scale
-    const matrix = new THREE.Matrix4().compose(new THREE.Vector3().fromArray(t), new THREE.Quaternion().fromArray(t, 3).normalize(), new THREE.Vector3().fromArray(t, 7));
+    t[7] *= -1;
+    t[8] *= 2; // negative and nonuniform scale
+    const matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3().fromArray(t),
+      new THREE.Quaternion().fromArray(t, 3).normalize(),
+      new THREE.Vector3().fromArray(t, 7),
+    );
     close(compose_transform(t), matrix.elements, 'compose');
     const rotation = new THREE.Matrix4().makeRotationY(0.72);
-    close(multiply_matrices(Float32Array.from(matrix.elements), Float32Array.from(rotation.elements)), matrix.clone().multiply(rotation).elements, 'multiply');
+    close(
+      multiply_matrices(Float32Array.from(matrix.elements), Float32Array.from(rotation.elements)),
+      matrix.clone().multiply(rotation).elements,
+      'multiply',
+    );
     const points = new Float32Array([1, -2, 3, -3, 2, 1]);
     const expected: number[] = [];
-    for (let j = 0; j < points.length; j += 3) new THREE.Vector3().fromArray(points, j).applyMatrix4(matrix).toArray(expected, j);
+    for (let j = 0; j < points.length; j += 3)
+      new THREE.Vector3().fromArray(points, j).applyMatrix4(matrix).toArray(expected, j);
     close(transform_points(Float32Array.from(matrix.elements), points), expected, 'points');
   }
 });
@@ -39,37 +66,56 @@ test('TRS, multiplication and point transforms match independent Three.js math',
 test('batch multiply handles several independent matrices', () => {
   const a = new THREE.Matrix4().makeRotationX(0.3).elements;
   const b = new THREE.Matrix4().makeTranslation(3, 2, 1).elements;
-  const expected = new THREE.Matrix4().fromArray(a).multiply(new THREE.Matrix4().fromArray(b)).elements;
-  close(multiply_matrices_batch(Float32Array.from([...a, ...b]), Float32Array.from([...b, ...a])), [...expected, ...new THREE.Matrix4().fromArray(b).multiply(new THREE.Matrix4().fromArray(a)).elements]);
+  const expected = new THREE.Matrix4()
+    .fromArray(a)
+    .multiply(new THREE.Matrix4().fromArray(b)).elements;
+  close(multiply_matrices_batch(Float32Array.from([...a, ...b]), Float32Array.from([...b, ...a])), [
+    ...expected,
+    ...new THREE.Matrix4().fromArray(b).multiply(new THREE.Matrix4().fromArray(a)).elements,
+  ]);
 });
 
 test('real WASM scene and animation match Three.js at 5,000 nodes', () => {
-  const data = createSceneData(5000), graph = new SceneGraph(data.parents, data.transforms), reference = new ThreeGraph(data);
+  const data = createSceneData(5000),
+    graph = new SceneGraph(data.parents, data.transforms),
+    reference = new ThreeGraph(data);
   try {
     close(graph.world_matrices(), reference.worldMatrices(), 'initial');
     for (const time of [0, 0.5, 3.25, 100]) {
-      graph.animate_demo(time); reference.animateDemo(time);
+      graph.animate_demo(time);
+      reference.animateDemo(time);
       close(matrixView(wasm, graph), reference.worldMatrices(), `t=${time}`);
     }
-  } finally { graph.free(); }
+  } finally {
+    graph.free();
+  }
 });
 
 test('reparenting a child to a later node preserves local TRS', () => {
-  const data = createSceneData(3); data.parents.fill(-1);
-  const graph = new SceneGraph(data.parents, data.transforms), reference = new ThreeGraph(data);
+  const data = createSceneData(3);
+  data.parents.fill(-1);
+  const graph = new SceneGraph(data.parents, data.transforms),
+    reference = new ThreeGraph(data);
   try {
-    graph.reparent(0, 2); graph.update_world_matrices();
+    graph.reparent(0, 2);
+    graph.update_world_matrices();
     reference.nodes[2].add(reference.nodes[0]);
-    reference.roots = [reference.nodes[1], reference.nodes[2]]; reference.updateWorldMatrices();
+    reference.roots = [reference.nodes[1], reference.nodes[2]];
+    reference.updateWorldMatrices();
     close(graph.world_matrices(), reference.worldMatrices());
     assert.throws(() => graph.reparent(2, 0), /cycle/);
-    graph.update_world_matrices(); close(graph.world_matrices(), reference.worldMatrices());
-  } finally { graph.free(); }
+    graph.update_world_matrices();
+    close(graph.world_matrices(), reference.worldMatrices());
+  } finally {
+    graph.free();
+  }
 });
 
 test('copy and borrowed matrix APIs remain correct across memory growth', () => {
-  const data = createSceneData(2), graph = new SceneGraph(data.parents, data.transforms);
-  const copy = graph.world_matrices(), view = matrixView(wasm, graph);
+  const data = createSceneData(2),
+    graph = new SceneGraph(data.parents, data.transforms);
+  const copy = graph.world_matrices(),
+    view = matrixView(wasm, graph);
   wasm.memory.grow(1);
   assert.equal(view.byteLength, 0);
   close(matrixView(wasm, graph), copy);
@@ -79,24 +125,131 @@ test('copy and borrowed matrix APIs remain correct across memory growth', () => 
 
 test('JS-facing validation rejects malformed data and keeps prior transforms', () => {
   assert.throws(() => new SceneGraph(new Int32Array([1, 0]), new Float32Array(20)), /cycle/);
-  const data = createSceneData(2), graph = new SceneGraph(data.parents, data.transforms);
+  const data = createSceneData(2),
+    graph = new SceneGraph(data.parents, data.transforms);
   try {
     const before = graph.world_matrices();
     assert.throws(() => graph.set_transforms(new Float32Array(20)), /quaternion/);
     assert.throws(() => graph.set_transform(0, new Float32Array(9)), /length/);
     assert.throws(() => graph.animate_demo(Infinity), /finite/);
-    graph.update_world_matrices(); close(graph.world_matrices(), before);
-    const changed = data.transforms.slice(0, 10); changed[0] += 10;
-    graph.set_transform(0, changed); graph.update_world_matrices();
+    graph.update_world_matrices();
+    close(graph.world_matrices(), before);
+    const changed = data.transforms.slice(0, 10);
+    changed[0] += 10;
+    graph.set_transform(0, changed);
+    graph.update_world_matrices();
     assert.ok(Math.abs(graph.world_matrices()[12] - before[12] - 10) < 0.0001);
-  } finally { graph.free(); }
+  } finally {
+    graph.free();
+  }
   assert.throws(() => multiply_matrices_batch(new Float32Array(17), new Float32Array(17)), /16/);
-  assert.throws(() => transform_points(new Float32Array(16), new Float32Array([1, 2, 3])), /infinity/);
+  assert.throws(
+    () => transform_points(new Float32Array(16), new Float32Array([1, 2, 3])),
+    /infinity/,
+  );
 });
 
 test('zero nodes and repeated allocation / release work', () => {
   for (let i = 0; i < 100; i++) {
     const graph = new SceneGraph(new Int32Array(), new Float32Array());
-    graph.animate_demo(1); assert.equal(graph.node_count(), 0); graph.free();
+    graph.animate_demo(1);
+    assert.equal(graph.node_count(), 0);
+    graph.free();
+  }
+});
+
+test('engine scene presets have reproducible resources and match Three.js visibility', () => {
+  for (const scenario of ['city', 'warehouse', 'hierarchy'] as const) {
+    const data = createEngineScene(scenario, 500);
+    assert.deepEqual(data.transforms, createEngineScene(scenario, 500).transforms);
+    assert.equal(data.meshNodes.length, 500);
+    const graph = new SceneGraph(data.parents, data.transforms);
+    const queue = new RenderQueue(
+      data.meshNodes,
+      data.groups,
+      data.radii,
+      data.batchGeometries.length,
+    );
+    const reference = new ThreeGraph({
+      parents: data.parents,
+      transforms: data.transforms,
+      colors: new Float32Array(),
+    });
+    const camera = new OrbitCamera();
+    camera.reset(data.extent);
+    try {
+      for (const yaw of [0, 0.72, 2.2]) {
+        camera.yaw = yaw;
+        camera.distance = data.extent * 0.9;
+        const frame = camera.frame(1.3);
+        queue.prepare(graph, frame.viewProjection, true);
+        const frustum = new THREE.Frustum().setFromProjectionMatrix(
+          new THREE.Matrix4().fromArray(frame.viewProjection),
+        );
+        const visible: number[] = [];
+        data.meshNodes.forEach((id, i) => {
+          const sphere = new THREE.Sphere(new THREE.Vector3(), data.radii[i]).applyMatrix4(
+            reference.nodes[id].matrixWorld,
+          );
+          if (frustum.intersectsSphere(sphere)) visible.push(id);
+        });
+        assert.deepEqual(Array.from(queue.visible_nodes()), visible, `${scenario} visible nodes`);
+        assert.equal(
+          Array.from(queue.batch_counts()).reduce((a, b) => a + b, 0),
+          visible.length,
+        );
+      }
+      graph.animate_nodes(data.animatedNodes, 2.25);
+      graph.update_world_matrices();
+      assert.ok(graph.updated_count() < graph.node_count());
+      for (const id of data.animatedNodes) {
+        const angle = Math.fround(
+          Math.fround(Math.fround(2.25) * Math.fround(0.2)) +
+            Math.fround((id % 19) * Math.fround(0.03)),
+        );
+        reference.nodes[id].quaternion.set(0, Math.sin(angle), 0, Math.cos(angle));
+      }
+      reference.updateWorldMatrices();
+      close(graph.world_matrices(), reference.worldMatrices(), scenario);
+      graph.update_world_matrices();
+      assert.equal(graph.updated_count(), 0);
+      graph.update_all_world_matrices();
+      assert.equal(graph.updated_count(), graph.node_count());
+    } finally {
+      graph.free();
+      queue.free();
+    }
+  }
+});
+
+test('engine camera agrees with Three.js lookAt and perspective', () => {
+  const orbit = new OrbitCamera();
+  orbit.reset(25);
+  const frame = orbit.frame(1.6);
+  const camera = new THREE.PerspectiveCamera(46, 1.6, 0.1, 1000);
+  camera.position.set(
+    Math.sin(orbit.yaw) * Math.cos(orbit.pitch) * orbit.distance,
+    3 + Math.sin(orbit.pitch) * orbit.distance,
+    Math.cos(orbit.yaw) * Math.cos(orbit.pitch) * orbit.distance,
+  );
+  camera.lookAt(0, 3, 0);
+  camera.updateMatrixWorld();
+  close(frame.view, camera.matrixWorldInverse.elements, 'view');
+  close(frame.projection, camera.projectionMatrix.elements, 'projection');
+});
+
+test('engine primitives have valid outward-facing triangles', () => {
+  for (const geometry of createEngineScene('city', 100).geometries) {
+    assert.ok(geometry.indices.length > 0);
+    for (let i = 0; i < geometry.indices.length; i += 3) {
+      const a = new THREE.Vector3().fromArray(geometry.positions, geometry.indices[i] * 3);
+      const b = new THREE.Vector3().fromArray(geometry.positions, geometry.indices[i + 1] * 3);
+      const c = new THREE.Vector3().fromArray(geometry.positions, geometry.indices[i + 2] * 3);
+      const normal = b.clone().sub(a).cross(c.clone().sub(a));
+      assert.ok(
+        normal.dot(a.clone().add(b).add(c)) > 0,
+        `${geometry.name} triangle ${i / 3} winding`,
+      );
+    }
   }
 });

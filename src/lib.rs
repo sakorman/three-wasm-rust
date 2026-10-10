@@ -1,4 +1,7 @@
+#[cfg(target_arch = "wasm32")]
+mod engine_renderer;
 mod math;
+mod queue;
 #[cfg(target_arch = "wasm32")]
 mod renderer;
 
@@ -14,6 +17,9 @@ pub struct SceneGraph {
     transforms: Vec<f32>,
     order: Vec<usize>,
     pub(crate) worlds: Vec<f32>,
+    dirty: Vec<bool>,
+    changed: Vec<bool>,
+    updated_count: usize,
 }
 
 fn traversal(parents: &[i32]) -> Result<Vec<usize>, String> {
@@ -55,6 +61,9 @@ impl SceneGraph {
             transforms: normalize_transforms(transforms)?,
             order,
             worlds: vec![0.; parents.len() * 16],
+            dirty: vec![true; parents.len()],
+            changed: vec![false; parents.len()],
+            updated_count: 0,
         };
         graph.update_world_matrices();
         Ok(graph)
@@ -68,7 +77,18 @@ impl SceneGraph {
         if values.len() != self.transforms.len() {
             return Err("transform count must match existing nodes".into());
         }
-        self.transforms = normalize_transforms(values)?;
+        let normalized = normalize_transforms(values)?;
+        for (id, (old, new)) in self
+            .transforms
+            .as_chunks::<10>()
+            .0
+            .iter()
+            .zip(normalized.as_chunks::<10>().0)
+            .enumerate()
+        {
+            self.dirty[id] |= old != new;
+        }
+        self.transforms = normalized;
         Ok(())
     }
 
@@ -77,6 +97,7 @@ impl SceneGraph {
             return Err("invalid node or transform length".into());
         }
         let normalized = normalize_transforms(values)?;
+        self.dirty[id] |= self.transforms[id * 10..id * 10 + 10] != normalized;
         self.transforms[id * 10..id * 10 + 10].copy_from_slice(&normalized);
         Ok(())
     }
@@ -91,12 +112,19 @@ impl SceneGraph {
         let order = traversal(&parents)?;
         self.parents = parents;
         self.order = order;
+        self.dirty[id] = true;
         Ok(())
     }
 
     /// Iterative traversal: a deep hierarchy cannot overflow the call stack.
     pub fn update_world_matrices(&mut self) {
+        self.updated_count = 0;
         for &id in &self.order {
+            let parent = self.parents[id];
+            self.changed[id] = self.dirty[id] || (parent >= 0 && self.changed[parent as usize]);
+            if !self.changed[id] {
+                continue;
+            }
             let local = compose(&self.transforms[id * 10..id * 10 + 10]);
             let world = if self.parents[id] == -1 {
                 local
@@ -106,7 +134,36 @@ impl SceneGraph {
                 multiply(parent, &local)
             };
             self.worlds[id * 16..id * 16 + 16].copy_from_slice(&world);
+            self.dirty[id] = false;
+            self.updated_count += 1;
         }
+    }
+
+    /// Number of matrices recomputed by the last update (traversal is still O(N)).
+    pub fn updated_count(&self) -> usize {
+        self.updated_count
+    }
+
+    /// Full recomputation for arithmetic benchmarks against Object3D.updateMatrixWorld(true).
+    pub fn update_all_world_matrices(&mut self) {
+        self.dirty.fill(true);
+        self.update_world_matrices();
+    }
+
+    /// Rotate selected nodes about their local Y axis. Absolute, deterministic time.
+    pub fn animate_nodes(&mut self, ids: &[u32], seconds: f32) -> Result<(), String> {
+        if !seconds.is_finite() || ids.iter().any(|&id| id as usize >= self.node_count()) {
+            return Err("invalid animation time or node index".into());
+        }
+        for &id in ids {
+            let id = id as usize;
+            let (s, c) = (seconds * 0.2 + (id % 19) as f32 * 0.03).sin_cos();
+            let q = [0., s, 0., c];
+            let t = &mut self.transforms[id * 10..id * 10 + 10];
+            self.dirty[id] |= t[3..7] != q;
+            t[3..7].copy_from_slice(&q);
+        }
+        Ok(())
     }
 
     /// Demo-only absolute animation. Overwrites local rotation and updates the forest.
@@ -124,6 +181,7 @@ impl SceneGraph {
         {
             let (sy, cy) = (seconds * 0.2 + id as f32 * 0.0065).sin_cos();
             t[3..7].copy_from_slice(&[sx * cy, cx * sy, -sx * sy, cx * cy]);
+            self.dirty[id] = true;
         }
         self.update_world_matrices();
         Ok(())

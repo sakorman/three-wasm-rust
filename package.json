@@ -1,9 +1,9 @@
 {
   "name": "three-wasm-rust",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Rust WASM 场景图、WebGL2 渲染与 Three.js 对照实验",
+  "description": "Rust/WASM 场景引擎与 Three.js 完整流程对照",
   "scripts": {
     "build:wasm": "wasm-pack build --target web --out-dir pkg --release -- --locked",
     "dev": "npm run build:wasm && vite --host 127.0.0.1",
@@ -11,7 +11,7 @@
     "build": "npm run build:wasm && npm run typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test:rust": "cargo test --locked",
-    "test:integration": "tsx --test tests/integration.test.ts",
+    "test:integration": "tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "test": "npm run test:rust && npm run build:wasm && npm run typecheck && npm run test:integration && npm run test:e2e",
     "typecheck": "tsc --project tsconfig.json && tsc --project tsconfig.node.json",

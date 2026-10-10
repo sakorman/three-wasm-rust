@@ -18,7 +18,7 @@ pub struct RustRenderer {
     instance_count: usize,
 }
 
-fn shader(gl: &Gl, kind: u32, source: &str) -> Result<WebGlShader, JsValue> {
+pub(super) fn shader(gl: &Gl, kind: u32, source: &str) -> Result<WebGlShader, JsValue> {
     let value = gl
         .create_shader(kind)
         .ok_or_else(|| JsValue::from_str("cannot allocate shader"))?;

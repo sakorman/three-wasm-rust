@@ -51,10 +51,10 @@ export async function runBenchmarks(
   try {
     await record('场景矩阵更新', `${count.toLocaleString()} 个节点 / 次`,
       () => { reference.updateWorldMatrices(); return reference.nodes[0]?.matrixWorld.elements[0] || 0; },
-      () => { graph.update_world_matrices(); return graph.node_count(); });
+      () => { graph.update_all_world_matrices(); return graph.node_count(); });
     await record('更新 + JS 可用矩阵', `${count.toLocaleString()} 个节点 / 次`,
       () => { reference.updateWorldMatrices(); return reference.worldMatrices()[0] || 0; },
-      () => { graph.update_world_matrices(); return matrixView(wasm, graph)[0] || 0; });
+      () => { graph.update_all_world_matrices(); return matrixView(wasm, graph)[0] || 0; });
 
     const matrices = Math.min(count, 10_000);
     const a = new Float32Array(matrices * 16), b = new Float32Array(matrices * 16);
