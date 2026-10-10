@@ -32,7 +32,7 @@ SOFTWARE.
 
 ## 依赖
 
-- [Three.js](https://github.com/mrdoob/three.js)：MIT；用于对照实现、相机、交互控制、几何体生成与混合渲染。
+- [Three.js](https://github.com/mrdoob/three.js)：MIT；用于引擎对照组，以及旧 CPU 实验页的相机、几何体与混合渲染。新版自研引擎路径不依赖 Three.js。
 - [wasm-bindgen / web-sys](https://github.com/wasm-bindgen/wasm-bindgen)：MIT / Apache-2.0；负责 Rust 与 JavaScript / WebGL 的绑定。
 - [bytemuck](https://github.com/Lokathor/bytemuck)：Zlib / Apache-2.0 / MIT；安全地将数值切片解释为 GPU 上传字节。
 - Vite、wasm-pack 和 Playwright 为开发依赖，许可和准确版本以各包及锁文件为准。
