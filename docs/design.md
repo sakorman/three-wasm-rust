@@ -1,14 +1,14 @@
 # 实现笔记
 
-0.2 把场景更新、渲染队列和绘制提交拆开了。Rust 引擎路径不调用 Three.js；对照组单独放在 `web/compare/`。
+场景更新、渲染队列和绘制提交各自独立。Rust 引擎路径不调用 Three.js；对照组单独放在 `web/compare/`。0.3 新增逐对象绘制，作为默认性能对照。
 
 ## 一帧经过哪些步骤
 
 1. TS 传入绝对动画时间，Rust 更新选定节点的局部四元数。
-2. `SceneGraph` 按父节点先于子节点的顺序遍历，重算脏节点及其后代的世界矩阵。
+2. `SceneGraph` 按父节点先于子节点的顺序更新世界矩阵。逐对象对照强制全量重算，实例化对照使用脏标记。
 3. `RenderQueue` 提取相机六个平面，对几何体包围球做测试。
-4. 队列统计各几何/材质组的可见数量，再把世界矩阵写入对应的连续区间。
-5. `EngineRenderer` 一次上传可见矩阵，为每个非空组设置 VAO、矩阵偏移和材质参数，提交实例化绘制。
+4. 逐对象模式保留节点描述顺序；实例化模式再按几何/材质组合打包矩阵。
+5. 逐对象模式用 modelMatrix uniform 加 drawElements；实例化模式上传矩阵 buffer 并调用 drawElementsInstanced。
 
 光栅化和像素着色在 GPU 上执行。Rust 不逐像素画图。
 
@@ -38,11 +38,15 @@ worldChanged[id] = localDirty[id] || worldChanged[parent]
 
 ## 渲染资源
 
-一个 EngineRenderer 管理一个 program、一个动态实例矩阵 buffer、多个几何体 VAO/顶点/索引 buffer，以及材质参数表。每个几何体的 VAO 引用同一个实例 buffer，切换组时更新矩阵属性偏移。
+EngineRenderer 构造时选择逐对象或实例化模式。两者共用几何体/材质注册，但使用不同顶点 shader。逐对象模式不创建实例 buffer，也不配置实例属性，只更新 modelMatrix uniform 并调用普通 drawElements。几何体和材质不变时复用绑定状态。
+
+实例化模式管理一个动态矩阵 buffer，每个几何体 VAO 引用这个 buffer，切换组时更新矩阵属性偏移。
 
 三个基础几何体由 TS 独立生成，Rust 接受一般索引三角形数组。材质目前只有 RGB 和 unlit 开关；其余使用共享 GLSL 的简单面光照。所有材质均不透明。
 
 `add_geometry()` 和 `add_material()` 返回注册 ID。`set_batches()` 设定队列组到资源 ID 的映射。`render(queue, viewProjection)` 只提交绘制，不会自动更新场景或队列。
+
+逐对象路径调用 `queue.prepare_direct(scene, viewProjection, culling)`，再调用 `renderer.render_direct(queue, scene, viewProjection)`。它不压紧或上传实例矩阵。两条绘制接口会检查队列和渲染器的模式，拒绝混用。
 
 Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` 一起释放，重复 dispose 不会重复释放。资源数量变化时重建 Engine；单个资源卸载和动态节点增删暂未实现。
 
@@ -50,15 +54,15 @@ Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` �
 
 OrbitCamera 独立生成 look-at 和透视矩阵。两边从同一份 Float32 相机矩阵绘制；Three.js 只在自己的适配器中接收这些矩阵。三种基础几何体的顶点、索引、局部包围球也共用相同输入。
 
-普通组用真正的 Three.js Mesh，每个可见对象独立绘制，并由 Three.js 处理内置视锥剔除和排序。默认矩阵自动更新保持开启。
+普通组用真正的 Three.js Mesh，矩阵自动更新开启，对象排序关闭。Rust 逐对象组强制全量更新；预设场景的描述顺序与 Three.js 层级遍历的 Mesh 顺序一致。剔除默认关闭，每个对象在两边都对应一次绘制，可选同时开启球剔除。
 
 优化组用 Object3D 保存层级，关闭自动局部矩阵重算，只标记动画节点，然后通过 Three.js 更新世界矩阵。它用 Frustum/Sphere 检查对象，将矩阵写入按几何/材质组织的 InstancedMesh，只标记有效的矩阵上传范围。
 
-两组的策略差异会影响结果，页面和报告会保留这些条件，不能用这个实验单独证明某种语言的速度。
+只比较策略相同的一对：逐对象 Rust 对普通 Three.js，实例化 Rust 对实例化 Three.js。两者仍有 f32/Number、数据结构和框架开销差异，页面不把结果解释成纯语言速度。
 
 ## 测量
 
-实时预览同时跑 Rust 和选定的 Three.js 组，所以显示的 FPS 属于并排预览。正式基准完全暂停预览，并逐个运行后端。三轮顺序为 ABC、BCA、CAB，每轮每组使用相同时间序列和冻结相机。
+实时预览同时跑当前的一对实现。正式基准暂停预览，以 AB、BA、AB、BA 跑四轮，每组使用相同时间序列和冻结相机。提交结果前核对可见对象及三角形数；逐对象模式还检查 draw call 与可见数相等。不匹配的结果不导出。
 
 CPU 从动画/矩阵更新前开始，到绘制提交后结束。准备阶段包括剔除和打包；普通 Three.js 的剔除发生在 render 内，所以在提交阶段。矩阵和视图准备的分工也稍有不同，优先比较总 CPU。
 
