@@ -47,7 +47,7 @@ const leftView = element('rust-view', HTMLDivElement),
 const camera = new OrbitCamera();
 let data: EngineScene;
 let backends: { rust: Engine; reference: ThreeBackend } | undefined;
-let animation = true,
+let animation = !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   elapsed = 0,
   failed = false,
   raf = 0,
@@ -91,13 +91,11 @@ function showReference() {
   canvases.three.hidden = selectedReference() !== 'three';
   canvases.instanced.hidden = selectedReference() !== 'instanced';
   const direct = comparison() === 'direct';
-  ui.rustLabel.textContent = direct ? '逐对象 · 全量矩阵更新' : '实例化 · 脏矩阵更新';
-  ui.referenceLabel.textContent = direct
-    ? '普通 Mesh · 全量矩阵更新'
-    : 'InstancedMesh · 脏矩阵更新';
+  ui.rustLabel.textContent = direct ? '逐对象 / 全量更新' : '实例化 / 脏更新';
+  ui.referenceLabel.textContent = direct ? '普通 Mesh / 全量更新' : 'InstancedMesh / 脏更新';
   ui.policy.textContent = direct
-    ? '两边均不实例化、不合并几何体，每帧重算全部节点，按场景顺序绘制。剔除默认关闭：每个对象对应一个 draw call。'
-    : '两边均使用实例化和脏矩阵更新，按相同的几何体、材质组合绘制。每个非空组对应一个 draw call。';
+    ? '均不实例化，全量更新，按场景顺序逐对象绘制。'
+    : '均使用实例化与脏更新，按相同几何、材质分组绘制。';
 }
 function resize() {
   const width = Math.floor(Math.min(leftView.clientWidth, rightView.clientWidth)),
@@ -147,7 +145,7 @@ function rebuild() {
   resetCamera();
   resize();
   showReference();
-  ui.summary.textContent = `${data.meshNodes.length.toLocaleString()} 个对象 · ${data.parents.length.toLocaleString()} 个节点 · ${data.batchGeometries.length} 种几何/材质组合 · ${data.animatedNodes.length} 个动画节点`;
+  ui.summary.textContent = `${data.meshNodes.length.toLocaleString()} 对象 / ${data.parents.length.toLocaleString()} 节点 / ${data.batchGeometries.length} 组 / ${data.animatedNodes.length} 动画`;
   invalidate();
 }
 function updateMetrics(id: string, stats: FrameStats) {
@@ -189,10 +187,19 @@ function tick(now: number) {
   raf = requestAnimationFrame(tick);
 }
 function showReport(value: ComparisonReport) {
-  const ms = (n: number) => (n < 0.0001 ? '低于计时精度' : `${n.toFixed(2)} ms`);
+  const ms = (n: number) => (n < 0.0001 ? '未分辨' : n.toFixed(2));
+  const labels = [
+    '',
+    'CPU 中位 / P95',
+    '帧间隔 / FPS',
+    'GPU 中位',
+    'Draw / 可见',
+    '更新 / 准备 / 提交',
+  ];
   ui.results.replaceChildren(
     ...value.results.map((row) => {
       const tr = document.createElement('tr');
+      tr.dataset.backend = row.mode.startsWith('rust') ? 'rust' : 'three';
       const values = [
         backendNames[row.mode],
         `${ms(row.cpuMedian)} / ${ms(row.cpuP95)}`,
@@ -205,15 +212,17 @@ function showReport(value: ComparisonReport) {
         `${row.draws.toLocaleString()} / ${row.visible.toLocaleString()}`,
         `${ms(row.updateMedian)} / ${ms(row.prepareMedian)} / ${ms(row.submitMedian)}`,
       ];
-      for (const text of values) {
+      for (const [index, text] of values.entries()) {
         const td = document.createElement('td');
         td.textContent = text;
+        if (index > 0) td.dataset.label = labels[index];
+        if (text.includes('未分辨')) td.title = '未分辨：低于当前计时器分辨率，并非没有耗时。';
         tr.append(td);
       }
       return tr;
     }),
   );
-  ui.context.textContent = `${value.comparison === 'direct' ? '不实例化 / 全量更新' : '实例化 / 脏更新'} · ${data.name} · ${value.objects.toLocaleString()} 对象 · ${value.width} × ${value.height} 像素 · 剔除${value.culling ? '开启' : '关闭'} · 动画${value.animation ? '开启' : '暂停'} · 每组 ${value.protocol.sampleFrames * value.protocol.rounds} 个帧样本。已核对两组可见对象和三角形数量。`;
+  ui.context.textContent = `${value.comparison === 'direct' ? '不实例化 / 全量更新' : '实例化 / 脏更新'}；${value.objects.toLocaleString()} 对象，${value.width} × ${value.height} px，剔除${value.culling ? '开' : '关'}，动画${value.animation ? '开' : '关'}；4 轮，每组 ${value.protocol.sampleFrames * value.protocol.rounds} 帧。`;
   ui.download.hidden = false;
 }
 ui.benchmark.addEventListener('click', async () => {
@@ -225,6 +234,7 @@ ui.benchmark.addEventListener('click', async () => {
   ui.context.textContent = '';
   lock(true);
   ui.cancel.hidden = false;
+  ui.benchmark.hidden = true;
   ui.download.hidden = true;
   document.body.classList.add('testing');
   const options =
@@ -245,19 +255,21 @@ ui.benchmark.addEventListener('click', async () => {
         comparison: comparison(),
       },
       (mode, round, done, total) => {
-        ui.progress.textContent = `第 ${round + 1} / 4 轮 · ${backendNames[mode]} · ${done} / ${total} 帧（含预热）`;
+        ui.progress.textContent = `采样 ${round + 1}/4 轮，${backendNames[mode]}，${done}/${total} 帧（含预热）`;
       },
     );
     showReport(report);
-    ui.progress.textContent = '测试完成。CPU、帧间隔与 GPU 是不同指标，请分别比较。';
+    ui.progress.textContent = '测试完成，已核对两组绘制工作量。';
   } catch (error) {
     ui.progress.textContent = errorText(error);
     report = undefined;
-    ui.results.innerHTML = '<tr><td colspan="6" class="empty">本次采样未完成，请重新运行。</td></tr>';
+    ui.results.innerHTML =
+      '<tr><td colspan="6" class="empty">本次采样未完成，请重新运行。</td></tr>';
     ui.context.textContent = '本次未生成有效报告。';
   } finally {
     bench = undefined;
     ui.cancel.hidden = true;
+    ui.benchmark.hidden = false;
     document.body.classList.remove('testing');
     if (!failed) lock(false);
     last = reportTime = performance.now();
@@ -338,6 +350,7 @@ async function start() {
   rebuild();
   showReference();
   ui.status.textContent = '引擎已就绪';
+  ui.pause.textContent = animation ? '暂停动画' : '继续动画';
   ui.dot.classList.add('ready');
   lock(false);
   last = reportTime = performance.now();

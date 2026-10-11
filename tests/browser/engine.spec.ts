@@ -221,6 +221,9 @@ test('benchmark cancellation restores controls; mobile view fits', async ({ page
   await page.setViewportSize({ width: 390, height: 844 });
   await ready(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(
+    true,
+  );
   await page.getByRole('button', { name: '运行两组对照' }).click();
   await page.getByRole('button', { name: '取消测试' }).click();
   await expect(page.locator('#bench-progress')).toContainText('取消');
@@ -228,6 +231,62 @@ test('benchmark cancellation restores controls; mobile view fits', async ({ page
   await page.getByRole('button', { name: '暂停动画' }).click();
   await page.screenshot({ path: info.outputPath('mobile.png'), fullPage: true });
   await comparePixels(page, 'three-canvas');
+});
+
+test('workbench keeps controls, canvases and completed results in one viewport', async ({
+  page,
+}, info) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 532, height: 863 });
+  await ready(page);
+  const originalCanvas = await page.locator('#rust-view').boundingBox();
+  await page.getByRole('button', { name: '运行两组对照' }).click();
+  await expect(page.locator('#bench-progress')).toContainText('测试完成', { timeout: 100_000 });
+  expect(await page.locator('#rust-view').boundingBox()).toEqual(originalCanvas);
+  await page.getByRole('button', { name: '暂停动画' }).click();
+  for (const size of [
+    { width: 532, height: 863 },
+    { width: 390, height: 844 },
+    { width: 1024, height: 640 },
+    { width: 1280, height: 720 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(size);
+    const fit = await page.evaluate(() => {
+      const targets = [
+        '.controls-panel',
+        '.scene-panel',
+        '.benchmark-panel',
+        '.reading-notes',
+        'footer',
+        '#download',
+        '#benchmark',
+      ];
+      const clipped = targets.filter((selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return true;
+        const rect = element.getBoundingClientRect();
+        return (
+          rect.x < 0 || rect.y < 0 || rect.right > innerWidth + 1 || rect.bottom > innerHeight + 1
+        );
+      });
+      const overflow = Array.from(document.querySelectorAll('#results td')).filter(
+        (cell) =>
+          cell.scrollWidth > cell.clientWidth + 1 || cell.scrollHeight > cell.clientHeight + 1,
+      ).length;
+      return {
+        clipped,
+        overflow,
+        width: document.documentElement.scrollWidth,
+        height: document.documentElement.scrollHeight,
+      };
+    });
+    expect(fit.clipped).toEqual([]);
+    expect(fit.overflow).toBe(0);
+    expect(fit.width).toBeLessThanOrEqual(size.width);
+    expect(fit.height).toBeLessThanOrEqual(size.height);
+    await page.screenshot({ path: info.outputPath(`workbench-${size.width}.png`) });
+  }
 });
 
 test('engine handles missing WebGL2 with an actionable error', async ({ page }) => {

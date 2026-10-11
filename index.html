@@ -3,79 +3,84 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#10171d" />
+    <meta name="theme-color" content="#edf1f5" />
     <meta
       name="description"
-      content="Rust/WASM 场景引擎：层级更新、视锥剔除和自动批次，与 Three.js 普通及实例化渲染进行实测对照。"
+      content="Rust 与 Three.js 的同策略渲染对照，在一个工作台中查看场景、CPU、GPU 和绘制数据。"
     />
     <title>Three × Rust — 引擎对照</title>
     <link rel="icon" href="data:," />
   </head>
   <body>
-    <div class="shell">
-      <header>
-        <a class="brand" href="./"
-          ><span class="brand-icon">R</span> THREE × RUST <span class="tag">ENGINE 0.3</span></a
-        >
-        <nav>
-          <a href="./lab.html">CPU 小型测试 ↗</a
+    <div class="workbench">
+      <header class="app-header">
+        <a class="brand" href="./" aria-label="Three × Rust 引擎对照">
+          <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <path d="M16 3 28 10v13L16 30 4 23V10L16 3Z" stroke="currentColor" stroke-width="1.8" />
+            <path d="m4 10 12 7 12-7M16 17v13M16 3v14" stroke="currentColor" stroke-width="1.8" />
+            <path d="m10 6 12 7v13" stroke="#aa633b" stroke-width="2" />
+          </svg>
+          <span><strong>Three × Rust</strong><span class="brand-description">引擎对照</span></span>
+        </a>
+        <div class="status">
+          <span id="status-dot"></span><span id="status">正在加载 WASM</span>
+        </div>
+        <nav aria-label="项目链接">
+          <a href="./lab.html">CPU 实验</a
           ><a href="https://github.com/sakorman/three-wasm-rust" target="_blank" rel="noreferrer"
-            >源码与文档 ↗</a
+            >文档 <span aria-hidden="true">↗</span></a
           >
         </nav>
       </header>
-      <main>
-        <section class="intro">
-          <div>
-            <p class="eyebrow">SCENE ENGINE / WEBASSEMBLY</p>
-            <h1>同一个场景，两边跑跑看<span>。</span></h1>
-            <p class="subtitle">
-              先关掉实例化：两边逐对象绘制、全量更新矩阵，共用相机、几何体和着色器。
-            </p>
+
+      <main class="main-layout">
+        <section class="controls-panel" aria-label="场景设置">
+          <div class="field">
+            <label for="comparison">对照方式</label
+            ><select id="comparison" disabled>
+              <option value="direct">逐对象，不实例化</option>
+              <option value="instanced">实例化，两边优化</option>
+            </select>
           </div>
-          <div class="status">
-            <span id="status-dot"></span><span id="status">正在加载 WASM</span>
+          <div class="field">
+            <label for="scenario">场景</label
+            ><select id="scenario" disabled>
+              <option value="city">街区</option>
+              <option value="warehouse">仓库</option>
+              <option value="hierarchy">机械阵列</option>
+            </select>
+          </div>
+          <div class="field count-field">
+            <label for="count">对象数</label
+            ><select id="count" disabled>
+              <option value="500">500</option>
+              <option value="2000" selected>2,000</option>
+              <option value="5000">5,000</option>
+              <option value="10000">10,000</option>
+              <option value="20000">20,000</option>
+            </select>
+          </div>
+          <div class="scene-actions">
+            <label class="check"><input id="culling" type="checkbox" disabled />视锥剔除</label
+            ><button id="pause" disabled>暂停动画</button
+            ><button id="reset" class="quiet" disabled>重置视角</button>
           </div>
         </section>
-        <section class="experiment" aria-label="引擎对照场景">
-          <div class="toolbar">
-            <label
-              >对照<select id="comparison" disabled>
-                <option value="direct">逐对象 · 不实例化</option>
-                <option value="instanced">实例化 · 两边优化</option>
-              </select></label
-            >
-            <label
-              >场景<select id="scenario" disabled>
-                <option value="city">街区 · 稀疏更新</option>
-                <option value="warehouse">仓库 · 静态批次</option>
-                <option value="hierarchy">机械阵列 · 层级运动</option>
-              </select></label
-            >
-            <label
-              >对象<select id="count" disabled>
-                <option value="500">500</option>
-                <option value="2000" selected>2,000</option>
-                <option value="5000">5,000</option>
-                <option value="10000">10,000</option>
-                <option value="20000">20,000</option>
-              </select></label
-            >
-            <label class="check"><input id="culling" type="checkbox" disabled />视锥剔除</label>
-            <div class="toolbar-actions">
-              <button id="pause" disabled>暂停动画</button
-              ><button id="reset" class="subtle" disabled>重置视角 ↺</button>
-            </div>
-          </div>
+
+        <section class="scene-panel" aria-label="引擎对照场景">
           <div class="pair">
-            <article class="viewport-panel">
+            <article class="viewport-panel rust-panel">
               <div class="panel-heading">
-                <span class="live-dot"></span><strong>Rust 引擎</strong
-                ><span id="rust-label">逐对象 · 全量矩阵更新</span>
+                <h1><span class="backend-dot"></span>Rust 引擎</h1>
+                <span id="rust-label">逐对象 / 全量更新</span>
               </div>
               <div class="viewport" id="rust-view">
                 <canvas id="rust-canvas" aria-label="Rust 引擎场景"></canvas
-                ><span class="scene-hint">拖动任一画布同步视角 · 滚轮缩放</span>
+                ><span class="viewport-caption">同步视角</span
+                ><svg class="axis-hint" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                  <path d="M12 29V6M12 29l21-8M12 29l-7 8" stroke="#d9e5ef" stroke-width="1.5" />
+                  <circle cx="12" cy="29" r="2" fill="#d9e5ef" />
+                </svg>
               </div>
               <div class="panel-metrics" id="rust-metrics">
                 <span>CPU <b>—</b></span
@@ -83,14 +88,19 @@
                 ><span>可见 <b>—</b></span>
               </div>
             </article>
-            <article class="viewport-panel">
+            <article class="viewport-panel three-panel">
               <div class="panel-heading">
-                <span class="live-dot blue"></span><strong>Three.js</strong
-                ><span id="reference-label">普通 Mesh · 全量矩阵更新</span>
+                <h2><span class="backend-dot"></span>Three.js</h2>
+                <span id="reference-label">普通 Mesh / 全量更新</span>
               </div>
               <div class="viewport" id="three-view">
                 <canvas id="three-canvas" aria-label="Three.js 普通场景"></canvas
-                ><canvas id="instanced-canvas" aria-label="Three.js 实例化场景" hidden></canvas>
+                ><canvas id="instanced-canvas" aria-label="Three.js 实例化场景" hidden></canvas
+                ><span class="viewport-caption">同一场景</span
+                ><svg class="axis-hint" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                  <path d="M12 29V6M12 29l21-8M12 29l-7 8" stroke="#d9e5ef" stroke-width="1.5" />
+                  <circle cx="12" cy="29" r="2" fill="#d9e5ef" />
+                </svg>
               </div>
               <div class="panel-metrics" id="three-metrics">
                 <span>CPU <b>—</b></span
@@ -99,87 +109,81 @@
               </div>
             </article>
           </div>
-          <div class="scene-summary">
+          <div class="scene-statusbar">
             <span id="scene-summary">准备场景…</span
-            ><span>并排预览 <strong id="fps">—</strong> FPS · 同时运行两组</span>
+            ><span class="navigation-hint">拖动旋转，滚轮缩放</span
+            ><span class="preview-fps">并排预览 <strong id="fps">—</strong> FPS</span>
           </div>
           <div id="error" role="alert" hidden></div>
         </section>
-        <section class="bench-section">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">FRAME BENCHMARK</p>
-              <h2>同策略性能对照</h2>
+
+        <section class="benchmark-panel" aria-labelledby="benchmark-title">
+          <div class="benchmark-heading">
+            <div class="benchmark-title">
+              <h2 id="benchmark-title">性能对照</h2>
+              <span>耗时单位：ms</span>
             </div>
             <div class="bench-actions">
               <select id="quality" aria-label="测试长度">
-                <option value="quick">快速 · 24 帧 × 4 轮</option>
-                <option value="full">完整 · 60 帧 × 4 轮</option></select
-              ><button id="download" class="subtle" hidden>导出 JSON ↓</button
-              ><button id="cancel" class="subtle" hidden>取消测试</button
-              ><button id="benchmark" class="primary" disabled>运行两组对照 ↗</button>
+                <option value="quick">快速 / 96 帧</option>
+                <option value="full">完整 / 240 帧</option>
+              </select>
+              <div class="download-slot">
+                <button id="download" class="quiet" hidden>导出 JSON</button>
+              </div>
+              <div class="run-slot">
+                <button id="cancel" class="cancel" hidden>取消测试</button
+                ><button id="benchmark" class="primary" disabled>运行两组对照</button>
+              </div>
             </div>
           </div>
-          <p class="bench-note" id="policy">
-            两边均不实例化、不合并几何体，每帧重算全部节点，按场景顺序绘制。剔除默认关闭：每个对象对应一个
-            draw call。
-          </p>
-          <p class="footnote">
-            正式测试暂停并排预览，以 AB / BA / AB / BA 顺序逐组采样，共用动画、视角和像素尺寸。
-          </p>
-          <div id="bench-progress" role="status" aria-live="polite"></div>
+          <div class="policy-line">
+            <span class="policy-marker" aria-hidden="true">=</span>
+            <p id="policy">均不实例化，全量更新，按场景顺序逐对象绘制。</p>
+            <span class="order-note">顺序 AB / BA，4 轮</span>
+          </div>
           <div class="table-wrap">
-            <table>
+            <table aria-label="性能测试结果">
               <thead>
                 <tr>
-                  <th>实现</th>
-                  <th>CPU 中位 / P95</th>
-                  <th>帧间隔 / FPS</th>
-                  <th>GPU 中位</th>
-                  <th>Draw / 可见</th>
-                  <th>更新 / 准备 / 提交</th>
+                  <th scope="col">实现</th>
+                  <th scope="col">CPU 中位 / P95</th>
+                  <th scope="col">帧间隔 / FPS</th>
+                  <th scope="col">GPU 中位</th>
+                  <th scope="col">Draw / 可见</th>
+                  <th scope="col">更新 / 准备 / 提交</th>
                 </tr>
               </thead>
               <tbody id="results">
                 <tr>
-                  <td colspan="6" class="empty">先选一个场景，再运行对照。结果取决于你的设备。</td>
+                  <td colspan="6" class="empty">
+                    <span class="empty-symbol" aria-hidden="true">↔</span
+                    ><span>场景已同步，运行测试查看两组结果。</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p class="footnote">
-            CPU 包含矩阵更新、可见性与批次准备、绘制提交。普通 Three.js
-            的剔除包含在提交阶段。帧间隔受刷新率和浏览器调度影响；GPU 查询不可用时不填估算值。
+          <div class="report-status">
+            <div id="bench-progress" role="status" aria-live="polite">等待测试</div>
+            <p id="report-context">测试时逐组运行；画布尺寸与动画保持一致。</p>
+          </div>
+        </section>
+
+        <aside class="reading-notes" aria-label="测量说明">
+          <p>
+            <strong>读数</strong>中位数看典型耗时，P95 看较慢帧。CPU 不含 GPU 完成时间，FPS
+            受刷新率限制；GPU 不可用时不估算。
           </p>
-          <p id="report-context" class="footnote"></p>
-        </section>
-        <section class="notes-grid">
-          <div>
-            <h3>这次多做了什么</h3>
-            <p>
-              场景层级与脏标记、球包围体剔除、几何体与材质注册、自动实例化批次、资源释放。Rust
-              引擎路径的相机和几何体也独立实现。
-            </p>
-          </div>
-          <div>
-            <h3>怎么读这个对照</h3>
-            <p>
-              当前模式对齐绘制方式和矩阵更新策略，但引擎结构、绑定调用和 f32 / JS Number
-              仍不同。它比较两套实现，不能单独证明语言速度。
-            </p>
-          </div>
-          <div>
-            <h3>当前范围</h3>
-            <p>
-              面向不透明几何体的引擎原型，支持盒体、圆柱和球体。纹理、PBR、阴影、模型加载和 3DGS
-              尚未接入；光栅化仍由 GPU 完成。
-            </p>
-          </div>
-        </section>
+          <p>
+            <strong>范围</strong>支持层级、剔除和批次。暂不含 PBR、阴影、模型加载或 3DGS；f32 /
+            Number 与引擎结构的差异仍会影响结果。
+          </p>
+        </aside>
       </main>
       <footer>
-        <span>© 2026 <a href="https://github.com/sakorman">sakorman</a> · Three × Rust</span
-        ><span>Rust + TypeScript · WebGL2</span>
+        <span>sakorman <span class="footer-divider">/</span> WebGL2 引擎实验</span
+        ><span>Rust + TypeScript <span class="footer-divider">/</span> v0.3</span>
       </footer>
     </div>
     <script type="module" src="/web/engine-main.ts"></script>
