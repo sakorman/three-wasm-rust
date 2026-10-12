@@ -140,7 +140,7 @@ nav {
 }
 .main-layout {
   display: grid;
-  grid-template-rows: 64px minmax(180px, 1fr) 222px 42px;
+  grid-template-rows: 64px minmax(180px, 1fr) 180px;
   gap: 8px;
   min-height: 0;
 }
@@ -338,7 +338,7 @@ nav {
 }
 .benchmark-panel {
   display: grid;
-  grid-template-rows: 45px 29px 104px 1fr;
+  grid-template-rows: 45px 104px 1fr;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--paper);
@@ -406,38 +406,6 @@ h2 {
   color: #884a2b;
   border-color: #d1b39d;
   background: #fff6f0;
-}
-.policy-line {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  border-top: 1px solid #e2e9ee;
-  padding: 0 12px;
-  background: #f8fafc;
-}
-.policy-marker {
-  width: 15px;
-  height: 15px;
-  line-height: 13px;
-  font-size: 12px;
-  font-weight: 700;
-  text-align: center;
-  border: 1px solid #abc0d0;
-  border-radius: 3px;
-  color: #3a6685;
-  flex: none;
-}
-#policy {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.35;
-}
-.order-note {
-  margin-left: auto;
-  font-size: 10px;
-  white-space: nowrap;
-  color: var(--muted);
 }
 .table-wrap {
   min-width: 0;
@@ -507,13 +475,6 @@ tr[data-backend='three'] {
   font-size: 12px !important;
   font-weight: 400 !important;
 }
-.empty-symbol {
-  display: inline-block;
-  color: #8aa5ba;
-  font-size: 22px;
-  vertical-align: middle;
-  margin-right: 10px;
-}
 .report-status {
   min-height: 0;
   padding: 5px 12px;
@@ -524,28 +485,6 @@ tr[data-backend='three'] {
 }
 #bench-progress {
   color: #466078;
-}
-#report-context {
-  color: #526a7d;
-  margin: 2px 0 0;
-}
-.reading-notes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  align-items: start;
-  padding: 0 2px;
-  color: #52687b;
-}
-.reading-notes p {
-  margin: 0;
-  font-size: 10px;
-  line-height: 1.55;
-}
-.reading-notes strong {
-  color: #344f66;
-  font-weight: 600;
-  margin-right: 6px;
 }
 footer {
   display: flex;
@@ -615,7 +554,7 @@ body.testing .scene-panel {
     font-size: 11px;
   }
   .main-layout {
-    grid-template-rows: 91px minmax(195px, 1fr) 280px 49px;
+    grid-template-rows: 91px minmax(195px, 1fr) 240px;
     gap: 7px;
   }
   .controls-panel {
@@ -704,7 +643,7 @@ body.testing .scene-panel {
     bottom: 8px;
   }
   .benchmark-panel {
-    grid-template-rows: 66px 28px 138px 1fr;
+    grid-template-rows: 66px 138px 1fr;
   }
   .benchmark-heading {
     display: grid;
@@ -734,15 +673,6 @@ body.testing .scene-panel {
   }
   .bench-actions button {
     height: 28px;
-  }
-  .policy-line {
-    padding: 0 10px;
-  }
-  #policy {
-    font-size: 10px;
-  }
-  .order-note {
-    display: none;
   }
   table {
     display: block;
@@ -816,13 +746,6 @@ body.testing .scene-panel {
     padding: 4px 10px;
     font-size: 9px;
   }
-  .reading-notes {
-    gap: 10px;
-  }
-  .reading-notes p {
-    font-size: 9px;
-    line-height: 1.5;
-  }
 }
 @media (max-width: 450px) {
   .workbench {
@@ -831,7 +754,7 @@ body.testing .scene-panel {
     grid-template-rows: 46px minmax(0, 1fr) 23px;
   }
   .main-layout {
-    grid-template-rows: 91px minmax(174px, 1fr) 283px 61px;
+    grid-template-rows: 91px minmax(174px, 1fr) 242px;
     gap: 6px;
   }
   .app-header {
@@ -891,7 +814,7 @@ body.testing .scene-panel {
     max-width: 65px;
   }
   .benchmark-panel {
-    grid-template-rows: 66px 30px 140px 1fr;
+    grid-template-rows: 66px 140px 1fr;
   }
   .benchmark-heading {
     padding-left: 8px;
@@ -908,12 +831,6 @@ body.testing .scene-panel {
   .bench-actions select {
     font-size: 10px;
   }
-  #policy {
-    font-size: 9px;
-  }
-  .policy-line {
-    padding: 0 8px;
-  }
   tr {
     padding: 6px 8px;
     gap: 6px 5px;
@@ -927,14 +844,6 @@ body.testing .scene-panel {
   td:first-child {
     font-size: 10px;
   }
-  .reading-notes {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-  .reading-notes p {
-    font-size: 9px;
-    line-height: 1.4;
-  }
   footer {
     font-size: 9px;
   }
@@ -947,11 +856,11 @@ body.testing .scene-panel {
     grid-template-rows: 44px minmax(0, 1fr) 22px;
   }
   .main-layout {
-    grid-template-rows: 60px minmax(180px, 1fr) 215px 38px;
+    grid-template-rows: 60px minmax(180px, 1fr) 172px;
     gap: 6px;
   }
   .benchmark-panel {
-    grid-template-rows: 40px 27px 104px 1fr;
+    grid-template-rows: 40px 104px 1fr;
   }
 }
 @media (prefers-reduced-motion: reduce) {

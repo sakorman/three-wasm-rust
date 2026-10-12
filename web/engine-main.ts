@@ -20,7 +20,6 @@ const ui = {
   comparison: element('comparison', HTMLSelectElement),
   rustLabel: element('rust-label', HTMLSpanElement),
   referenceLabel: element('reference-label', HTMLSpanElement),
-  policy: element('policy', HTMLParagraphElement),
   culling: element('culling', HTMLInputElement),
   pause: element('pause', HTMLButtonElement),
   reset: element('reset', HTMLButtonElement),
@@ -35,7 +34,6 @@ const ui = {
   fps: element('fps', HTMLElement),
   progress: element('bench-progress', HTMLDivElement),
   results: element('results', HTMLTableSectionElement),
-  context: element('report-context', HTMLElement),
 };
 const canvases: Record<'rust' | 'three' | 'instanced', HTMLCanvasElement> = {
   rust: element('rust-canvas', HTMLCanvasElement),
@@ -93,9 +91,6 @@ function showReference() {
   const direct = comparison() === 'direct';
   ui.rustLabel.textContent = direct ? '逐对象 / 全量更新' : '实例化 / 脏更新';
   ui.referenceLabel.textContent = direct ? '普通 Mesh / 全量更新' : 'InstancedMesh / 脏更新';
-  ui.policy.textContent = direct
-    ? '均不实例化，全量更新，按场景顺序逐对象绘制。'
-    : '均使用实例化与脏更新，按相同几何、材质分组绘制。';
 }
 function resize() {
   const width = Math.floor(Math.min(leftView.clientWidth, rightView.clientWidth)),
@@ -112,8 +107,7 @@ function resize() {
   }
 }
 function invalidate() {
-  if (report)
-    ui.context.textContent = '保留的是上次测试报告；当前视角或设置已经变化。重新测试可更新结果。';
+  if (report) ui.progress.textContent = '设置已变，请重测';
 }
 function resetCamera() {
   camera.reset(data.extent);
@@ -222,16 +216,13 @@ function showReport(value: ComparisonReport) {
       return tr;
     }),
   );
-  ui.context.textContent = `${value.comparison === 'direct' ? '不实例化 / 全量更新' : '实例化 / 脏更新'}；${value.objects.toLocaleString()} 对象，${value.width} × ${value.height} px，剔除${value.culling ? '开' : '关'}，动画${value.animation ? '开' : '关'}；4 轮，每组 ${value.protocol.sampleFrames * value.protocol.rounds} 帧。`;
   ui.download.hidden = false;
 }
 ui.benchmark.addEventListener('click', async () => {
   if (!backends || bench) return;
   bench = new AbortController();
   report = undefined;
-  ui.results.innerHTML =
-    '<tr><td colspan="6" class="empty">正在采样，完成后显示两组结果。</td></tr>';
-  ui.context.textContent = '';
+  ui.results.innerHTML = '<tr><td colspan="6" class="empty">测试中…</td></tr>';
   lock(true);
   ui.cancel.hidden = false;
   ui.benchmark.hidden = true;
@@ -255,17 +246,15 @@ ui.benchmark.addEventListener('click', async () => {
         comparison: comparison(),
       },
       (mode, round, done, total) => {
-        ui.progress.textContent = `采样 ${round + 1}/4 轮，${backendNames[mode]}，${done}/${total} 帧（含预热）`;
+        ui.progress.textContent = `${mode.startsWith('rust') ? 'Rust' : 'Three.js'}　${round + 1}/4 轮　${done}/${total} 帧`;
       },
     );
     showReport(report);
-    ui.progress.textContent = '测试完成，已核对两组绘制工作量。';
+    ui.progress.textContent = '测试完成';
   } catch (error) {
     ui.progress.textContent = errorText(error);
     report = undefined;
-    ui.results.innerHTML =
-      '<tr><td colspan="6" class="empty">本次采样未完成，请重新运行。</td></tr>';
-    ui.context.textContent = '本次未生成有效报告。';
+    ui.results.innerHTML = '<tr><td colspan="6" class="empty">未完成</td></tr>';
   } finally {
     bench = undefined;
     ui.cancel.hidden = true;

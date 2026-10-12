@@ -137,11 +137,6 @@
               </div>
             </div>
           </div>
-          <div class="policy-line">
-            <span class="policy-marker" aria-hidden="true">=</span>
-            <p id="policy">均不实例化，全量更新，按场景顺序逐对象绘制。</p>
-            <span class="order-note">顺序 AB / BA，4 轮</span>
-          </div>
           <div class="table-wrap">
             <table aria-label="性能测试结果">
               <thead>
@@ -157,8 +152,7 @@
               <tbody id="results">
                 <tr>
                   <td colspan="6" class="empty">
-                    <span class="empty-symbol" aria-hidden="true">↔</span
-                    ><span>场景已同步，运行测试查看两组结果。</span>
+                    待测试
                   </td>
                 </tr>
               </tbody>
@@ -166,20 +160,9 @@
           </div>
           <div class="report-status">
             <div id="bench-progress" role="status" aria-live="polite">等待测试</div>
-            <p id="report-context">测试时逐组运行；画布尺寸与动画保持一致。</p>
           </div>
         </section>
 
-        <aside class="reading-notes" aria-label="测量说明">
-          <p>
-            <strong>读数</strong>中位数看典型耗时，P95 看较慢帧。CPU 不含 GPU 完成时间，FPS
-            受刷新率限制；GPU 不可用时不估算。
-          </p>
-          <p>
-            <strong>范围</strong>支持层级、剔除和批次。暂不含 PBR、阴影、模型加载或 3DGS；f32 /
-            Number 与引擎结构的差异仍会影响结果。
-          </p>
-        </aside>
       </main>
       <footer>
         <span>sakorman <span class="footer-divider">/</span> WebGL2 引擎实验</span

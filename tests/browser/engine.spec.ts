@@ -213,7 +213,7 @@ test('instanced comparison remains available as a separate paired benchmark', as
   await expect(page.locator('#results tr')).toHaveCount(2);
   await expect(page.locator('#results')).toContainText('Rust 引擎 · 实例化');
   await expect(page.locator('#results')).toContainText('Three.js · 实例化');
-  await expect(page.locator('#report-context')).toContainText('实例化 / 脏更新');
+  await expect(page.locator('#rust-label')).toHaveText('实例化 / 脏更新');
   await comparePixels(page, 'instanced-canvas');
 });
 
@@ -257,7 +257,6 @@ test('workbench keeps controls, canvases and completed results in one viewport',
         '.controls-panel',
         '.scene-panel',
         '.benchmark-panel',
-        '.reading-notes',
         'footer',
         '#download',
         '#benchmark',
