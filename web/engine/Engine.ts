@@ -1,4 +1,5 @@
 import { SceneGraph, RenderQueue, EngineRenderer } from '../../pkg/three_wasm_rust.js';
+import { ContextLifecycle } from './ContextLifecycle.ts';
 import type { CameraFrame, EngineScene, SceneBackend, FrameStats, DrawTimer } from './types.ts';
 
 /** The engine path has no Three.js dependency. Call init() from the WASM package first. */
@@ -7,7 +8,8 @@ export class Engine implements SceneBackend {
   readonly gl: WebGL2RenderingContext;
   readonly graph: SceneGraph;
   readonly queue: RenderQueue;
-  private readonly renderer: EngineRenderer;
+  readonly context: ContextLifecycle;
+  private renderer: EngineRenderer | undefined;
   private lastTime = NaN;
   private disposed = false;
 
@@ -37,24 +39,42 @@ export class Engine implements SceneBackend {
       throw error;
     }
     try {
-      this.renderer = new EngineRenderer(canvas, data.meshNodes.length, instanced);
+      this.renderer = this.createRenderer(canvas);
     } catch (error) {
       this.queue.free();
       this.graph.free();
       throw error;
     }
+    this.context = new ContextLifecycle(
+      gl,
+      () => {
+        this.renderer = this.createRenderer(canvas);
+      },
+      () => {
+        this.renderer?.free();
+        this.renderer = undefined;
+      },
+    );
+  }
+
+  private createRenderer(canvas: HTMLCanvasElement): EngineRenderer {
+    const renderer = new EngineRenderer(canvas, this.data.meshNodes.length, this.instanced);
     try {
-      for (const g of data.geometries) this.renderer.add_geometry(g.positions, g.indices);
-      for (const m of data.materials)
-        this.renderer.add_material(Float32Array.from(m.color), m.unlit);
-      this.renderer.set_batches(data.batchGeometries, data.batchMaterials);
+      for (const g of this.data.geometries) renderer.add_geometry(g.positions, g.indices);
+      for (const m of this.data.materials)
+        renderer.add_material(Float32Array.from(m.color), m.unlit);
+      renderer.set_batches(this.data.batchGeometries, this.data.batchMaterials);
+      return renderer;
     } catch (error) {
-      this.dispose();
+      renderer.free();
       throw error;
     }
   }
   frame(time: number, camera: CameraFrame, culling: boolean, timer?: DrawTimer): FrameStats {
     if (this.disposed) throw new Error('Engine is disposed');
+    this.context.assertReady();
+    const renderer = this.renderer;
+    if (!renderer) throw new Error('GPU resources are unavailable');
     const start = performance.now();
     if (time !== this.lastTime) {
       this.graph.animate_nodes(this.data.animatedNodes, time);
@@ -68,8 +88,8 @@ export class Engine implements SceneBackend {
     const afterPrepare = performance.now();
     timer?.begin();
     try {
-      if (this.instanced) this.renderer.render(this.queue, camera.viewProjection);
-      else this.renderer.render_direct(this.queue, this.graph, camera.viewProjection);
+      if (this.instanced) renderer.render(this.queue, camera.viewProjection);
+      else renderer.render_direct(this.queue, this.graph, camera.viewProjection);
     } finally {
       timer?.end();
     }
@@ -80,15 +100,17 @@ export class Engine implements SceneBackend {
       submitMs: end - afterPrepare,
       cpuMs: end - start,
       visible: this.queue.visible_count(),
-      draws: this.renderer.draw_calls(),
-      triangles: this.renderer.triangles(),
+      draws: renderer.draw_calls(),
+      triangles: renderer.triangles(),
       updated: this.graph.updated_count(),
     };
   }
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    this.renderer.free();
+    this.context.dispose();
+    this.renderer?.free();
+    this.renderer = undefined;
     this.queue.free();
     this.graph.free();
   }

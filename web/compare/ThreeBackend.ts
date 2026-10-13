@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ContextLifecycle } from '../engine/ContextLifecycle.ts';
 import meshVertex from '../engine/shaders/mesh.vert?raw';
 import instanceVertex from '../engine/shaders/instanced.vert?raw';
 import fragmentShader from '../engine/shaders/surface.frag?raw';
@@ -13,6 +14,8 @@ import type {
 /** Native Mesh and an explicitly optimized InstancedMesh reference, both using Three.js. */
 export class ThreeBackend implements SceneBackend {
   readonly gl: WebGL2RenderingContext;
+  readonly context: ContextLifecycle;
+  private disposed = false;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly root = new THREE.Group();
@@ -40,12 +43,11 @@ export class ThreeBackend implements SceneBackend {
     if (!gl) throw new Error('WebGL2 unavailable');
     this.gl = gl;
     this.renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: true, alpha: false });
+    // Three.js registered its own restore handler above; it recreates its GL state first.
+    this.context = new ContextLifecycle(gl, () => this.resetClearColor());
     // The direct pair draws in scene traversal order, without material/depth sorting.
     this.renderer.sortObjects = kind !== 'three';
-    this.renderer.setClearColor(
-      new THREE.Color().setRGB(0.035, 0.055, 0.075, THREE.SRGBColorSpace),
-      1,
-    );
+    this.resetClearColor();
     this.scene.matrixWorldAutoUpdate = false;
     this.root.matrixAutoUpdate = kind === 'three';
     this.camera.matrixAutoUpdate = false;
@@ -110,7 +112,15 @@ export class ThreeBackend implements SceneBackend {
     }
   }
 
+  private resetClearColor() {
+    this.renderer.setClearColor(
+      new THREE.Color().setRGB(0.035, 0.055, 0.075, THREE.SRGBColorSpace),
+      1,
+    );
+  }
+
   frame(time: number, frame: CameraFrame, culling: boolean, timer?: DrawTimer): FrameStats {
+    this.context.assertReady();
     const start = performance.now();
     if (time !== this.lastTime) {
       const seconds = Math.fround(time);
@@ -181,6 +191,9 @@ export class ThreeBackend implements SceneBackend {
     };
   }
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.context.dispose();
     for (const mesh of this.batches) mesh.dispose();
     for (const g of this.geometries) g.dispose();
     for (const m of this.materials) m.dispose();

@@ -497,7 +497,8 @@ footer {
   margin: 0 7px;
   color: #abbac6;
 }
-body.testing .viewport {
+body.testing .viewport,
+body.recovering .viewport {
   pointer-events: none;
 }
 body.testing .scene-panel {

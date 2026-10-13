@@ -8,7 +8,11 @@ function context(supported = true) {
     created = 0,
     deleted = 0,
     reads = 0;
+  const canvas = new EventTarget();
+  let lost = false;
   const gl = {
+    canvas,
+    isContextLost: () => lost,
     QUERY_RESULT_AVAILABLE: 1,
     QUERY_RESULT: 2,
     getExtension: () => (supported ? { TIME_ELAPSED_EXT: 3, GPU_DISJOINT_EXT: 4 } : null),
@@ -34,6 +38,14 @@ function context(supported = true) {
       disjoint = true;
     },
     stats: () => ({ created, deleted, reads }),
+    lose: () => {
+      lost = true;
+      canvas.dispatchEvent(new Event('webglcontextlost'));
+    },
+    restore: () => {
+      lost = false;
+      canvas.dispatchEvent(new Event('webglcontextrestored'));
+    },
   };
 }
 
@@ -88,4 +100,24 @@ test('GPU timer supports missing extensions and caps outstanding queries', () =>
   assert.equal(ctx.stats().created, 8);
   pending.dispose();
   assert.equal(ctx.stats().deleted, 8);
+});
+
+test('GPU timer never reads stale queries after context restoration', () => {
+  const ctx = context(),
+    timer = new GpuTimer(ctx.gl);
+  timer.begin();
+  timer.end();
+  ctx.available();
+  timer.poll();
+  timer.begin();
+  timer.end();
+  ctx.lose();
+  ctx.restore();
+  timer.poll();
+  timer.begin();
+  timer.end();
+  timer.dispose();
+  assert.deepEqual(timer.samples, []);
+  assert.equal(timer.disjoint, true);
+  assert.deepEqual(ctx.stats(), { created: 2, deleted: 1, reads: 1 });
 });

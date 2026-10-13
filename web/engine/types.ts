@@ -46,6 +46,7 @@ export interface FrameStats {
 export interface SceneBackend {
   readonly kind: Backend;
   readonly gl: WebGL2RenderingContext;
+  readonly context: ContextLifecycle;
   frame(time: number, camera: CameraFrame, culling: boolean, timer?: DrawTimer): FrameStats;
   dispose(): void;
 }
@@ -72,3 +73,4 @@ declare global {
     engineLab: { snapshot(): EngineSnapshot };
   }
 }
+import type { ContextLifecycle } from './ContextLifecycle.ts';

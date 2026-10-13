@@ -55,7 +55,23 @@ export interface ComparisonReport {
   };
   results: ModeResult[];
 }
-export const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+export function nextFrame(signal: AbortSignal): Promise<number> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const frame = requestAnimationFrame((time) => {
+      signal.removeEventListener('abort', cancel);
+      resolve(time);
+    });
+    function cancel() {
+      cancelAnimationFrame(frame);
+      reject(signal.reason);
+    }
+    signal.addEventListener('abort', cancel, { once: true });
+  });
+}
 export function quantile(values: number[], q: number) {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -97,12 +113,19 @@ export async function compareBackends(
     instanced: 'unsupported',
   };
   const order: Backend[][] = [];
+  const generations = backends.map((backend) => backend.context.generation);
   const check = () => {
     if (options.signal.aborted)
       throw options.signal.reason instanceof Error
         ? options.signal.reason
         : new Error('测试已取消');
     if (document.hidden) throw new Error('标签页已进入后台，请回到前台重新测试');
+    for (const [i, backend] of backends.entries()) {
+      if (!backend.context.ready || backend.context.generation !== generations[i])
+        throw new Error('测试已中止：图形上下文改变');
+      if (backend.gl.drawingBufferWidth !== width || backend.gl.drawingBufferHeight !== height)
+        throw new Error('测试已中止：画布尺寸改变');
+    }
   };
   const width = backends[0].gl.drawingBufferWidth,
     height = backends[0].gl.drawingBufferHeight;
@@ -118,7 +141,7 @@ export async function compareBackends(
       const backend = byMode.get(mode)!,
         timer = new GpuTimer(backend.gl);
       try {
-        let boundary = await nextFrame();
+        let boundary = await nextFrame(options.signal);
         for (let frame = 0; frame < options.warmupFrames + options.sampleFrames; frame++) {
           check();
           const recording = frame >= options.warmupFrames;
@@ -128,7 +151,8 @@ export async function compareBackends(
             options.culling,
             recording ? timer : undefined,
           );
-          const end = await nextFrame();
+          const end = await nextFrame(options.signal);
+          check();
           if (recording) samples[mode].push({ ...stats, frameMs: end - boundary });
           boundary = end;
           timer.poll();
@@ -137,7 +161,8 @@ export async function compareBackends(
         }
         for (let i = 0; i < 8; i++) {
           check();
-          await nextFrame();
+          await nextFrame(options.signal);
+          check();
           timer.poll();
         }
         if (timer.disjoint) {
@@ -152,6 +177,7 @@ export async function compareBackends(
       }
     }
   }
+  check();
   const left = samples[modes[0]],
     right = samples[modes[1]];
   if (

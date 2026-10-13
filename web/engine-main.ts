@@ -52,6 +52,8 @@ let animation = !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   last = performance.now(),
   reportTime = last,
   frames = 0;
+let recovering = false,
+  disposed = false;
 let bench: AbortController | undefined, report: ComparisonReport | undefined;
 let lastStats: Partial<Record<Backend, FrameStats>> = {};
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -117,6 +119,40 @@ function disposeBackends() {
   if (backends) for (const backend of Object.values(backends)) backend.dispose();
   backends = undefined;
 }
+function contextChanged() {
+  if (disposed || failed || !backends) return;
+  const contexts = [backends.rust.context, backends.reference.context];
+  const broken = contexts.find((context) => context.state === 'failed');
+  if (broken) {
+    failure(broken.error ?? new Error('图形恢复失败'));
+    return;
+  }
+  if (contexts.some((context) => !context.ready)) {
+    if (recovering) return;
+    recovering = true;
+    bench?.abort(new Error('测试已中止：图形上下文丢失'));
+    report = undefined;
+    ui.download.hidden = true;
+    ui.results.innerHTML = '<tr><td colspan="6" class="empty">待测试</td></tr>';
+    ui.status.textContent = '等待图形恢复';
+    ui.dot.classList.remove('ready');
+    ui.progress.textContent = '图形恢复中';
+    ui.fps.textContent = '—';
+    lastStats = {};
+    document.body.classList.add('recovering');
+    lock(true);
+  } else if (recovering) {
+    recovering = false;
+    ui.error.hidden = true;
+    ui.status.textContent = '引擎已就绪';
+    ui.dot.classList.add('ready');
+    ui.progress.textContent = '图形已恢复';
+    document.body.classList.remove('recovering');
+    last = reportTime = performance.now();
+    frames = 0;
+    if (!bench) lock(false);
+  }
+}
 function rebuild() {
   disposeBackends();
   const scenario = ui.scenario.value;
@@ -130,6 +166,8 @@ function rebuild() {
     const reference = new ThreeBackend(canvases[selectedReference()], data, selectedReference());
     created.push(reference);
     backends = { rust, reference };
+    rust.context.subscribe(contextChanged);
+    reference.context.subscribe(contextChanged);
   } catch (error) {
     for (const backend of created) backend.dispose();
     throw error;
@@ -154,10 +192,12 @@ function updateMetrics(id: string, stats: FrameStats) {
   });
 }
 function tick(now: number) {
-  if (failed) return;
+  if (failed || disposed) return;
   const dt = Math.max(0, Math.min((now - last) / 1000, 0.1));
   last = now;
-  if (backends && !bench) {
+  if (backends && (!backends.rust.context.ready || !backends.reference.context.ready))
+    contextChanged();
+  if (backends && !bench && !recovering && !failed) {
     try {
       if (animation) elapsed += dt;
       const frame = camera.frame(canvases.rust.width / canvases.rust.height);
@@ -174,8 +214,11 @@ function tick(now: number) {
         reportTime = now;
       }
     } catch (error) {
-      failure(error);
-      return;
+      if (!backends.rust.context.ready || !backends.reference.context.ready) contextChanged();
+      else {
+        failure(error);
+        return;
+      }
     }
   }
   raf = requestAnimationFrame(tick);
@@ -260,7 +303,7 @@ ui.benchmark.addEventListener('click', async () => {
     ui.cancel.hidden = true;
     ui.benchmark.hidden = false;
     document.body.classList.remove('testing');
-    if (!failed) lock(false);
+    if (!failed && !recovering && !disposed) lock(false);
     last = reportTime = performance.now();
     frames = 0;
   }
@@ -303,17 +346,13 @@ for (const control of [ui.scenario, ui.count])
       failure(error);
     }
   });
-for (const canvas of Object.values(canvases))
-  canvas.addEventListener('webglcontextlost', (event) => {
-    event.preventDefault();
-    failure('WebGL 上下文丢失');
-  });
 camera.attach(leftView, invalidate);
 camera.attach(rightView, invalidate);
 const observer = new ResizeObserver(resize);
 observer.observe(leftView);
 observer.observe(rightView);
 window.addEventListener('pagehide', () => {
+  disposed = true;
   bench?.abort();
   cancelAnimationFrame(raf);
   observer.disconnect();
