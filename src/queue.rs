@@ -47,6 +47,7 @@ pub struct RenderQueue {
     cursors: Vec<usize>,
     pub(crate) visible_items: Vec<usize>,
     pub(crate) packed: bool,
+    pub(crate) prepared: bool,
 }
 
 #[wasm_bindgen]
@@ -83,6 +84,7 @@ impl RenderQueue {
             cursors: vec![0; group_count],
             visible_items: Vec::with_capacity(nodes.len()),
             packed: false,
+            prepared: false,
         })
     }
 
@@ -119,6 +121,11 @@ impl RenderQueue {
         view_projection: &[f32],
         culling: bool,
     ) -> Result<(), String> {
+        self.ranges.fill((0, 0));
+        self.visible_ids.clear();
+        self.visible_items.clear();
+        self.packed = false;
+        self.prepared = false;
         let planes = planes(view_projection)?;
         if self
             .nodes
@@ -127,10 +134,6 @@ impl RenderQueue {
         {
             return Err("mesh node is outside the scene".into());
         }
-        self.ranges.fill((0, 0));
-        self.visible_ids.clear();
-        self.visible_items.clear();
-        self.packed = false;
         for i in 0..self.nodes.len() {
             let offset = self.nodes[i] as usize * 16;
             let m: &Mat4 = scene.worlds[offset..offset + 16].try_into().unwrap();
@@ -146,6 +149,7 @@ impl RenderQueue {
                 self.visible_items.push(i);
             }
         }
+        self.prepared = true;
         Ok(())
     }
 
@@ -238,5 +242,30 @@ mod tests {
         queue.prepare(&scene, &IDENTITY, true).unwrap();
         assert!(queue.packed);
         assert_eq!(queue.matrices_len(), 48);
+    }
+
+    #[test]
+    fn failed_prepare_invalidates_previous_draws_and_recovers_on_valid_input() {
+        let scene = SceneGraph::new(&[-1], &[0., 0., 0., 0., 0., 0., 1., 1., 1., 1.]).unwrap();
+        let empty_scene = SceneGraph::new(&[], &[]).unwrap();
+        let mut queue = RenderQueue::new(&[0], &[0], &[1.], 1).unwrap();
+        assert!(!queue.prepared);
+        queue.prepare(&scene, &IDENTITY, false).unwrap();
+        assert_eq!(queue.visible_count(), 1);
+        assert!(queue.prepare(&scene, &[f32::NAN; 16], true).is_err());
+        assert!(!queue.prepared);
+        assert_eq!(queue.matrices_len(), 0);
+        assert_eq!(queue.visible_count(), 0);
+        assert_eq!(queue.batch_count(), 0);
+        queue.prepare_direct(&scene, &IDENTITY, false).unwrap();
+        assert!(queue.prepared);
+        assert!(queue
+            .prepare_direct(&empty_scene, &IDENTITY, false)
+            .is_err());
+        assert!(!queue.prepared);
+        assert_eq!(queue.visible_count(), 0);
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert!(queue.prepared && queue.packed);
+        assert_eq!(queue.visible_count(), 1);
     }
 }

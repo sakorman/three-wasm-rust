@@ -341,7 +341,8 @@ impl EngineRenderer {
     }
 
     fn validate(&self, queue: &RenderQueue, view_projection: &[f32]) -> Result<(), JsValue> {
-        if queue.matrix_capacity() > self.capacity
+        if !queue.prepared
+            || queue.matrix_capacity() > self.capacity
             || queue.ranges.len() != self.batches.len()
             || view_projection.len() != 16
             || view_projection.iter().any(|x| !x.is_finite())
