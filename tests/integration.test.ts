@@ -238,6 +238,37 @@ test('engine camera agrees with Three.js lookAt and perspective', () => {
   close(frame.projection, camera.projectionMatrix.elements, 'projection');
 });
 
+test('WASM packs reflected hierarchies into winding batches without duplicating instances', () => {
+  const data = createEngineScene('hierarchy', 500);
+  for (let id = 0; id < data.parents.length; id++) {
+    if (id % 2) data.transforms[id * 10 + 7] *= -1;
+    if (id % 3) data.transforms[id * 10 + 8] *= -1;
+  }
+  const graph = new SceneGraph(data.parents, data.transforms);
+  const queue = new RenderQueue(data.meshNodes, data.groups, data.radii, data.batchGeometries.length);
+  const reference = new ThreeGraph({
+    parents: data.parents, transforms: data.transforms, colors: new Float32Array(),
+  });
+  try {
+    const groups: number[][] = Array.from({ length: data.batchGeometries.length * 2 }, () => []);
+    data.meshNodes.forEach((node, i) => {
+      const winding = Number(reference.nodes[node].matrixWorld.determinant() < 0);
+      groups[data.groups[i] * 2 + winding].push(node);
+    });
+    queue.prepare(graph, Float32Array.from(new THREE.Matrix4().elements), false);
+    assert.equal(queue.visible_count(), data.meshNodes.length);
+    assert.equal(queue.batch_count(), groups.filter((nodes) => nodes.length).length);
+    assert.deepEqual(Array.from(queue.batch_counts()), Array.from(data.batchGeometries, (_, group) =>
+      groups[group * 2].length + groups[group * 2 + 1].length));
+    const matrices = new Float32Array(wasm.memory.buffer, queue.matrices_ptr(), queue.matrices_len());
+    close(matrices, groups.flat().flatMap((id) => reference.nodes[id].matrixWorld.elements), 'winding order');
+    assert.deepEqual(Array.from(queue.visible_nodes()), Array.from(data.meshNodes));
+  } finally {
+    queue.free();
+    graph.free();
+  }
+});
+
 test('engine primitives have valid outward-facing triangles', () => {
   for (const geometry of createEngineScene('city', 100).geometries) {
     assert.ok(geometry.indices.length > 0);

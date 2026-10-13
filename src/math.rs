@@ -5,6 +5,13 @@ pub const IDENTITY: Mat4 = [
     1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
 ];
 
+/// The sign of the affine determinant includes reflections inherited from parents.
+pub fn is_mirrored(m: &Mat4) -> bool {
+    let [a, b, c, d, e, f, g, h, i] =
+        [m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]].map(f64::from);
+    a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g) < 0.
+}
+
 pub fn multiply(a: &Mat4, b: &Mat4) -> Mat4 {
     let mut out = [0.; 16];
     for col in 0..4 {
@@ -67,6 +74,32 @@ pub fn normalize_transforms(values: &[f32]) -> Result<Vec<f32>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reflection_uses_world_orientation_without_overflow() {
+        let transform = |x, y, z| compose(&[0., 0., 0., 0., 0., 0., 1., x, y, z]);
+        for (scale, mirrored) in [
+            ([1., 2., 3.], false),
+            ([-1., 2., 3.], true),
+            ([-1., -2., 3.], false),
+            ([-1., -2., -3.], true),
+            ([-1., 0., 3.], false),
+            ([-f32::MAX, f32::MAX, f32::MAX], true),
+            (
+                [-f32::MIN_POSITIVE, f32::MIN_POSITIVE, f32::MIN_POSITIVE],
+                true,
+            ),
+        ] {
+            assert_eq!(
+                is_mirrored(&transform(scale[0], scale[1], scale[2])),
+                mirrored
+            );
+        }
+        let parent = transform(-2., 3., 4.);
+        let child = compose(&[0., 0., 0., 0., 0.5, 0., 0.8660254, 1., 1., 1.]);
+        assert!(is_mirrored(&multiply(&parent, &child)));
+        assert!(!is_mirrored(&multiply(&parent, &transform(-1., 1., 1.))));
+    }
 
     #[test]
     fn translation_and_scale_follow_column_major_convention() {

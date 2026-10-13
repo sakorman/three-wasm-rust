@@ -24,6 +24,7 @@ export class ThreeBackend implements SceneBackend {
   private readonly nodes: THREE.Object3D[];
   private readonly geometries: THREE.BufferGeometry[];
   private readonly materials: THREE.RawShaderMaterial[];
+  private readonly mirroredMaterials: THREE.RawShaderMaterial[];
   private readonly batches: THREE.InstancedMesh[] = [];
   private readonly frustum = new THREE.Frustum();
   private readonly sphere = new THREE.Sphere();
@@ -72,6 +73,16 @@ export class ThreeBackend implements SceneBackend {
           },
         }),
     );
+    // InstancedMesh has one winding state per draw, so reflected instances need a separate batch.
+    this.mirroredMaterials =
+      kind === 'instanced'
+        ? this.materials.map((material) => {
+            const mirrored = material.clone();
+            mirrored.side = THREE.BackSide;
+            mirrored.uniforms.viewProjection = this.vp;
+            return mirrored;
+          })
+        : [];
     const meshIndex = new Map(Array.from(data.meshNodes, (node, i) => [node, i]));
     this.nodes = Array.from(data.parents, (_, id) => {
       const index = meshIndex.get(id),
@@ -94,20 +105,22 @@ export class ThreeBackend implements SceneBackend {
       (parent === -1 ? this.root : this.nodes[parent]).add(this.nodes[id]);
     });
     this.root.updateMatrixWorld(true);
-    this.counts = new Uint32Array(data.batchGeometries.length);
+    this.counts = new Uint32Array(data.batchGeometries.length * 2);
     if (kind === 'three') this.scene.add(this.root);
     else {
-      for (const group of data.groups) this.counts[group]++;
+      for (const group of data.groups) this.counts[group * 2]++;
       data.batchGeometries.forEach((geometry, group) => {
-        const mesh = new THREE.InstancedMesh(
-          this.geometries[geometry],
-          this.materials[data.batchMaterials[group]],
-          this.counts[group],
-        );
-        mesh.frustumCulled = false;
-        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        this.batches.push(mesh);
-        this.scene.add(mesh);
+        for (const materials of [this.materials, this.mirroredMaterials]) {
+          const mesh = new THREE.InstancedMesh(
+            this.geometries[geometry],
+            materials[data.batchMaterials[group]],
+            this.counts[group * 2],
+          );
+          mesh.frustumCulled = false;
+          mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+          this.batches.push(mesh);
+          this.scene.add(mesh);
+        }
       });
     }
   }
@@ -146,12 +159,12 @@ export class ThreeBackend implements SceneBackend {
       this.frustum.setFromProjectionMatrix(this.vp.value);
       this.counts.fill(0);
       for (let i = 0; i < this.data.meshNodes.length; i++) {
-        const node = this.nodes[this.data.meshNodes[i]],
-          group = this.data.groups[i];
+        const node = this.nodes[this.data.meshNodes[i]];
         this.sphere.center.set(0, 0, 0);
         this.sphere.radius = this.data.radii[i];
         this.sphere.applyMatrix4(node.matrixWorld);
         if (culling && !this.frustum.intersectsSphere(this.sphere)) continue;
+        const group = this.data.groups[i] * 2 + Number(node.matrixWorld.determinant() < 0);
         this.batches[group].setMatrixAt(this.counts[group]++, node.matrixWorld);
         visible++;
       }
@@ -197,6 +210,7 @@ export class ThreeBackend implements SceneBackend {
     for (const mesh of this.batches) mesh.dispose();
     for (const g of this.geometries) g.dispose();
     for (const m of this.materials) m.dispose();
+    for (const m of this.mirroredMaterials) m.dispose();
     this.renderer.dispose();
   }
 }

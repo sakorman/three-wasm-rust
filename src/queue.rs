@@ -1,5 +1,8 @@
 //! Visibility and geometry/material batches, independent of the graphics API.
-use crate::{math::Mat4, SceneGraph, MAX_NODES};
+use crate::{
+    math::{is_mirrored, Mat4},
+    SceneGraph, MAX_NODES,
+};
 use wasm_bindgen::prelude::*;
 
 fn planes(matrix: &[f32]) -> Result<[[f32; 4]; 6], String> {
@@ -41,7 +44,9 @@ pub struct RenderQueue {
     pub(crate) nodes: Vec<u32>,
     pub(crate) groups: Vec<u32>,
     radii: Vec<f32>,
+    // Each resource group has a CCW range followed by a CW range.
     pub(crate) ranges: Vec<(usize, usize)>,
+    pub(crate) mirrored: Vec<bool>,
     pub(crate) matrices: Vec<f32>,
     visible_ids: Vec<u32>,
     cursors: Vec<usize>,
@@ -78,10 +83,11 @@ impl RenderQueue {
             nodes: nodes.to_vec(),
             groups: groups.to_vec(),
             radii: radii.to_vec(),
-            ranges: vec![(0, 0); group_count],
+            ranges: vec![(0, 0); group_count * 2],
+            mirrored: vec![false; nodes.len()],
             matrices: vec![0.; nodes.len() * 16],
             visible_ids: Vec::with_capacity(nodes.len()),
-            cursors: vec![0; group_count],
+            cursors: vec![0; group_count * 2],
             visible_items: Vec::with_capacity(nodes.len()),
             packed: false,
             prepared: false,
@@ -104,7 +110,7 @@ impl RenderQueue {
             *cursor = range.0;
         }
         for &i in &self.visible_items {
-            let group = self.groups[i] as usize;
+            let group = self.groups[i] as usize * 2 + usize::from(self.mirrored[i]);
             let dst = self.cursors[group] * 16;
             let src = self.nodes[i] as usize * 16;
             self.matrices[dst..dst + 16].copy_from_slice(&scene.worlds[src..src + 16]);
@@ -144,7 +150,9 @@ impl RenderQueue {
                     .all(|p| p[0] * m[12] + p[1] * m[13] + p[2] * m[14] + p[3] >= -radius)
             };
             if visible {
-                self.ranges[self.groups[i] as usize].1 += 1;
+                self.mirrored[i] = is_mirrored(m);
+                let group = self.groups[i] as usize * 2 + usize::from(self.mirrored[i]);
+                self.ranges[group].1 += 1;
                 self.visible_ids.push(self.nodes[i]);
                 self.visible_items.push(i);
             }
@@ -163,7 +171,12 @@ impl RenderQueue {
         self.visible_ids.clone()
     }
     pub fn batch_counts(&self) -> Vec<u32> {
-        self.ranges.iter().map(|r| r.1 as u32).collect()
+        self.ranges
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|r| (r[0].1 + r[1].1) as u32)
+            .collect()
     }
     pub fn matrices_ptr(&self) -> *const f32 {
         self.matrices.as_ptr()
@@ -184,6 +197,38 @@ impl RenderQueue {
 mod tests {
     use super::*;
     use crate::math::IDENTITY;
+
+    #[test]
+    fn winding_batches_follow_parent_reflections_and_scale_changes() {
+        let t = [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.];
+        let mut values = t.repeat(4);
+        values[7] = -1.;
+        values[27] = -1.;
+        let mut scene = SceneGraph::new(&[-1, 0, 0, -1], &values).unwrap();
+        let mut queue = RenderQueue::new(&[1, 2, 3], &[0; 3], &[0.1; 3], 1).unwrap();
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.mirrored, vec![true, false, false]);
+        assert_eq!(queue.batch_counts(), vec![3]);
+        assert_eq!(queue.batch_count(), 2);
+        assert_eq!(queue.ranges, vec![(0, 2), (2, 1)]);
+        assert_eq!(queue.matrices[0], 1.);
+        assert_eq!(queue.matrices[32], -1.);
+
+        scene.set_transform(0, &t).unwrap();
+        scene.update_world_matrices();
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.mirrored, vec![false, true, false]);
+        assert_eq!(queue.visible_nodes(), vec![1, 2, 3]);
+        assert_eq!(queue.matrices[32], -1.);
+
+        scene.set_transform(2, &t).unwrap();
+        scene.update_world_matrices();
+        queue.prepare_direct(&scene, &IDENTITY, false).unwrap();
+        assert_eq!(queue.mirrored, vec![false; 3]);
+        assert_eq!(queue.batch_count(), 1);
+        assert_eq!(queue.visible_items, vec![0, 1, 2]);
+        assert_eq!(queue.matrices_len(), 0);
+    }
     #[test]
     fn culls_and_groups_without_losing_visible_nodes() {
         let t = [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.];

@@ -258,9 +258,10 @@ impl EngineRenderer {
             if count == 0 {
                 continue;
             }
-            let (g, m) = self.batches[group];
+            let (g, m) = self.batches[group / 2];
             let geometry = &self.geometries[g];
             let material = &self.materials[m];
+            gl.front_face(if group % 2 == 0 { Gl::CCW } else { Gl::CW });
             gl.bind_vertex_array(Some(&geometry.vao));
             for col in 0..4 {
                 gl.vertex_attrib_pointer_with_i32(
@@ -313,6 +314,7 @@ impl EngineRenderer {
         let gl = &self.gl;
         let mut last_geometry = None;
         let mut last_material = None;
+        let mut last_mirrored = None;
         for &item in &queue.visible_items {
             let (g, m) = self.batches[queue.groups[item] as usize];
             let geometry = &self.geometries[g];
@@ -327,6 +329,11 @@ impl EngineRenderer {
                 last_material = Some(m);
             }
             let offset = queue.nodes[item] as usize * 16;
+            let mirrored = queue.mirrored[item];
+            if last_mirrored != Some(mirrored) {
+                gl.front_face(if mirrored { Gl::CW } else { Gl::CCW });
+                last_mirrored = Some(mirrored);
+            }
             gl.uniform_matrix4fv_with_f32_array(
                 self.model.as_ref(),
                 false,
@@ -343,7 +350,7 @@ impl EngineRenderer {
     fn validate(&self, queue: &RenderQueue, view_projection: &[f32]) -> Result<(), JsValue> {
         if !queue.prepared
             || queue.matrix_capacity() > self.capacity
-            || queue.ranges.len() != self.batches.len()
+            || queue.ranges.len() != self.batches.len() * 2
             || view_projection.len() != 16
             || view_projection.iter().any(|x| !x.is_finite())
         {
