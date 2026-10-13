@@ -1,5 +1,6 @@
 import { SceneGraph, RenderQueue, EngineRenderer } from '../../pkg/three_wasm_rust.js';
 import { ContextLifecycle } from './ContextLifecycle.ts';
+import { validateBounds } from './bounds.ts';
 import type { CameraFrame, EngineScene, SceneBackend, FrameStats, DrawTimer } from './types.ts';
 
 /** The engine path has no Three.js dependency. Call init() from the WASM package first. */
@@ -18,6 +19,7 @@ export class Engine implements SceneBackend {
     readonly data: EngineScene,
     private readonly instanced = true,
   ) {
+    validateBounds(data);
     this.kind = instanced ? 'rust' : 'rust-direct';
     const gl = canvas.getContext('webgl2', {
       antialias: true,
@@ -39,6 +41,7 @@ export class Engine implements SceneBackend {
       throw error;
     }
     try {
+      if (data.centers) this.queue.set_bounds(data.centers, data.radii);
       this.renderer = this.createRenderer(canvas);
     } catch (error) {
       this.queue.free();

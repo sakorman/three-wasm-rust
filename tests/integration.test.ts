@@ -238,6 +238,44 @@ test('engine camera agrees with Three.js lookAt and perspective', () => {
   close(frame.projection, camera.projectionMatrix.elements, 'projection');
 });
 
+test('off-origin WASM spheres match Three.js across camera positions', () => {
+  const data = createEngineScene('hierarchy', 500);
+  const centers = Float32Array.from({ length: data.meshNodes.length * 3 }, (_, i) =>
+    ((i * 7) % 23 - 11) * 1.25);
+  const graph = new SceneGraph(data.parents, data.transforms);
+  const queue = new RenderQueue(data.meshNodes, data.groups, data.radii, data.batchGeometries.length);
+  const reference = new ThreeGraph({
+    parents: data.parents, transforms: data.transforms, colors: new Float32Array(),
+  });
+  const camera = new OrbitCamera();
+  camera.reset(data.extent);
+  try {
+    queue.set_bounds(centers, data.radii);
+    assert.throws(() => queue.set_bounds(new Float32Array(3), data.radii), /bounding spheres/);
+    for (const yaw of [0, 0.8, 2.2]) {
+      camera.yaw = yaw;
+      camera.distance = data.extent * 0.8;
+      const frame = camera.frame(1.3);
+      const frustum = new THREE.Frustum().setFromProjectionMatrix(
+        new THREE.Matrix4().fromArray(frame.viewProjection));
+      const expected: number[] = [];
+      data.meshNodes.forEach((id, i) => {
+        const sphere = new THREE.Sphere(new THREE.Vector3().fromArray(centers, i * 3), data.radii[i]);
+        if (frustum.intersectsSphere(sphere.applyMatrix4(reference.nodes[id].matrixWorld)))
+          expected.push(id);
+      });
+      queue.prepare(graph, frame.viewProjection, true);
+      assert.deepEqual(Array.from(queue.visible_nodes()), expected);
+      queue.prepare_direct(graph, frame.viewProjection, true);
+      assert.deepEqual(Array.from(queue.visible_nodes()), expected);
+      assert.ok(expected.length > 0 && expected.length < data.meshNodes.length);
+    }
+  } finally {
+    queue.free();
+    graph.free();
+  }
+});
+
 test('WASM packs reflected hierarchies into winding batches without duplicating instances', () => {
   const data = createEngineScene('hierarchy', 500);
   for (let id = 0; id < data.parents.length; id++) {

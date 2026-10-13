@@ -21,6 +21,8 @@ export interface EngineScene {
   meshNodes: Uint32Array;
   groups: Uint32Array;
   radii: Float32Array;
+  /** Local sphere centers in meshNodes order (xyz); omitted centers are at the origin. */
+  centers?: Float32Array;
   batchGeometries: Uint32Array;
   batchMaterials: Uint32Array;
   animatedNodes: Uint32Array;

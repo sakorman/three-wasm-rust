@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ContextLifecycle } from '../engine/ContextLifecycle.ts';
+import { validateBounds } from '../engine/bounds.ts';
 import meshVertex from '../engine/shaders/mesh.vert?raw';
 import instanceVertex from '../engine/shaders/instanced.vert?raw';
 import fragmentShader from '../engine/shaders/surface.frag?raw';
@@ -36,6 +37,7 @@ export class ThreeBackend implements SceneBackend {
     readonly data: EngineScene,
     readonly kind: 'three' | 'instanced',
   ) {
+    validateBounds(data);
     const gl = canvas.getContext('webgl2', {
       antialias: true,
       alpha: false,
@@ -94,6 +96,11 @@ export class ThreeBackend implements SceneBackend {
               this.materials[data.batchMaterials[group]],
             )
           : new THREE.Object3D();
+      if (node instanceof THREE.Mesh && index !== undefined) {
+        const center = new THREE.Vector3();
+        if (data.centers) center.fromArray(data.centers, index * 3);
+        Object.assign(node, { boundingSphere: new THREE.Sphere(center, data.radii[index]) });
+      }
       node.position.fromArray(data.transforms, id * 10);
       node.quaternion.fromArray(data.transforms, id * 10 + 3).normalize();
       node.scale.fromArray(data.transforms, id * 10 + 7);
@@ -160,7 +167,8 @@ export class ThreeBackend implements SceneBackend {
       this.counts.fill(0);
       for (let i = 0; i < this.data.meshNodes.length; i++) {
         const node = this.nodes[this.data.meshNodes[i]];
-        this.sphere.center.set(0, 0, 0);
+        if (this.data.centers) this.sphere.center.fromArray(this.data.centers, i * 3);
+        else this.sphere.center.set(0, 0, 0);
         this.sphere.radius = this.data.radii[i];
         this.sphere.applyMatrix4(node.matrixWorld);
         if (culling && !this.frustum.intersectsSphere(this.sphere)) continue;

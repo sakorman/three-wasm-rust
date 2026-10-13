@@ -1,6 +1,6 @@
 # 测试说明
 
-最近验证版本：2026-10-13，共 **54 项测试通过**：14 项 Rust、20 项 Node、20 项 Chromium。strict 类型检查、Rust 格式检查、原生/wasm32 Clippy 和生产构建均通过。
+最近验证版本：2026-10-14，共 **60 项测试通过**：16 项 Rust、21 项 Node、23 项 Chromium。strict 类型检查、Rust 格式检查、原生/wasm32 Clippy 和生产构建均通过。
 
 ## 覆盖范围
 
@@ -10,6 +10,7 @@
 | 场景图 | 无序父节点、改父节点、循环拒绝、脏更新传播、空场景和 20,000 层深度 |
 | WASM 内存 | 内存增长后重新建立视图，复制结果可独立保留，重复创建与释放 |
 | 可见性 | 三种场景的可见节点集合与 Three.js Frustum/Sphere 对齐 |
+| 包围球 | 非原点球心、父子变换、旋转与负缩放；零半径边界、输入校验和更新后的队列失效 |
 | 几何与相机 | 三角形外向绕序，look-at 和透视矩阵与 Three.js 对齐 |
 | 绘制 | 逐对象及实例化路径的非空像素、WebGL 错误码和画面一致性 |
 | 镜像 | 父节点镜像、双重镜像、缩放符号变更、CW/CCW 批次切换；与普通 Three.js Mesh 比较单面三角形正反视图 |
@@ -29,6 +30,8 @@
 上下文恢复使用 `WEBGL_lose_context` 主动注入故障。恢复后会重新检查像素，并完成一次新的性能测试。
 
 镜像回归使用 256×256 画布和四个单面三角形。修复前，混合正负缩放的 Rust 逐对象路径只得到 4,710 个着色像素，普通 Three.js Mesh 为 9,419 个，RGB 平均误差为 9.02/255。修复后两条 Rust 路径及 Three.js 实例化适配器均与普通 Mesh 对齐；从背面观察时着色像素为零。用例还检查缩放符号变化后的批次迁移，混合朝向为两次实例化绘制，统一朝向为一次。
+
+非原点用例将三角形放在局部 x≈10 处，使用球心 `(10, 0, 0)`、半径 0.75。仅提供该半径、保持原点球心时，Rust 剔除后没有着色像素；正确球心下与关闭剔除的参考画面一致，为 2,730 个着色像素。相机移动后可见对象由 2 个变为 1 个。逐对象、实例化和上下文恢复均检查画面与可见数，另用 500 个包围球、三个视角做真实 WASM 与 Three.js 差分测试。
 
 ## 运行
 
@@ -50,6 +53,13 @@ npm run test:e2e -- --grep 'context recovery|context loss cancels|public Engine 
 ```bash
 npm run build:wasm
 npm run test:e2e -- tests/browser/mirrors.spec.ts
+```
+
+单独检查非原点包围球：
+
+```bash
+npm run build:wasm
+npm run test:e2e -- tests/browser/bounds.spec.ts
 ```
 
 截图、trace 和测试报告保存在 `test-results/`，CI 会上传 artifact，该目录不提交到仓库。

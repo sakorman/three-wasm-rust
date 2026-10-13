@@ -44,6 +44,7 @@ pub struct RenderQueue {
     pub(crate) nodes: Vec<u32>,
     pub(crate) groups: Vec<u32>,
     radii: Vec<f32>,
+    centers: Vec<f32>,
     // Each resource group has a CCW range followed by a CW range.
     pub(crate) ranges: Vec<(usize, usize)>,
     pub(crate) mirrored: Vec<bool>,
@@ -83,6 +84,7 @@ impl RenderQueue {
             nodes: nodes.to_vec(),
             groups: groups.to_vec(),
             radii: radii.to_vec(),
+            centers: vec![0.; nodes.len() * 3],
             ranges: vec![(0, 0); group_count * 2],
             mirrored: vec![false; nodes.len()],
             matrices: vec![0.; nodes.len() * 16],
@@ -92,6 +94,29 @@ impl RenderQueue {
             packed: false,
             prepared: false,
         })
+    }
+
+    /// Replace local bounding spheres in descriptor order. Re-prepare before drawing.
+    pub fn set_bounds(&mut self, centers: &[f32], radii: &[f32]) -> Result<(), String> {
+        if centers.len() != self.nodes.len() * 3
+            || radii.len() != self.nodes.len()
+            || centers.iter().any(|v| !v.is_finite())
+            || radii.iter().any(|&r| !r.is_finite() || r < 0.)
+        {
+            return Err("invalid bounding spheres".into());
+        }
+        self.centers.copy_from_slice(centers);
+        self.radii.copy_from_slice(radii);
+        self.invalidate();
+        Ok(())
+    }
+
+    fn invalidate(&mut self) {
+        self.ranges.fill((0, 0));
+        self.visible_ids.clear();
+        self.visible_items.clear();
+        self.packed = false;
+        self.prepared = false;
     }
 
     pub fn prepare(
@@ -127,11 +152,7 @@ impl RenderQueue {
         view_projection: &[f32],
         culling: bool,
     ) -> Result<(), String> {
-        self.ranges.fill((0, 0));
-        self.visible_ids.clear();
-        self.visible_items.clear();
-        self.packed = false;
-        self.prepared = false;
+        self.invalidate();
         let planes = planes(view_projection)?;
         if self
             .nodes
@@ -145,9 +166,16 @@ impl RenderQueue {
             let m: &Mat4 = scene.worlds[offset..offset + 16].try_into().unwrap();
             let visible = !culling || {
                 let radius = self.radii[i] * radius_scale(m);
+                let center = &self.centers[i * 3..i * 3 + 3];
+                let world = [0, 1, 2].map(|axis| {
+                    m[axis] * center[0]
+                        + m[axis + 4] * center[1]
+                        + m[axis + 8] * center[2]
+                        + m[axis + 12]
+                });
                 planes
                     .iter()
-                    .all(|p| p[0] * m[12] + p[1] * m[13] + p[2] * m[14] + p[3] >= -radius)
+                    .all(|p| p[0] * world[0] + p[1] * world[1] + p[2] * world[2] + p[3] >= -radius)
             };
             if visible {
                 self.mirrored[i] = is_mirrored(m);
@@ -197,6 +225,69 @@ impl RenderQueue {
 mod tests {
     use super::*;
     use crate::math::IDENTITY;
+
+    #[test]
+    fn offset_spheres_follow_rotation_scale_and_parent_reflection() {
+        let s = std::f32::consts::FRAC_1_SQRT_2;
+        let scene = SceneGraph::new(
+            &[-1, 0],
+            &[
+                1., 2., 3., 0., 0., 0., 1., -2., 3., 4., 5., 6., 7., 0., 0., s, s, 0.5, 1., 2.,
+            ],
+        )
+        .unwrap();
+        let mut queue = RenderQueue::new(&[1], &[0], &[0.1], 1).unwrap();
+        let mut camera = IDENTITY;
+        camera[12..15].copy_from_slice(&[3., -23., -63.]);
+        queue.prepare(&scene, &camera, true).unwrap();
+        assert_eq!(queue.visible_count(), 0);
+        queue.set_bounds(&[2., 3., 4.], &[0.1]).unwrap();
+        queue.prepare(&scene, &camera, true).unwrap();
+        assert_eq!(queue.visible_nodes(), vec![1]);
+        assert_eq!(queue.mirrored, vec![true]);
+        queue.prepare_direct(&scene, &camera, true).unwrap();
+        assert_eq!(queue.visible_nodes(), vec![1]);
+        camera[12] += 5.;
+        queue.prepare(&scene, &camera, true).unwrap();
+        assert_eq!(queue.visible_count(), 0);
+    }
+
+    #[test]
+    fn bounds_updates_are_atomic_and_invalidate_cached_draws() {
+        let scene = SceneGraph::new(&[-1], &[0., 0., 0., 0., 0., 0., 1., 1., 1., 1.]).unwrap();
+        let mut queue = RenderQueue::new(&[0], &[0], &[1.], 1).unwrap();
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        for (centers, radii) in [
+            (vec![0.; 2], vec![1.]),
+            (vec![0.; 3], vec![]),
+            (vec![f32::NAN, 0., 0.], vec![1.]),
+            (vec![0., f32::INFINITY, 0.], vec![1.]),
+            (vec![0.; 3], vec![-1.]),
+            (vec![0.; 3], vec![f32::INFINITY]),
+        ] {
+            assert!(queue.set_bounds(&centers, &radii).is_err());
+            assert!(queue.prepared && queue.packed);
+            assert_eq!(queue.centers, vec![0.; 3]);
+            assert_eq!(queue.radii, vec![1.]);
+        }
+        queue.set_bounds(&[100., 0., 0.], &[0.]).unwrap();
+        assert!(!queue.prepared && !queue.packed);
+        assert_eq!(queue.visible_count(), 0);
+        assert_eq!(queue.batch_count(), 0);
+        assert_eq!(queue.matrices_len(), 0);
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.visible_count(), 0);
+        queue.set_bounds(&[1., 0., 0.], &[0.]).unwrap();
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.visible_count(), 1);
+        queue.set_bounds(&[1.001, 0., 0.], &[0.]).unwrap();
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.visible_count(), 0);
+        RenderQueue::new(&[], &[], &[], 1)
+            .unwrap()
+            .set_bounds(&[], &[])
+            .unwrap();
+    }
 
     #[test]
     fn winding_batches_follow_parent_reflections_and_scale_changes() {
