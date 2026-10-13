@@ -157,7 +157,7 @@ npm run build
 
 `npm test` 先测试 Rust、编译 WASM，再做类型检查、Node 差分和浏览器测试。单独运行 `npm run typecheck` 或 integration/e2e 前，需要已有 `pkg/` 构建产物。
 
-验证内容包括脏更新传播、循环检查、相机矩阵、三个场景的可见集合、基础几何体朝向，以及 Rust 与两种 Three.js 路径的像素差异。完整记录见 [测试记录](docs/verification.md)。
+验证内容包括脏更新传播、循环检查、相机矩阵、三个场景的可见集合、基础几何体朝向，以及 Rust 与两种 Three.js 路径的像素差异。完整记录见 [测试说明](docs/verification.md)。
 
 ## 目录
 
@@ -197,6 +197,6 @@ lab.html                 CPU 小型测试
 
 ## 文档与许可
 
-[实现笔记](docs/design.md) · [数学与场景 API](docs/math-api.md) · [测试记录](docs/verification.md) · [更新记录](CHANGELOG.md) · [迭代记录](docs/roadmap.md)
+[实现笔记](docs/design.md) · [数学与场景 API](docs/math-api.md) · [测试说明](docs/verification.md) · [更新记录](CHANGELOG.md) · [开发计划](docs/roadmap.md)
 
 MIT License。第三方来源与依赖记录见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

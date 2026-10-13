@@ -58,6 +58,8 @@ Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` �
 
 对照页在任一后端失效时暂停双方，直到全部可用才继续。Three.js 自身会重建内部 GL 状态，适配器另外恢复用户设置的清屏颜色。浏览器是否以及何时恢复上下文不由引擎保证。
 
+相关接口见 [WebGL 上下文丢失规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.15.2) 和 [Three.js r186 WebGLRenderer](https://github.com/mrdoob/three.js/blob/r186/src/renderers/WebGLRenderer.js)。
+
 渲染队列每次准备前清空上一轮可见列表并标为无效。输入校验失败时，不允许渲染器继续提交旧列表；下一次有效准备可恢复正常工作。
 
 ## 相机和对照组
