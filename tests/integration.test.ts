@@ -276,6 +276,53 @@ test('off-origin WASM spheres match Three.js across camera positions', () => {
   }
 });
 
+test('WASM culling retains a sphere whose sheared surface enters the clip volume', () => {
+  const angle = Math.PI / 8;
+  const graph = new SceneGraph(new Int32Array([-1, 0]), new Float32Array([
+    2.000006, 0, 0, 0, 0, 0, 1, 1.000008, 1, 1,
+    0, 0, 0, 0, 0, Math.sin(angle), Math.cos(angle), 1, 1, 1,
+  ]));
+  const queue = new RenderQueue(new Uint32Array([1]), new Uint32Array([0]), new Float32Array([1]), 1);
+  try {
+    const world = new THREE.Matrix4().fromArray(graph.world_matrices(), 16);
+    const point = new THREE.Vector3(-Math.SQRT1_2, Math.SQRT1_2, 0).applyMatrix4(world);
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4());
+    assert.ok(frustum.containsPoint(point), `inside point: ${point.toArray()}`);
+    // The native sphere shortcut shrinks this sheared bound; it is not the correctness oracle.
+    assert.equal(frustum.intersectsSphere(new THREE.Sphere(new THREE.Vector3(), 1).applyMatrix4(world)), false);
+    for (const scale of [1e-30, 1, 1e30]) {
+      const camera = Float32Array.from(new THREE.Matrix4().elements, (v) => v * scale);
+      queue.prepare(graph, camera, true);
+      assert.deepEqual(Array.from(queue.visible_nodes()), [1]);
+      queue.prepare_direct(graph, camera, true);
+      assert.deepEqual(Array.from(queue.visible_nodes()), [1]);
+    }
+  } finally {
+    queue.free();
+    graph.free();
+  }
+});
+
+test('WASM culling handles reciprocal extreme scales and radii', () => {
+  for (const scale of [1e-30, 1e30]) {
+    const graph = new SceneGraph(new Int32Array([-1, -1]), new Float32Array([
+      1.5, 0, 0, 0, 0, 0, 1, scale, scale, scale,
+      3, 0, 0, 0, 0, 0, 1, -scale, scale, scale,
+    ]));
+    const queue = new RenderQueue(new Uint32Array([0, 1]), new Uint32Array(2), new Float32Array(2).fill(1 / scale), 1);
+    try {
+      const camera = Float32Array.from(new THREE.Matrix4().elements);
+      queue.prepare(graph, camera, true);
+      assert.deepEqual(Array.from(queue.visible_nodes()), [0]);
+      queue.prepare_direct(graph, camera, true);
+      assert.deepEqual(Array.from(queue.visible_nodes()), [0]);
+    } finally {
+      queue.free();
+      graph.free();
+    }
+  }
+});
+
 test('WASM packs reflected hierarchies into winding batches without duplicating instances', () => {
   const data = createEngineScene('hierarchy', 500);
   for (let id = 0; id < data.parents.length; id++) {

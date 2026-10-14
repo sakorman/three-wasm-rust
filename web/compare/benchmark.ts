@@ -252,7 +252,7 @@ export async function compareBackends(
       matrixUpdate: options.comparison === 'direct' ? 'full' : 'dirty',
       drawOrder: options.comparison === 'direct' ? 'scene' : 'grouped',
       notes:
-        'Paired backends; identical animation, camera, geometry, shaders, AA and pixel size. Direct pair: no instancing, full matrix recomputation, scene order, culling off by default. Instanced pair: instancing and dirty updates on both sides. Matching visible/triangle counts are required; direct draws must equal visible objects. CPU includes update+prepare+submit; native Three.js culling occurs inside render. rAF includes presentation/scheduling. GPU queries wrap submission, not pure rasterization; no gl.finish. Rust f32 vs JS Number and engine/driver binding differences remain; this is not a language-only benchmark.',
+        'Paired backends; identical animation, camera, geometry, shaders, AA and pixel size. Direct pair: no instancing, full matrix recomputation, scene order, culling off by default. Instanced pair: instancing and dirty updates on both sides. Matching visible/triangle counts are required; direct draws must equal visible objects. CPU includes update+prepare+submit; native Three.js culling occurs inside render. rAF includes presentation/scheduling. GPU queries wrap submission, not pure rasterization; no gl.finish. Rust uses f32 matrices and f64 culling intermediates; JS uses Number. Conservative Rust shear bounds can differ from native Three.js spheres. Engine/driver binding differences remain; this is not a language-only benchmark.',
     },
     results,
   };

@@ -5,7 +5,7 @@ use crate::{
 };
 use wasm_bindgen::prelude::*;
 
-fn planes(matrix: &[f32]) -> Result<[[f32; 4]; 6], String> {
+fn planes(matrix: &[f32]) -> Result<[[f64; 4]; 6], String> {
     if matrix.len() != 16 || matrix.iter().any(|x| !x.is_finite()) {
         return Err("expected a finite view-projection matrix".into());
     }
@@ -14,10 +14,10 @@ fn planes(matrix: &[f32]) -> Result<[[f32; 4]; 6], String> {
         let axis = i / 2;
         let sign = if i % 2 == 0 { 1. } else { -1. };
         for j in 0..4 {
-            plane[j] = matrix[j * 4 + 3] + sign * matrix[j * 4 + axis];
+            plane[j] = f64::from(matrix[j * 4 + 3]) + sign * f64::from(matrix[j * 4 + axis]);
         }
         let length = (plane[0].powi(2) + plane[1].powi(2) + plane[2].powi(2)).sqrt();
-        if length < 1e-12 {
+        if length == 0. {
             return Err("degenerate projection plane".into());
         }
         for v in plane {
@@ -27,16 +27,20 @@ fn planes(matrix: &[f32]) -> Result<[[f32; 4]; 6], String> {
     Ok(result)
 }
 
-/// Column lengths are exact for orthogonal TRS. Use a conservative bound for shear.
-pub(crate) fn radius_scale(m: &Mat4) -> f32 {
-    let dot = |a: usize, b: usize| (0..3).map(|r| m[a * 4 + r] * m[b * 4 + r]).sum::<f32>();
-    let largest = dot(0, 0).max(dot(1, 1)).max(dot(2, 2));
-    let shear = dot(0, 1).abs().max(dot(0, 2).abs()).max(dot(1, 2).abs());
-    if shear <= largest * 1e-5 {
-        largest.sqrt()
-    } else {
-        (dot(0, 0) + dot(1, 1) + dot(2, 2)).sqrt()
-    }
+/// Bound the largest singular value, including arbitrarily small shear.
+pub(crate) fn radius_scale(m: &Mat4) -> f64 {
+    let dot = |a: usize, b: usize| {
+        (0..3)
+            .map(|r| f64::from(m[a * 4 + r]) * f64::from(m[b * 4 + r]))
+            .sum::<f64>()
+    };
+    let [xx, yy, zz] = [dot(0, 0), dot(1, 1), dot(2, 2)];
+    let [xy, xz, yz] = [dot(0, 1).abs(), dot(0, 2).abs(), dot(1, 2).abs()];
+    // Both trace(AᵀA) and its largest absolute row sum bound its largest eigenvalue.
+    let row_bound = (xx + xy + xz).max(yy + xy + yz).max(zz + xz + yz);
+    let bound = row_bound.min(xx + yy + zz);
+    // Keep accumulation/square-root rounding from shrinking the bound.
+    (bound * (1. + 8. * f64::EPSILON)).sqrt()
 }
 
 #[wasm_bindgen]
@@ -165,13 +169,13 @@ impl RenderQueue {
             let offset = self.nodes[i] as usize * 16;
             let m: &Mat4 = scene.worlds[offset..offset + 16].try_into().unwrap();
             let visible = !culling || {
-                let radius = self.radii[i] * radius_scale(m);
+                let radius = f64::from(self.radii[i]) * radius_scale(m);
                 let center = &self.centers[i * 3..i * 3 + 3];
                 let world = [0, 1, 2].map(|axis| {
-                    m[axis] * center[0]
-                        + m[axis + 4] * center[1]
-                        + m[axis + 8] * center[2]
-                        + m[axis + 12]
+                    f64::from(m[axis]) * f64::from(center[0])
+                        + f64::from(m[axis + 4]) * f64::from(center[1])
+                        + f64::from(m[axis + 8]) * f64::from(center[2])
+                        + f64::from(m[axis + 12])
                 });
                 planes
                     .iter()
@@ -225,6 +229,108 @@ impl RenderQueue {
 mod tests {
     use super::*;
     use crate::math::IDENTITY;
+
+    #[test]
+    fn tiny_hierarchical_shear_keeps_a_sphere_crossing_the_frustum() {
+        let angle = std::f32::consts::FRAC_PI_8;
+        let scene = SceneGraph::new(
+            &[-1, 0],
+            &[
+                2.000006,
+                0.,
+                0.,
+                0.,
+                0.,
+                0.,
+                1.,
+                1.000008,
+                1.,
+                1.,
+                0.,
+                0.,
+                0.,
+                0.,
+                0.,
+                angle.sin(),
+                angle.cos(),
+                1.,
+                1.,
+                1.,
+            ],
+        )
+        .unwrap();
+        let m = &scene.worlds[16..32];
+        let direction = std::f64::consts::FRAC_1_SQRT_2;
+        let tip_x = m[12] as f64 + direction * (-m[0] as f64 + m[4] as f64);
+        assert!(tip_x < 1., "sphere reaches the frustum: {tip_x}");
+        let mut queue = RenderQueue::new(&[1], &[0], &[1.], 1).unwrap();
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.visible_nodes(), vec![1]);
+        queue.prepare_direct(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.visible_nodes(), vec![1]);
+    }
+
+    #[test]
+    fn reciprocal_radius_and_scale_remain_finite() {
+        for (scale, radius) in [(1e-30, 1e30), (1e30, 1e-30)] {
+            let scene = SceneGraph::new(
+                &[-1; 2],
+                &[
+                    1.5, 0., 0., 0., 0., 0., 1., scale, scale, scale, 3., 0., 0., 0., 0., 0., 1.,
+                    -scale, scale, scale,
+                ],
+            )
+            .unwrap();
+            let mut queue = RenderQueue::new(&[0, 1], &[0; 2], &[radius; 2], 1).unwrap();
+            queue.prepare(&scene, &IDENTITY, true).unwrap();
+            assert_eq!(queue.visible_nodes(), vec![0], "scale {scale}");
+            queue.set_bounds(&[0.; 6], &[0.; 2]).unwrap();
+            queue.prepare_direct(&scene, &IDENTITY, true).unwrap();
+            assert_eq!(queue.visible_count(), 0);
+        }
+    }
+
+    #[test]
+    fn positive_clip_matrix_scaling_preserves_visibility() {
+        let scene = SceneGraph::new(
+            &[-1; 2],
+            &[
+                0.5, 0., 0., 0., 0., 0., 1., 1., 1., 1., 3., 0., 0., 0., 0., 0., 1., 1., 1., 1.,
+            ],
+        )
+        .unwrap();
+        let mut queue = RenderQueue::new(&[0, 1], &[0; 2], &[0.25; 2], 1).unwrap();
+        for scale in [1e-30, 1., 1e30] {
+            queue
+                .prepare(&scene, &IDENTITY.map(|v| v * scale), true)
+                .unwrap();
+            assert_eq!(queue.visible_nodes(), vec![0], "clip scale {scale}");
+        }
+    }
+
+    #[test]
+    fn radius_bound_covers_the_exact_stretch_of_sheared_spheres() {
+        for scale in [1e-30_f32, 1., 1e30] {
+            for shear in [0., 1e-7, 4e-6, 0.1, 1., 1000.] {
+                let mut matrix = IDENTITY;
+                matrix[0] = -scale;
+                matrix[4] = scale * shear;
+                matrix[5] = scale;
+                matrix[10] = scale;
+                let s = f64::from(matrix[4]) / f64::from(scale);
+                let exact = (s.hypot(2.) + s.abs()) * 0.5 * f64::from(scale);
+                let bound = radius_scale(&matrix);
+                assert!(bound.is_finite() && bound >= exact, "{bound} < {exact}");
+                let frobenius = (3. + s * s).sqrt() * f64::from(scale);
+                assert!(bound <= frobenius * (1. + 16. * f64::EPSILON));
+            }
+        }
+        let mut zero = IDENTITY;
+        zero[0] = 0.;
+        zero[5] = 0.;
+        zero[10] = 0.;
+        assert_eq!(radius_scale(&zero), 0.);
+    }
 
     #[test]
     fn offset_spheres_follow_rotation_scale_and_parent_reflection() {
