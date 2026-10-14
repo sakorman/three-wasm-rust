@@ -6,9 +6,33 @@ mod queue;
 mod renderer;
 
 use math::{compose, multiply, normalize_transforms, Mat4, IDENTITY};
+use std::{cell::Cell, rc::Rc};
 use wasm_bindgen::prelude::*;
 
 const MAX_NODES: usize = 100_000;
+
+#[derive(Clone, Copy)]
+struct SceneState {
+    revision: u64,
+    ready: bool,
+}
+
+pub(crate) struct SceneSnapshot {
+    state: Rc<Cell<SceneState>>,
+    revision: u64,
+}
+
+impl SceneSnapshot {
+    pub(crate) fn is_current(&self) -> bool {
+        let state = self.state.get();
+        state.ready && state.revision == self.revision
+    }
+
+    #[cfg(any(test, target_arch = "wasm32"))]
+    pub(crate) fn belongs_to(&self, scene: &SceneGraph) -> bool {
+        Rc::ptr_eq(&self.state, &scene.state)
+    }
+}
 
 /// A forest with stable indices. Validation and topology changes are transactional.
 #[wasm_bindgen]
@@ -20,6 +44,40 @@ pub struct SceneGraph {
     dirty: Vec<bool>,
     changed: Vec<bool>,
     updated_count: usize,
+    invalid_worlds: Vec<bool>,
+    invalid_count: usize,
+    state: Rc<Cell<SceneState>>,
+}
+
+impl SceneGraph {
+    fn invalidate(&self) {
+        self.state.set(SceneState {
+            revision: self.state.get().revision.wrapping_add(1),
+            ready: false,
+        });
+    }
+
+    pub(crate) fn ensure_ready(&self) -> Result<(), String> {
+        if self.state.get().ready {
+            Ok(())
+        } else {
+            Err("world matrices are pending or non-finite; update the scene before preparing or drawing".into())
+        }
+    }
+
+    pub(crate) fn snapshot(&self) -> Result<SceneSnapshot, String> {
+        self.ensure_ready()?;
+        Ok(SceneSnapshot {
+            state: Rc::clone(&self.state),
+            revision: self.state.get().revision,
+        })
+    }
+}
+
+impl Drop for SceneGraph {
+    fn drop(&mut self) {
+        self.invalidate();
+    }
 }
 
 fn traversal(parents: &[i32]) -> Result<Vec<usize>, String> {
@@ -64,8 +122,14 @@ impl SceneGraph {
             dirty: vec![true; parents.len()],
             changed: vec![false; parents.len()],
             updated_count: 0,
+            invalid_worlds: vec![false; parents.len()],
+            invalid_count: 0,
+            state: Rc::new(Cell::new(SceneState {
+                revision: 0,
+                ready: false,
+            })),
         };
-        graph.update_world_matrices();
+        graph.update_world_matrices()?;
         Ok(graph)
     }
 
@@ -78,6 +142,7 @@ impl SceneGraph {
             return Err("transform count must match existing nodes".into());
         }
         let normalized = normalize_transforms(values)?;
+        let mut changed = false;
         for (id, (old, new)) in self
             .transforms
             .as_chunks::<10>()
@@ -87,8 +152,12 @@ impl SceneGraph {
             .enumerate()
         {
             self.dirty[id] |= old != new;
+            changed |= old != new;
         }
         self.transforms = normalized;
+        if changed {
+            self.invalidate();
+        }
         Ok(())
     }
 
@@ -97,8 +166,12 @@ impl SceneGraph {
             return Err("invalid node or transform length".into());
         }
         let normalized = normalize_transforms(values)?;
-        self.dirty[id] |= self.transforms[id * 10..id * 10 + 10] != normalized;
+        let changed = self.transforms[id * 10..id * 10 + 10] != normalized;
+        self.dirty[id] |= changed;
         self.transforms[id * 10..id * 10 + 10].copy_from_slice(&normalized);
+        if changed {
+            self.invalidate();
+        }
         Ok(())
     }
 
@@ -113,11 +186,13 @@ impl SceneGraph {
         self.parents = parents;
         self.order = order;
         self.dirty[id] = true;
+        self.invalidate();
         Ok(())
     }
 
     /// Iterative traversal: a deep hierarchy cannot overflow the call stack.
-    pub fn update_world_matrices(&mut self) {
+    pub fn update_world_matrices(&mut self) -> Result<(), String> {
+        self.invalidate();
         self.updated_count = 0;
         for &id in &self.order {
             let parent = self.parents[id];
@@ -133,10 +208,32 @@ impl SceneGraph {
                 let parent: &Mat4 = self.worlds[offset..offset + 16].try_into().unwrap();
                 multiply(parent, &local)
             };
+            let invalid = world.iter().any(|v| !v.is_finite());
+            if invalid != self.invalid_worlds[id] {
+                if invalid {
+                    self.invalid_count += 1;
+                } else {
+                    self.invalid_count -= 1;
+                }
+                self.invalid_worlds[id] = invalid;
+            }
             self.worlds[id * 16..id * 16 + 16].copy_from_slice(&world);
             self.dirty[id] = false;
             self.updated_count += 1;
         }
+        if self.invalid_count != 0 {
+            let id = self
+                .invalid_worlds
+                .iter()
+                .position(|&invalid| invalid)
+                .unwrap();
+            return Err(format!("non-finite world matrix at node {id}"));
+        }
+        self.state.set(SceneState {
+            ready: true,
+            ..self.state.get()
+        });
+        Ok(())
     }
 
     /// Number of matrices recomputed by the last update (traversal is still O(N)).
@@ -145,9 +242,9 @@ impl SceneGraph {
     }
 
     /// Full recomputation for arithmetic benchmarks against Object3D.updateMatrixWorld(true).
-    pub fn update_all_world_matrices(&mut self) {
+    pub fn update_all_world_matrices(&mut self) -> Result<(), String> {
         self.dirty.fill(true);
-        self.update_world_matrices();
+        self.update_world_matrices()
     }
 
     /// Rotate selected nodes about their local Y axis. Absolute, deterministic time.
@@ -155,13 +252,18 @@ impl SceneGraph {
         if !seconds.is_finite() || ids.iter().any(|&id| id as usize >= self.node_count()) {
             return Err("invalid animation time or node index".into());
         }
+        let mut changed = false;
         for &id in ids {
             let id = id as usize;
             let (s, c) = (seconds * 0.2 + (id % 19) as f32 * 0.03).sin_cos();
             let q = [0., s, 0., c];
             let t = &mut self.transforms[id * 10..id * 10 + 10];
             self.dirty[id] |= t[3..7] != q;
+            changed |= t[3..7] != q;
             t[3..7].copy_from_slice(&q);
+        }
+        if changed {
+            self.invalidate();
         }
         Ok(())
     }
@@ -183,8 +285,7 @@ impl SceneGraph {
             t[3..7].copy_from_slice(&[sx * cy, cx * sy, -sx * sy, cx * cy]);
             self.dirty[id] = true;
         }
-        self.update_world_matrices();
-        Ok(())
+        self.update_world_matrices()
     }
 
     /// A copy, safe to retain after a WASM allocation or graph.free().
@@ -278,6 +379,40 @@ mod tests {
     }
 
     #[test]
+    fn overflow_is_rejected_until_every_invalid_branch_is_repaired() {
+        let local = |scale| [0., 0., 0., 0., 0., 0., 1., scale, scale, scale];
+        assert!(SceneGraph::new(&[-1, 0], &[local(1e20), local(1e20)].concat()).is_err());
+        let mut graph = SceneGraph::new(
+            &[-1, 0, -1, 2],
+            &[local(1.), local(1e20), local(1.), local(1e20)].concat(),
+        )
+        .unwrap();
+        let snapshot = graph.snapshot().unwrap();
+        graph.set_transform(0, &local(1e20)).unwrap();
+        graph.set_transform(2, &local(1e20)).unwrap();
+        assert!(!snapshot.is_current());
+        assert_eq!(
+            graph.update_world_matrices().unwrap_err(),
+            "non-finite world matrix at node 1"
+        );
+        assert_eq!(graph.invalid_count, 2);
+        assert!(graph.update_world_matrices().is_err());
+        assert_eq!(graph.updated_count(), 0);
+        graph.set_transform(0, &local(1.)).unwrap();
+        assert_eq!(
+            graph.update_world_matrices().unwrap_err(),
+            "non-finite world matrix at node 3"
+        );
+        assert_eq!(graph.invalid_count, 1);
+        graph.set_transform(2, &local(1.)).unwrap();
+        graph.update_world_matrices().unwrap();
+        assert!(graph.snapshot().unwrap().is_current());
+        assert!(!snapshot.is_current());
+        assert_eq!(graph.invalid_count, 0);
+        assert!(graph.worlds.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
     fn parents_can_follow_children_in_storage() {
         let graph = SceneGraph::new(&[2, -1, 1], &transforms(3)).unwrap();
         assert_eq!(graph.worlds[12], 3.);
@@ -289,10 +424,10 @@ mod tests {
     fn reparent_rejects_cycles_and_preserves_existing_graph() {
         let mut graph = SceneGraph::new(&[-1, 0, 1], &transforms(3)).unwrap();
         assert!(graph.reparent(0, 2).is_err());
-        graph.update_world_matrices();
+        graph.update_world_matrices().unwrap();
         assert_eq!(graph.worlds[44], 3.);
         graph.reparent(2, -1).unwrap();
-        graph.update_world_matrices();
+        graph.update_world_matrices().unwrap();
         assert_eq!(graph.worlds[44], 1.);
     }
 
@@ -306,7 +441,7 @@ mod tests {
         assert!(graph.set_transform(0, &[0.; 10]).is_err());
         assert!(graph.set_transform(3, &transforms(1)).is_err());
         assert!(graph.animate_demo(f32::NAN).is_err());
-        graph.update_world_matrices();
+        graph.update_world_matrices().unwrap();
         assert_eq!(graph.worlds[12], 1.);
     }
 

@@ -1,7 +1,7 @@
 //! Visibility and geometry/material batches, independent of the graphics API.
 use crate::{
     math::{is_mirrored, Mat4},
-    SceneGraph, MAX_NODES,
+    SceneGraph, SceneSnapshot, MAX_NODES,
 };
 use wasm_bindgen::prelude::*;
 
@@ -58,6 +58,7 @@ pub struct RenderQueue {
     pub(crate) visible_items: Vec<usize>,
     pub(crate) packed: bool,
     pub(crate) prepared: bool,
+    snapshot: Option<SceneSnapshot>,
 }
 
 #[wasm_bindgen]
@@ -97,6 +98,7 @@ impl RenderQueue {
             visible_items: Vec::with_capacity(nodes.len()),
             packed: false,
             prepared: false,
+            snapshot: None,
         })
     }
 
@@ -121,6 +123,22 @@ impl RenderQueue {
         self.visible_items.clear();
         self.packed = false;
         self.prepared = false;
+        self.snapshot = None;
+    }
+
+    pub(crate) fn is_current(&self) -> bool {
+        self.prepared
+            && self
+                .snapshot
+                .as_ref()
+                .is_some_and(SceneSnapshot::is_current)
+    }
+
+    #[cfg(any(test, target_arch = "wasm32"))]
+    pub(crate) fn belongs_to(&self, scene: &SceneGraph) -> bool {
+        self.snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.belongs_to(scene))
     }
 
     pub fn prepare(
@@ -157,6 +175,7 @@ impl RenderQueue {
         culling: bool,
     ) -> Result<(), String> {
         self.invalidate();
+        let snapshot = scene.snapshot()?;
         let planes = planes(view_projection)?;
         if self
             .nodes
@@ -190,19 +209,35 @@ impl RenderQueue {
             }
         }
         self.prepared = true;
+        self.snapshot = Some(snapshot);
         Ok(())
     }
 
     pub fn visible_count(&self) -> usize {
-        self.visible_ids.len()
+        if self.is_current() {
+            self.visible_ids.len()
+        } else {
+            0
+        }
     }
     pub fn batch_count(&self) -> usize {
-        self.ranges.iter().filter(|r| r.1 > 0).count()
+        if self.is_current() {
+            self.ranges.iter().filter(|r| r.1 > 0).count()
+        } else {
+            0
+        }
     }
     pub fn visible_nodes(&self) -> Vec<u32> {
-        self.visible_ids.clone()
+        if self.is_current() {
+            self.visible_ids.clone()
+        } else {
+            vec![]
+        }
     }
     pub fn batch_counts(&self) -> Vec<u32> {
+        if !self.is_current() {
+            return vec![0; self.ranges.len() / 2];
+        }
         self.ranges
             .as_chunks::<2>()
             .0
@@ -229,6 +264,70 @@ impl RenderQueue {
 mod tests {
     use super::*;
     use crate::math::IDENTITY;
+
+    #[test]
+    fn scene_changes_and_disposal_invalidate_prepared_queues() {
+        let local = [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.];
+        let mut scene = SceneGraph::new(&[-1; 2], &local.repeat(2)).unwrap();
+        let other = SceneGraph::new(&[-1; 2], &local.repeat(2)).unwrap();
+        let mut queue = RenderQueue::new(&[0, 1], &[0; 2], &[1.; 2], 1).unwrap();
+        queue.prepare(&scene, &IDENTITY, false).unwrap();
+        assert!(queue.belongs_to(&scene));
+        assert!(!queue.belongs_to(&other));
+        scene.set_transform(0, &local).unwrap();
+        assert!(scene.set_transform(0, &[f32::NAN; 10]).is_err());
+        assert!(queue.is_current());
+        let mut changed = local.repeat(2);
+        changed[0] = 0.2;
+        scene.set_transforms(&changed).unwrap();
+        assert!(!queue.is_current());
+        assert_eq!(queue.visible_count(), 0);
+        assert_eq!(queue.visible_nodes(), vec![]);
+        assert_eq!(queue.batch_counts(), vec![0]);
+        assert_eq!(queue.matrices_len(), 0);
+        assert!(queue.prepare(&scene, &IDENTITY, false).is_err());
+        scene.update_world_matrices().unwrap();
+        queue.prepare(&scene, &IDENTITY, false).unwrap();
+        scene.animate_nodes(&[0], 1.).unwrap();
+        assert!(!queue.is_current());
+        scene.update_world_matrices().unwrap();
+        queue.prepare_direct(&scene, &IDENTITY, false).unwrap();
+        scene.reparent(1, 0).unwrap();
+        assert!(!queue.is_current());
+        scene.update_world_matrices().unwrap();
+        queue.prepare(&scene, &IDENTITY, false).unwrap();
+        scene.update_all_world_matrices().unwrap();
+        assert!(!queue.is_current());
+        queue.prepare(&scene, &IDENTITY, false).unwrap();
+        drop(scene);
+        assert!(!queue.is_current());
+        assert_eq!(queue.visible_count(), 0);
+        assert_eq!(queue.batch_count(), 0);
+        assert_eq!(queue.matrices_len(), 0);
+    }
+
+    #[test]
+    fn failed_world_updates_cannot_prepare_or_reuse_a_queue() {
+        let local = |scale| [0., 0., 0., 0., 0., 0., 1., scale, scale, scale];
+        let mut scene = SceneGraph::new(&[-1, 0], &[local(1.), local(1e20)].concat()).unwrap();
+        let mut queue = RenderQueue::new(&[1], &[0], &[1e-20], 1).unwrap();
+        queue.prepare(&scene, &IDENTITY, false).unwrap();
+        scene.set_transform(0, &local(1e20)).unwrap();
+        assert!(scene.update_world_matrices().is_err());
+        assert!(!queue.is_current());
+        assert_eq!(queue.visible_count(), 0);
+        for culling in [false, true] {
+            assert!(queue.prepare(&scene, &IDENTITY, culling).is_err());
+            assert!(queue.prepare_direct(&scene, &IDENTITY, culling).is_err());
+            assert_eq!(queue.matrices_len(), 0);
+        }
+        scene.set_transform(0, &local(1.)).unwrap();
+        scene.update_world_matrices().unwrap();
+        assert!(!queue.is_current());
+        queue.prepare(&scene, &IDENTITY, false).unwrap();
+        assert!(queue.is_current());
+        assert_eq!(queue.visible_nodes(), vec![1]);
+    }
 
     #[test]
     fn tiny_hierarchical_shear_keeps_a_sphere_crossing_the_frustum() {
@@ -412,14 +511,14 @@ mod tests {
         assert_eq!(queue.matrices[32], -1.);
 
         scene.set_transform(0, &t).unwrap();
-        scene.update_world_matrices();
+        scene.update_world_matrices().unwrap();
         queue.prepare(&scene, &IDENTITY, true).unwrap();
         assert_eq!(queue.mirrored, vec![false, true, false]);
         assert_eq!(queue.visible_nodes(), vec![1, 2, 3]);
         assert_eq!(queue.matrices[32], -1.);
 
         scene.set_transform(2, &t).unwrap();
-        scene.update_world_matrices();
+        scene.update_world_matrices().unwrap();
         queue.prepare_direct(&scene, &IDENTITY, false).unwrap();
         assert_eq!(queue.mirrored, vec![false; 3]);
         assert_eq!(queue.batch_count(), 1);
@@ -456,16 +555,16 @@ mod tests {
     fn dirty_updates_propagate_and_skip_static_nodes() {
         let t = [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.];
         let mut scene = SceneGraph::new(&[-1, 0, -1], &t.repeat(3)).unwrap();
-        scene.update_world_matrices();
+        scene.update_world_matrices().unwrap();
         assert_eq!(scene.updated_count(), 0);
         let mut changed = t;
         changed[0] = 4.;
         scene.set_transform(0, &changed).unwrap();
-        scene.update_world_matrices();
+        scene.update_world_matrices().unwrap();
         assert_eq!(scene.updated_count(), 2);
         assert_eq!(scene.worlds[28], 4.);
         scene.set_transform(0, &changed).unwrap();
-        scene.update_world_matrices();
+        scene.update_world_matrices().unwrap();
         assert_eq!(scene.updated_count(), 0);
     }
 

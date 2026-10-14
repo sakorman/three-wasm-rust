@@ -184,6 +184,7 @@ impl RustRenderer {
 
     /// Updates GPU matrices and submits one draw; does not update the scene graph.
     pub fn render(&self, scene: &SceneGraph, view_projection: &[f32]) -> Result<(), JsValue> {
+        scene.ensure_ready().map_err(JsValue::from)?;
         if scene.node_count() != self.instance_count {
             return Err(format!(
                 "scene has {} nodes, renderer expects {} instances",

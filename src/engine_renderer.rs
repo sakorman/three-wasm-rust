@@ -296,6 +296,9 @@ impl EngineRenderer {
         scene: &SceneGraph,
         view_projection: &[f32],
     ) -> Result<(), JsValue> {
+        if !queue.belongs_to(scene) {
+            return Err("render queue belongs to a different or unprepared scene".into());
+        }
         if self.instances.is_some()
             || queue.packed
             || self.model.is_none()
@@ -348,13 +351,13 @@ impl EngineRenderer {
     }
 
     fn validate(&self, queue: &RenderQueue, view_projection: &[f32]) -> Result<(), JsValue> {
-        if !queue.prepared
+        if !queue.is_current()
             || queue.matrix_capacity() > self.capacity
             || queue.ranges.len() != self.batches.len() * 2
             || view_projection.len() != 16
             || view_projection.iter().any(|x| !x.is_finite())
         {
-            return Err("invalid queue or camera".into());
+            return Err("invalid or stale queue, or invalid camera".into());
         }
         Ok(())
     }

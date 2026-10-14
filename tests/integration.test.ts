@@ -158,6 +158,36 @@ test('zero nodes and repeated allocation / release work', () => {
   }
 });
 
+test('WASM overflow errors invalidate packed queues and allow repaired scenes', () => {
+  const local = (scale: number) => new Float32Array([0, 0, 0, 0, 0, 0, 1, scale, scale, scale]);
+  assert.throws(() => new SceneGraph(new Int32Array([-1, 0]),
+    new Float32Array([...local(1e20), ...local(1e20)])), /non-finite world matrix at node 1/);
+  const graph = new SceneGraph(new Int32Array([-1, 0]), new Float32Array([...local(1), ...local(1e20)]));
+  const queue = new RenderQueue(new Uint32Array([1]), new Uint32Array([0]), new Float32Array([1e-20]), 1);
+  const camera = Float32Array.from(new THREE.Matrix4().elements);
+  try {
+    queue.prepare(graph, camera, false);
+    graph.set_transform(0, local(1e20));
+    assert.equal(queue.visible_count(), 0);
+    assert.equal(queue.matrices_len(), 0);
+    assert.throws(() => queue.prepare(graph, camera, false), /pending or non-finite/);
+    assert.throws(() => graph.update_world_matrices(), /non-finite world matrix/);
+    assert.throws(() => graph.update_all_world_matrices(), /non-finite world matrix/);
+    assert.throws(() => queue.prepare_direct(graph, camera, true), /pending or non-finite/);
+    graph.set_transform(0, local(1));
+    graph.update_world_matrices();
+    queue.prepare(graph, camera, false);
+    assert.equal(queue.visible_count(), 1);
+    assert.equal(queue.matrices_len(), 16);
+    assert.ok(Array.from(graph.world_matrices()).every(Number.isFinite));
+  } finally {
+    graph.free();
+  }
+  assert.equal(queue.visible_count(), 0);
+  assert.equal(queue.matrices_len(), 0);
+  queue.free();
+});
+
 test('engine scene presets have reproducible resources and match Three.js visibility', () => {
   for (const scenario of ['city', 'warehouse', 'hierarchy'] as const) {
     const data = createEngineScene(scenario, 500);
