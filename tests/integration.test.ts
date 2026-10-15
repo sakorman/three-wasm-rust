@@ -91,6 +91,46 @@ test('real WASM scene and animation match Three.js at 5,000 nodes', () => {
   }
 });
 
+test('matrix products preserve cancellation and agree with Three.js on finite f32 input', () => {
+  for (const magnitude of [1e8, 1e20, 1e30]) {
+    const a = Float32Array.from(new THREE.Matrix4().elements);
+    const b = a.slice();
+    a[0] = a[4] = magnitude;
+    b[0] = magnitude;
+    b[1] = -magnitude;
+    const reference = new THREE.Matrix4().fromArray(a).multiply(new THREE.Matrix4().fromArray(b));
+    close(multiply_matrices(a, b), reference.elements);
+    close(multiply_matrices_batch(a, b), reference.elements);
+    b[1] = 0;
+    if (magnitude >= 1e20) {
+      assert.throws(() => multiply_matrices(a, b), /exceeds f32 range/);
+      assert.throws(() => multiply_matrices_batch(a, b), /exceeds f32 range/);
+    }
+  }
+});
+
+test('hierarchy cancellation preserves a local offset through dirty and full updates', () => {
+  const angle = Math.PI / 8;
+  const root = new Float32Array([0, 0, 0, 0, 0, Math.sin(angle), Math.cos(angle), 1e8, 1, 1]);
+  const probe = new SceneGraph(new Int32Array([-1]), root);
+  const matrix = probe.world_matrices();
+  probe.free();
+  root[0] = -matrix[0];
+  root[1] = -matrix[1];
+  const child = new Float32Array([1, 0.5, 0, 0, 0, 0, 1, 1e-8, 1, 1]);
+  const graph = new SceneGraph(new Int32Array([-1, 0]), new Float32Array([...root, ...child]));
+  try {
+    for (const offset of [0.5, -0.5, 0.25]) {
+      child[1] = offset;
+      graph.set_transform(1, child);
+      for (const update of [() => graph.update_world_matrices(), () => graph.update_all_world_matrices()]) {
+        update();
+        close(graph.world_matrices().slice(28, 31), [matrix[4] * offset, matrix[5] * offset, 0]);
+      }
+    }
+  } finally { graph.free(); }
+});
+
 test('reparenting a child to a later node preserves local TRS', () => {
   const data = createSceneData(3);
   data.parents.fill(-1);

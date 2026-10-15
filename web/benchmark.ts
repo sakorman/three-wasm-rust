@@ -82,7 +82,7 @@ export async function runBenchmarks(
       schemaVersion: 1, createdAt: new Date().toISOString(), count, seed: 2026,
       userAgent: navigator.userAgent, hardwareConcurrency: navigator.hardwareConcurrency,
       devicePixelRatio, threeRevision: THREE.REVISION,
-      notes: 'CPU wall-clock only; no GPU completion measurement. f32 WASM vs JS Number. JS identity may be inlined. 10 warmup runs; 7 alternating samples; median. Ratios are JS / WASM.',
+      notes: 'CPU wall-clock only; no GPU completion measurement. WASM f32 storage with f64 matrix multiplication intermediates vs JS Number. JS identity may be inlined. 10 warmup runs; 7 alternating samples; median. Ratios are JS / WASM.',
       rows, checksum: sink,
     };
   } finally { graph.free(); }

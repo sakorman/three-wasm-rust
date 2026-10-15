@@ -308,7 +308,11 @@ pub fn multiply_matrices(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String> {
     if a.len() != 16 || b.len() != 16 || a.iter().chain(b).any(|v| !v.is_finite()) {
         return Err("expected two finite 4x4 matrices".into());
     }
-    Ok(multiply(a.try_into().unwrap(), b.try_into().unwrap()).to_vec())
+    let product = multiply(a.try_into().unwrap(), b.try_into().unwrap());
+    if product.iter().any(|v| !v.is_finite()) {
+        return Err("matrix product exceeds f32 range".into());
+    }
+    Ok(product.to_vec())
 }
 
 #[wasm_bindgen]
@@ -332,7 +336,11 @@ pub fn multiply_matrices_batch(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String>
     }
     let mut out = Vec::with_capacity(a.len());
     for (left, right) in a.as_chunks::<16>().0.iter().zip(b.as_chunks::<16>().0) {
-        out.extend_from_slice(&multiply(left, right));
+        let product = multiply(left, right);
+        if product.iter().any(|v| !v.is_finite()) {
+            return Err("matrix product exceeds f32 range".into());
+        }
+        out.extend_from_slice(&product);
     }
     Ok(out)
 }
@@ -376,6 +384,18 @@ mod tests {
 
     fn transforms(count: usize) -> Vec<f32> {
         [1., 0., 0., 0., 0., 0., 1., 1., 1., 1.].repeat(count)
+    }
+
+    #[test]
+    fn matrix_exports_reject_final_overflow_in_single_and_mixed_batches() {
+        let mut large = IDENTITY;
+        large[0] = 1e20;
+        assert!(multiply_matrices(&large, &large).is_err());
+        assert!(
+            multiply_matrices_batch(&[IDENTITY, large].concat(), &[IDENTITY, large].concat())
+                .is_err()
+        );
+        assert!(multiply_matrices_batch(&[], &[]).unwrap().is_empty());
     }
 
     #[test]

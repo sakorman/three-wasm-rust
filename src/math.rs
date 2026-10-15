@@ -16,7 +16,10 @@ pub fn multiply(a: &Mat4, b: &Mat4) -> Mat4 {
     let mut out = [0.; 16];
     for col in 0..4 {
         for row in 0..4 {
-            out[col * 4 + row] = (0..4).map(|k| a[k * 4 + row] * b[col * 4 + k]).sum();
+            // Round once after accumulation so cancelling large terms retain small offsets.
+            out[col * 4 + row] = (0..4)
+                .map(|k| f64::from(a[k * 4 + row]) * f64::from(b[col * 4 + k]))
+                .sum::<f64>() as f32;
         }
     }
     out
@@ -74,6 +77,33 @@ pub fn normalize_transforms(values: &[f32]) -> Result<Vec<f32>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multiplication_keeps_small_terms_between_cancelling_large_terms() {
+        let mut a = IDENTITY;
+        a[0] = 1e8;
+        a[4] = 1.;
+        a[12] = -1e8;
+        let mut b = IDENTITY;
+        b[12] = 1.;
+        b[13] = 0.5;
+        assert_eq!(multiply(&a, &b)[12], 0.5);
+    }
+
+    #[test]
+    fn intermediate_products_can_exceed_f32_when_the_final_sum_is_finite() {
+        let mut a = IDENTITY;
+        a[0] = 1e20;
+        a[4] = 1e20;
+        let mut b = IDENTITY;
+        b[0] = 1e20;
+        b[1] = -1e20;
+        let product = multiply(&a, &b);
+        assert_eq!(product[0], 0.);
+        assert!(product.iter().all(|v| v.is_finite()));
+        b[1] = 0.;
+        assert!(!multiply(&a, &b)[0].is_finite());
+    }
 
     #[test]
     fn reflection_uses_world_orientation_without_overflow() {
