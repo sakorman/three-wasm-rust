@@ -244,7 +244,9 @@ function showReport(value: ComparisonReport) {
         row.gpuMedian === null
           ? row.gpuStatus === 'disjoint'
             ? '采样无效'
-            : '不可用'
+            : row.gpuStatus === 'incomplete'
+              ? '采样不全'
+              : '不可用'
           : ms(row.gpuMedian),
         `${row.draws.toLocaleString()} / ${row.visible.toLocaleString()}`,
         `${ms(row.updateMedian)} / ${ms(row.prepareMedian)} / ${ms(row.submitMedian)}`,
@@ -254,6 +256,8 @@ function showReport(value: ComparisonReport) {
         td.textContent = text;
         if (index > 0) td.dataset.label = labels[index];
         if (text.includes('未分辨')) td.title = '未分辨：低于当前计时器分辨率，并非没有耗时。';
+        if (index === 3 && row.gpuStatus === 'incomplete')
+          td.title = `GPU 有效样本 ${row.gpuSamples.length} / ${row.gpuExpectedSamples}，未计算中位数。`;
         tr.append(td);
       }
       return tr;

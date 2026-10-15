@@ -10,6 +10,8 @@ function context(supported = true) {
     reads = 0;
   const canvas = new EventTarget();
   let lost = false;
+  let active: unknown = null;
+  let duration: unknown = 2_500_000;
   const gl = {
     canvas,
     isContextLost: () => lost,
@@ -17,8 +19,14 @@ function context(supported = true) {
     QUERY_RESULT: 2,
     getExtension: () => (supported ? { TIME_ELAPSED_EXT: 3, GPU_DISJOINT_EXT: 4 } : null),
     createQuery: () => ({ id: ++created }),
-    beginQuery: () => {},
-    endQuery: () => {},
+    beginQuery: (_target: number, query: unknown) => {
+      assert.equal(active, null, 'a timer query is already active');
+      active = query;
+    },
+    endQuery: () => {
+      assert.notEqual(active, null, 'no timer query is active');
+      active = null;
+    },
     deleteQuery: () => {
       deleted++;
     },
@@ -26,7 +34,7 @@ function context(supported = true) {
     getQueryParameter: (_query: unknown, parameter: number) => {
       if (parameter === 1) return available;
       reads++;
-      return 2_500_000;
+      return duration;
     },
   } as unknown as WebGL2RenderingContext;
   return {
@@ -34,12 +42,15 @@ function context(supported = true) {
     available: () => {
       available = true;
     },
-    disjoint: () => {
-      disjoint = true;
+    disjoint: (value = true) => {
+      disjoint = value;
     },
+    duration: (value: unknown) => { duration = value; },
+    active: () => active,
     stats: () => ({ created, deleted, reads }),
     lose: () => {
       lost = true;
+      active = null;
       canvas.dispatchEvent(new Event('webglcontextlost'));
     },
     restore: () => {
@@ -60,6 +71,53 @@ test('GPU timer reads only available results and converts nanoseconds to millise
   timer.poll();
   assert.deepEqual(timer.samples, [2.5]);
   assert.equal(ctx.stats().deleted, 1);
+  timer.dispose();
+});
+
+test('GPU timer ignores duplicate begin and cannot restart after disposal', () => {
+  const ctx = context(), timer = new GpuTimer(ctx.gl);
+  timer.begin();
+  timer.begin();
+  assert.equal(ctx.stats().created, 1);
+  timer.dispose();
+  assert.equal(ctx.active(), null);
+  assert.deepEqual(ctx.stats(), { created: 1, deleted: 1, reads: 0 });
+  timer.dispose();
+  timer.begin();
+  timer.end();
+  timer.poll();
+  assert.deepEqual(ctx.stats(), { created: 1, deleted: 1, reads: 0 });
+});
+
+test('disjoint closes an active query and remains invalid after the flag clears', () => {
+  const ctx = context(), timer = new GpuTimer(ctx.gl);
+  timer.begin();
+  ctx.disjoint();
+  timer.poll();
+  assert.equal(ctx.active(), null);
+  assert.equal(ctx.stats().deleted, 1);
+  ctx.disjoint(false);
+  ctx.available();
+  timer.end();
+  timer.begin();
+  timer.poll();
+  timer.dispose();
+  assert.equal(timer.disjoint, true);
+  assert.deepEqual(timer.samples, []);
+  assert.deepEqual(ctx.stats(), { created: 1, deleted: 1, reads: 0 });
+});
+
+test('GPU timer rejects invalid durations but keeps zero-duration samples', () => {
+  const ctx = context(), timer = new GpuTimer(ctx.gl);
+  ctx.available();
+  for (const value of [-1, NaN, Infinity, 'invalid', 0, 2_500_000]) {
+    ctx.duration(value);
+    timer.begin();
+    timer.end();
+    timer.poll();
+  }
+  assert.deepEqual(timer.samples, [0, 2.5]);
+  assert.deepEqual(ctx.stats(), { created: 6, deleted: 6, reads: 6 });
   timer.dispose();
 });
 

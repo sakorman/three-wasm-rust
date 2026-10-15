@@ -8,6 +8,7 @@ export class GpuTimer {
   private readonly extension: TimerExtension | null;
   private active: WebGLQuery | null = null;
   private pending: WebGLQuery[] = [];
+  private disposed = false;
   readonly samples: number[] = [];
   disjoint = false;
   constructor(private readonly gl: WebGL2RenderingContext) {
@@ -18,15 +19,17 @@ export class GpuTimer {
     return this.extension !== null;
   }
   begin() {
+    if (this.disposed || this.active || this.disjoint) return;
     if (this.gl.isContextLost()) {
       this.onLost();
       return;
     }
-    if (!this.extension || this.disjoint || this.pending.length >= 8) return;
+    if (!this.extension || this.pending.length >= 8) return;
     this.active = this.gl.createQuery();
     if (this.active) this.gl.beginQuery(this.extension.TIME_ELAPSED_EXT, this.active);
   }
   end() {
+    if (this.disposed) return;
     if (this.gl.isContextLost()) {
       this.onLost();
       return;
@@ -38,6 +41,7 @@ export class GpuTimer {
     }
   }
   poll() {
+    if (this.disposed || this.disjoint) return;
     if (this.gl.isContextLost()) {
       this.onLost();
       return;
@@ -46,6 +50,7 @@ export class GpuTimer {
     if (this.gl.getParameter(this.extension.GPU_DISJOINT_EXT)) {
       this.disjoint = true;
       this.samples.length = 0;
+      this.end();
       for (const q of this.pending) this.gl.deleteQuery(q);
       this.pending = [];
       return;
@@ -56,12 +61,15 @@ export class GpuTimer {
     ) {
       const q = this.pending.shift()!;
       const nanos: unknown = this.gl.getQueryParameter(q, this.gl.QUERY_RESULT);
-      if (typeof nanos === 'number' && Number.isFinite(nanos)) this.samples.push(nanos / 1e6);
+      if (typeof nanos === 'number' && Number.isFinite(nanos) && nanos >= 0)
+        this.samples.push(nanos / 1e6);
       this.gl.deleteQuery(q);
     }
   }
   dispose() {
+    if (this.disposed) return;
     this.end();
+    this.disposed = true;
     for (const q of this.pending) this.gl.deleteQuery(q);
     this.pending = [];
     this.gl.canvas.removeEventListener('webglcontextlost', this.onLost);

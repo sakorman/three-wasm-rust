@@ -9,6 +9,8 @@ import type {
   Comparison,
 } from '../engine/types.ts';
 
+export type GpuStatus = 'unsupported' | 'unavailable' | 'disjoint' | 'incomplete' | 'available';
+
 export interface ModeResult {
   mode: Backend;
   cpuMedian: number;
@@ -19,8 +21,9 @@ export interface ModeResult {
   prepareMedian: number;
   submitMedian: number;
   gpuMedian: number | null;
-  gpuStatus: string;
+  gpuStatus: GpuStatus;
   gpuSamples: number[];
+  gpuExpectedSamples: number;
   draws: number;
   visible: number;
   triangles: number;
@@ -106,7 +109,7 @@ export async function compareBackends(
     instanced: [],
   };
   const gpu: Record<Backend, number[]> = { rust: [], 'rust-direct': [], three: [], instanced: [] };
-  const gpuStatus: Record<Backend, string> = {
+  const gpuStatus: Record<Backend, GpuStatus> = {
     rust: 'unsupported',
     'rust-direct': 'unsupported',
     three: 'unsupported',
@@ -198,6 +201,10 @@ export async function compareBackends(
           list.map((s) => Number(s[key])),
           0.5,
         );
+    const status =
+      gpuStatus[mode] === 'available' && gpu[mode].length !== list.length
+        ? 'incomplete'
+        : gpuStatus[mode];
     return {
       mode,
       samples: list,
@@ -214,9 +221,10 @@ export async function compareBackends(
       updateMedian: median('updateMs'),
       prepareMedian: median('prepareMs'),
       submitMedian: median('submitMs'),
-      gpuMedian: gpu[mode].length ? quantile(gpu[mode], 0.5) : null,
-      gpuStatus: gpuStatus[mode],
+      gpuMedian: status === 'available' ? quantile(gpu[mode], 0.5) : null,
+      gpuStatus: status,
       gpuSamples: gpu[mode],
+      gpuExpectedSamples: list.length,
       draws: median('draws'),
       visible: median('visible'),
       triangles: median('triangles'),
@@ -252,7 +260,7 @@ export async function compareBackends(
       matrixUpdate: options.comparison === 'direct' ? 'full' : 'dirty',
       drawOrder: options.comparison === 'direct' ? 'scene' : 'grouped',
       notes:
-        'Paired backends; identical animation, camera, geometry, shaders, AA and pixel size. Direct pair: no instancing, full matrix recomputation, scene order, culling off by default. Instanced pair: instancing and dirty updates on both sides. Matching visible/triangle counts are required; direct draws must equal visible objects. CPU includes update+prepare+submit; native Three.js culling occurs inside render. rAF includes presentation/scheduling. GPU queries wrap submission, not pure rasterization; no gl.finish. Rust uses f32 matrices and f64 culling intermediates; JS uses Number. Conservative Rust shear bounds can differ from native Three.js spheres. Engine/driver binding differences remain; this is not a language-only benchmark.',
+        'Paired backends; identical animation, camera, geometry, shaders, AA and pixel size. Direct pair: no instancing, full matrix recomputation, scene order, culling off by default. Instanced pair: instancing and dirty updates on both sides. Matching visible/triangle counts are required; direct draws must equal visible objects. CPU includes update+prepare+submit; native Three.js culling occurs inside render. rAF includes presentation/scheduling. GPU queries wrap submission, not pure rasterization; no gl.finish. GPU median requires a valid result for every recorded frame; incomplete samples are retained for diagnostics only. Rust uses f32 matrices and f64 culling intermediates; JS uses Number. Conservative Rust shear bounds can differ from native Three.js spheres. Engine/driver binding differences remain; this is not a language-only benchmark.',
     },
     results,
   };
