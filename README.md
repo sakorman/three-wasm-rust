@@ -3,7 +3,7 @@
 [![CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-orange.svg)](LICENSE)
 
-[在线演示](https://sakorman.github.io/three-wasm-rust/) · [CPU 小型测试](https://sakorman.github.io/three-wasm-rust/lab.html)
+[在线演示](https://sakorman.github.io/three-wasm-rust/) · [CPU 小型测试](https://sakorman.github.io/three-wasm-rust/lab.html) · [更新记录](CHANGELOG.md)
 
 一个用 Rust 和 TypeScript 写的浏览器场景引擎。Rust 编译成 WASM，负责层级更新、可见性判断、批次整理和 WebGL2 绘制提交。相机、几何体生成和 TS 接口也在仓库里，可以单独拿出来使用。
 

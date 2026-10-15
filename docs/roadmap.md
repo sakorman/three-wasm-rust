@@ -25,5 +25,6 @@
 - Rust/WASM 核心与 Three.js 解耦，前端使用 TypeScript strict。
 - 对照使用相同输入和渲染策略，报告明确精度、工作量和计时范围。
 - 页面保持一屏布局，详细说明放在文档中。
+- 每项优化随代码更新 [CHANGELOG](../CHANGELOG.md)，记录日期、具体行为变化、验证结果和已知限制。
 
 构建与测试命令见 [README](../README.md#类型与测试)，覆盖范围见 [测试说明](verification.md)。
