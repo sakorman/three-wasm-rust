@@ -58,6 +58,10 @@ EngineRenderer 构造时选择逐对象或实例化模式。两者共用几何�
 
 三个基础几何体由 TS 独立生成，Rust 接受一般索引三角形数组。材质目前只有 RGB 和 unlit 开关；其余使用共享 GLSL 的简单面光照。所有材质均不透明。
 
+面法线通过片元导数计算。顶点 shader 将 `mat3(modelMatrix) * position` 传给片元阶段，保留旋转、缩放和剪切，去掉不影响法线的平移。直接对很大的世界坐标求导会丢失小的表面起伏，这个相对坐标避免了该问题。两个导数分别按最大绝对分量缩放后再叉乘，防止极大或极小缩放使法线归一化溢出；零长度法线使用环境亮度，unlit 材质直接输出基础颜色。
+
+Rust 与 Three.js 对照仍使用相同 shader，旧实验页也采用同样的法线处理。顶点投影和深度计算仍走 f32 世界坐标，因此该修改不提供完整的大世界坐标精度，也不会恢复已经在几何顶点中丢失的细节。
+
 `add_geometry()` 和 `add_material()` 返回注册 ID。`set_batches()` 设定队列组到资源 ID 的映射。`render(queue, viewProjection)` 只提交绘制，不会自动更新场景或队列。
 
 逐对象路径调用 `queue.prepare_direct(scene, viewProjection, culling)`，再调用 `renderer.render_direct(queue, scene, viewProjection)`。它不压紧或上传实例矩阵。两条绘制接口会检查队列和渲染器的模式，拒绝混用。
