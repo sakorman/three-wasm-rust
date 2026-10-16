@@ -75,6 +75,48 @@ test('batch multiply handles several independent matrices', () => {
   ]);
 });
 
+test('homogeneous point projection matches Three.js across equivalent matrix scales', () => {
+  const camera = new THREE.PerspectiveCamera(52, 1.4, 0.1, 1000);
+  const projection = Float32Array.from(camera.projectionMatrix.elements);
+  const points = new Float32Array([0.25, -0.5, -2, 3.5, 0.75, -10, -1, 2, 4]);
+  const expected: number[] = [];
+  for (let i = 0; i < points.length; i += 3)
+    new THREE.Vector3().fromArray(points, i).applyMatrix4(new THREE.Matrix4().fromArray(projection)).toArray(expected, i);
+  for (const scale of [2 ** -90, -(2 ** -90), 1, 2 ** 90]) {
+    const matrix = Float32Array.from(projection, (v) => v * scale);
+    close(transform_points(matrix, points), expected, `homogeneous scale ${scale}`);
+  }
+});
+
+test('WASM point projection keeps finite ratios after overflowing f32 intermediate products', () => {
+  const matrix = Float32Array.from(new THREE.Matrix4().elements, (v) => v * 1e30);
+  const points = new Float32Array([1e20, 2e20, 0]);
+  close(transform_points(matrix, points), points);
+  matrix[3] = 1e30;
+  matrix[15] = 0;
+  close(transform_points(matrix, points), [1, 2, 0]);
+  const cancellation = Float32Array.from(new THREE.Matrix4().elements);
+  cancellation[3] = 1e8;
+  cancellation[7] = 1;
+  cancellation[15] = -1e8;
+  close(transform_points(cancellation, new Float32Array([1, 0.5, 0])), [2, 1, 0]);
+});
+
+test('WASM point projection rejects invalid batches without modifying input arrays', () => {
+  const matrix = Float32Array.from(new THREE.Matrix4().elements);
+  matrix[0] = 1e20;
+  const points = new Float32Array([0, 0, 0, 1e20, 0, 0]);
+  const before = points.slice(), beforeMatrix = matrix.slice();
+  assert.throws(() => transform_points(matrix, points), /point 1 exceeds f32 range/);
+  assert.deepEqual(points, before);
+  assert.deepEqual(matrix, beforeMatrix);
+  matrix[0] = 1;
+  matrix[3] = 1;
+  matrix[15] = -1;
+  assert.throws(() => transform_points(matrix, new Float32Array([2, 0, 0, 1, 0, 0])), /point 1 projects to infinity/);
+  close(transform_points(Float32Array.from(new THREE.Matrix4().elements), points), before);
+});
+
 test('real WASM scene and animation match Three.js at 5,000 nodes', () => {
   const data = createSceneData(5000),
     graph = new SceneGraph(data.parents, data.transforms),

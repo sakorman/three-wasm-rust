@@ -353,15 +353,22 @@ pub fn transform_points(matrix: &[f32], points: &[f32]) -> Result<Vec<f32>, Stri
     {
         return Err("expected a finite matrix and packed xyz points".into());
     }
-    let m = matrix;
+    let m: &Mat4 = matrix.try_into().unwrap();
+    let m = m.map(f64::from);
     let mut out = Vec::with_capacity(points.len());
-    for p in points.as_chunks::<3>().0 {
+    for (index, p) in points.as_chunks::<3>().0.iter().enumerate() {
+        let p = p.map(f64::from);
         let w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15];
-        if w.abs() < 1e-12 {
-            return Err("point projects to infinity (w is zero)".into());
+        if w == 0. {
+            return Err(format!("point {index} projects to infinity (w is zero)"));
         }
         for row in 0..3 {
-            out.push((m[row] * p[0] + m[4 + row] * p[1] + m[8 + row] * p[2] + m[12 + row]) / w);
+            let coordinate =
+                ((m[row] * p[0] + m[4 + row] * p[1] + m[8 + row] * p[2] + m[12 + row]) / w) as f32;
+            if !coordinate.is_finite() {
+                return Err(format!("transformed point {index} exceeds f32 range"));
+            }
+            out.push(coordinate);
         }
     }
     Ok(out)
@@ -384,6 +391,59 @@ mod tests {
 
     fn transforms(count: usize) -> Vec<f32> {
         [1., 0., 0., 0., 0., 0., 1., 1., 1., 1.].repeat(count)
+    }
+
+    #[test]
+    fn point_projection_accepts_equivalent_small_and_negative_homogeneous_matrices() {
+        let points = [1.25, -2., 3., 1e20, 0., 0.];
+        for scale in [2_f32.powi(-90), -2_f32.powi(-90), 1., 2_f32.powi(90)] {
+            assert_eq!(
+                transform_points(&IDENTITY.map(|v| v * scale), &points).unwrap(),
+                points
+            );
+        }
+    }
+
+    #[test]
+    fn point_projection_divides_after_large_products_and_denominator_cancellation() {
+        let mut matrix = IDENTITY;
+        matrix[0] = 1e30;
+        matrix[5] = 1e30;
+        matrix[3] = 1e30;
+        matrix[15] = 0.;
+        assert_eq!(
+            transform_points(&matrix, &[1e20, 2e20, 0.]).unwrap(),
+            [1., 2., 0.]
+        );
+        matrix = IDENTITY;
+        matrix[3] = 1e8;
+        matrix[7] = 1.;
+        matrix[15] = -1e8;
+        assert_eq!(
+            transform_points(&matrix, &[1., 0.5, 0.]).unwrap(),
+            [2., 1., 0.]
+        );
+        matrix = IDENTITY;
+        matrix[15] = 1e-20;
+        assert!(transform_points(&matrix, &[1., 0., 0.]).unwrap()[0].is_finite());
+    }
+
+    #[test]
+    fn point_projection_rejects_zero_w_and_final_overflow_without_partial_results() {
+        let mut matrix = IDENTITY;
+        matrix[3] = 1.;
+        matrix[15] = -1.;
+        let points = [2., 0., 0., 1., 0., 0.];
+        assert!(transform_points(&matrix, &points)
+            .unwrap_err()
+            .contains("point 1 projects to infinity"));
+        matrix = IDENTITY;
+        matrix[0] = 1e20;
+        assert!(transform_points(&matrix, &[0., 0., 0., 1e20, 0., 0.])
+            .unwrap_err()
+            .contains("point 1 exceeds f32 range"));
+        assert_eq!(transform_points(&IDENTITY, &points).unwrap(), points);
+        assert!(transform_points(&[0.; 16], &[]).unwrap().is_empty());
     }
 
     #[test]

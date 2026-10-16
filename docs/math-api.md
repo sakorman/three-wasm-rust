@@ -105,8 +105,12 @@ renderer.free(); // 释放 program、VAO、顶点/索引/实例 GPU 缓冲
 | `compose_transform(trs)` | 10 个 f32 → 16 个 f32 |
 | `multiply_matrices(a, b)` | 两个 16 元素数组 → `a × b`；最终结果超出 f32 范围时拒绝 |
 | `multiply_matrices_batch(a, b)` | 两个 `16 × N` 数组 → N 组矩阵乘积；任意一组溢出则整次调用失败 |
-| `transform_points(matrix, points)` | 16 元素矩阵 + xyz 点数组 → 齐次变换后的 xyz；w 接近零时拒绝 |
+| `transform_points(matrix, points)` | 16 元素矩阵 + xyz 点数组 → 齐次变换后的 xyz；w 为零或输出超出 f32 范围时拒绝 |
 | `identity_matrix()` | 返回单位矩阵 |
 | `identity_value(value)` | 原样返回 f64，供调用开销实验 |
 
 以上数组 API 会通过绑定层复制输入/输出；大量小调用可能比 JS 更慢，优先批量计算或把长期状态保存在 `SceneGraph` 中。
+
+`transform_points()` 在 f64 中完成四维乘加和齐次除法，再将 xyz 写回 f32。矩阵整体乘以非零常数不会改变点投影，因此不再用固定的绝对阈值判断 w 是否“过小”；只有算出的 w 为零才拒绝除法。负 w 可以参与数学变换，但该接口不判断点是否在相机前方或视锥内。
+
+任何点的投影结果超出 f32 范围，整次调用都会报错，并给出从零开始的点编号，不返回部分结果，也不修改输入数组。空点数组返回空结果。小于 f32 可表示精度的输出仍可能舍入为零；该接口不改变 GPU 顶点投影的精度。
