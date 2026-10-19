@@ -12,6 +12,7 @@ struct Geometry {
     vertex: WebGlBuffer,
     index: WebGlBuffer,
     count: i32,
+    vertex_len: usize,
 }
 impl Drop for Geometry {
     fn drop(&mut self) {
@@ -215,8 +216,33 @@ impl EngineRenderer {
             vertex,
             index,
             count: indices.len() as i32,
+            vertex_len: positions.len(),
         });
         Ok(self.geometries.len() - 1)
+    }
+
+    /// Replace vertex positions while preserving topology, buffers and VAO identity.
+    pub fn update_geometry(&mut self, id: usize, positions: &[f32]) -> Result<(), JsValue> {
+        let geometry = self
+            .geometries
+            .get(id)
+            .ok_or_else(|| JsValue::from_str("invalid geometry id"))?;
+        if positions.len() != geometry.vertex_len
+            || positions.iter().any(|value| !value.is_finite())
+        {
+            return Err("geometry update requires the original number of finite positions".into());
+        }
+        if self.gl.is_context_lost() {
+            return Err("WebGL context lost".into());
+        }
+        self.gl
+            .bind_buffer(Gl::ARRAY_BUFFER, Some(&geometry.vertex));
+        self.gl.buffer_sub_data_with_i32_and_u8_array(
+            Gl::ARRAY_BUFFER,
+            0,
+            bytemuck::cast_slice(positions),
+        );
+        Ok(())
     }
 
     pub fn add_material(&mut self, color: &[f32], unlit: bool) -> Result<usize, JsValue> {

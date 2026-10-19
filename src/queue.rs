@@ -117,6 +117,39 @@ impl RenderQueue {
         Ok(())
     }
 
+    /// Update selected resource groups without overwriting other mesh bounds.
+    pub fn set_group_bounds(
+        &mut self,
+        groups: &[u32],
+        center: &[f32],
+        radius: f32,
+    ) -> Result<(), String> {
+        let count = self.ranges.len() / 2;
+        if center.len() != 3
+            || center.iter().any(|v| !v.is_finite())
+            || !radius.is_finite()
+            || radius < 0.
+            || groups.iter().any(|&id| id as usize >= count)
+        {
+            return Err("invalid group bounding sphere".into());
+        }
+        if groups.is_empty() {
+            return Ok(());
+        }
+        let mut selected = vec![false; count];
+        for &id in groups {
+            selected[id as usize] = true;
+        }
+        for (i, &group) in self.groups.iter().enumerate() {
+            if selected[group as usize] {
+                self.centers[i * 3..i * 3 + 3].copy_from_slice(center);
+                self.radii[i] = radius;
+            }
+        }
+        self.invalidate();
+        Ok(())
+    }
+
     fn invalidate(&mut self) {
         self.ranges.fill((0, 0));
         self.visible_ids.clear();
@@ -264,6 +297,54 @@ impl RenderQueue {
 mod tests {
     use super::*;
     use crate::math::IDENTITY;
+
+    #[test]
+    fn group_bounds_update_all_references_and_preserve_other_groups() {
+        let scene = SceneGraph::new(
+            &[-1; 3],
+            &[0., 0., 0., 0., 0., 0., 1., 1., 1., 1.].repeat(3),
+        )
+        .unwrap();
+        let mut queue = RenderQueue::new(&[0, 1, 2], &[0, 1, 0], &[0.1; 3], 2).unwrap();
+        queue
+            .set_bounds(&[0., 0., 0., 3., 0., 0., 0., 0., 0.], &[0.1, 0.5, 0.1])
+            .unwrap();
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.visible_nodes(), [0, 2]);
+        queue.set_group_bounds(&[0], &[2., 0., 0.], 0.2).unwrap();
+        assert!(!queue.is_current());
+        assert_eq!(queue.matrices_len(), 0);
+        assert_eq!(&queue.centers[3..6], &[3., 0., 0.]);
+        assert_eq!(queue.radii[1], 0.5);
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.visible_count(), 0);
+        queue
+            .set_group_bounds(&[0, 1, 0], &[0., 0., 0.], 0.)
+            .unwrap();
+        queue.prepare_direct(&scene, &IDENTITY, true).unwrap();
+        assert_eq!(queue.visible_nodes(), [0, 1, 2]);
+    }
+
+    #[test]
+    fn invalid_group_bounds_do_not_modify_a_prepared_queue() {
+        let scene = SceneGraph::new(&[-1], &[0., 0., 0., 0., 0., 0., 1., 1., 1., 1.]).unwrap();
+        let mut queue = RenderQueue::new(&[0], &[0], &[0.5], 1).unwrap();
+        queue.prepare(&scene, &IDENTITY, true).unwrap();
+        for (groups, center, radius) in [
+            (vec![0, 1], vec![10., 0., 0.], 1.),
+            (vec![0], vec![0.; 2], 1.),
+            (vec![0], vec![f32::NAN, 0., 0.], 1.),
+            (vec![0], vec![0.; 3], -1.),
+            (vec![0], vec![0.; 3], f32::INFINITY),
+        ] {
+            assert!(queue.set_group_bounds(&groups, &center, radius).is_err());
+            assert!(queue.is_current());
+            assert_eq!(queue.centers, [0.; 3]);
+            assert_eq!(queue.radii, [0.5]);
+        }
+        queue.set_group_bounds(&[], &[0.; 3], 1.).unwrap();
+        assert!(queue.is_current());
+    }
 
     #[test]
     fn scene_changes_and_disposal_invalidate_prepared_queues() {

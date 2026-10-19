@@ -1,11 +1,35 @@
 import type { GeometryData } from './types.ts';
 
+function outwardRadius(value: number): number {
+  const rounded = new Float32Array([value]);
+  if (rounded[0] < value) new Uint32Array(rounded.buffer)[0]++;
+  if (!Number.isFinite(rounded[0])) throw new Error('Bounding radius exceeds f32 range');
+  return rounded[0];
+}
+
+/** AABB-centered sphere, rounded outward after the center is stored as f32. */
+export function geometryBounds(positions: Float32Array): { center: Float32Array; radius: number } {
+  if (!positions.length || positions.length % 3 !== 0) throw new Error('Invalid vertex positions');
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < positions.length; i++) {
+    const value = positions[i], axis = i % 3;
+    if (!Number.isFinite(value)) throw new Error('Invalid vertex positions');
+    min[axis] = Math.min(min[axis], value);
+    max[axis] = Math.max(max[axis], value);
+  }
+  const center = Float32Array.from(min, (value, axis) => (value + max[axis]) * 0.5);
+  let radius = 0;
+  for (let i = 0; i < positions.length; i += 3)
+    radius = Math.max(radius, Math.hypot(positions[i] - center[0], positions[i + 1] - center[1], positions[i + 2] - center[2]));
+  return { center, radius: outwardRadius(radius) };
+}
+
 function geometry(name: string, vertices: number[], faces: number[]): GeometryData {
   const positions = Float32Array.from(vertices);
   let radius = 0;
   for (let i = 0; i < positions.length; i += 3)
     radius = Math.max(radius, Math.hypot(positions[i], positions[i + 1], positions[i + 2]));
-  return { name, positions, indices: Uint32Array.from(faces), radius: Math.fround(radius) };
+  return { name, positions, indices: Uint32Array.from(faces), radius: outwardRadius(radius) };
 }
 
 export function box(): GeometryData {

@@ -1,6 +1,7 @@
 import { SceneGraph, RenderQueue, EngineRenderer } from '../../pkg/three_wasm_rust.js';
 import { ContextLifecycle } from './ContextLifecycle.ts';
 import { validateBounds } from './bounds.ts';
+import { geometryBounds } from './geometry.ts';
 import type { CameraFrame, EngineScene, SceneBackend, FrameStats, DrawTimer, MaterialData } from './types.ts';
 
 /** The engine path has no Three.js dependency. Call init() from the WASM package first. */
@@ -14,6 +15,9 @@ export class Engine implements SceneBackend {
   private lastTime = NaN;
   private disposed = false;
   private readonly materials: MaterialData[];
+  private readonly geometries: { positions: Float32Array; indices: Uint32Array }[];
+  private readonly batchGeometries: Uint32Array;
+  private readonly batchMaterials: Uint32Array;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -21,6 +25,11 @@ export class Engine implements SceneBackend {
     private readonly instanced = true,
   ) {
     validateBounds(data);
+    this.geometries = data.geometries.map((geometry) => ({
+      positions: geometry.positions.slice(), indices: geometry.indices.slice(),
+    }));
+    this.batchGeometries = data.batchGeometries.slice();
+    this.batchMaterials = data.batchMaterials.slice();
     this.materials = data.materials.map((material) => ({
       ...material,
       color: [...material.color],
@@ -66,12 +75,12 @@ export class Engine implements SceneBackend {
   }
 
   private createRenderer(canvas: HTMLCanvasElement): EngineRenderer {
-    const renderer = new EngineRenderer(canvas, this.data.meshNodes.length, this.instanced);
+    const renderer = new EngineRenderer(canvas, this.queue.matrix_capacity(), this.instanced);
     try {
-      for (const g of this.data.geometries) renderer.add_geometry(g.positions, g.indices);
+      for (const g of this.geometries) renderer.add_geometry(g.positions, g.indices);
       for (const m of this.materials)
         renderer.add_material(Float32Array.from(m.color), m.unlit);
-      renderer.set_batches(this.data.batchGeometries, this.data.batchMaterials);
+      renderer.set_batches(this.batchGeometries, this.batchMaterials);
       return renderer;
     } catch (error) {
       renderer.free();
@@ -96,6 +105,26 @@ export class Engine implements SceneBackend {
     this.materials[id] = {
       ...this.materials[id], color: [values[0], values[1], values[2]], unlit,
     };
+  }
+
+  /** Deform existing geometry; topology is fixed and affected mesh bounds are recomputed. */
+  updateGeometry(id: number, positions: Float32Array): void {
+    if (this.disposed || this.context.state === 'disposed') throw new Error('Engine is disposed');
+    if (!Number.isInteger(id) || id < 0 || id >= this.geometries.length)
+      throw new Error('Invalid geometry id');
+    if (positions.length !== this.geometries[id].positions.length)
+      throw new Error('Geometry update requires the original vertex count');
+    const copy = positions.slice(), bounds = geometryBounds(copy);
+    const groups: number[] = [];
+    this.batchGeometries.forEach((geometry, group) => {
+      if (geometry === id) groups.push(group);
+    });
+    if (this.context.ready) {
+      if (!this.renderer) throw new Error('GPU resources are unavailable');
+      this.renderer.update_geometry(id, copy);
+    }
+    this.queue.set_group_bounds(Uint32Array.from(groups), bounds.center, bounds.radius);
+    this.geometries[id].positions = copy;
   }
 
   frame(time: number, camera: CameraFrame, culling: boolean, timer?: DrawTimer): FrameStats {

@@ -68,6 +68,12 @@ Rust 与 Three.js 对照仍使用相同 shader，旧实验页也采用同样的�
 
 `add_geometry()` 和 `add_material()` 返回注册 ID。`set_batches()` 设定队列组到资源 ID 的映射。`render(queue, viewProjection)` 只提交绘制，不会自动更新场景或队列。
 
+`EngineRenderer.update_geometry(id, positions)` 只更新已有顶点缓冲，顶点数量和索引不变。输入校验在上传之前完成；使用 bufferSubData，不新建 buffer、VAO 或 program。底层调用方需要同步更新包围体，可用 `geometryBounds()` 计算局部球，再调用 `queue.set_group_bounds(groupIds, center, radius)`，重新准备队列后绘制。
+
+`Engine.updateGeometry()` 封装顶点更新与包围体同步：复制输入、计算包围球、上传顶点，再更新所有引用该几何体的组并使旧队列失效。新球心取局部 AABB 中心，先写为 f32，再计算覆盖全部顶点的半径并向外舍入，避免球心舍入或半径舍入缩小包围体。受影响组的自定义包围球会被替换，其他组保持原值。基础几何体的原点半径也采用向外舍入。
+
+几何顶点、索引及批次映射在构造时复制保存；外部数组修改不会改变恢复后的几何。上下文丢失期间，SDK 只更新 CPU 顶点和包围球，恢复时重建最新几何。节点、顶点或索引数量变化仍需重建 Engine，几何卸载暂未实现。
+
 `EngineRenderer.update_material(id, color, unlit)` 替换已有材质的颜色和光照开关。ID 和批次引用保持不变，参数校验通过后才写入；下一次绘制读取新值，不分配 shader、VAO 或缓冲。它不改变几何或可见性，因此不需要重新准备队列。
 
 TS 的 `Engine.updateMaterial()` 保存同样的 CPU 材质状态。构造时复制材质参数，外部修改原 `EngineScene.materials` 不会在上下文恢复时悄悄改变材质；更新也不会回写调用方的数据或持有颜色数组引用。上下文可用时同步更新 Rust 注册表，丢失期间只更新 CPU 描述，恢复时从最新描述重建。此接口暂不支持纹理、透明度、增删材质或更换批次映射。
@@ -76,7 +82,7 @@ TS 的 `Engine.updateMaterial()` 保存同样的 CPU 材质状态。构造时复
 
 调用顺序是“修改场景 → 更新世界矩阵 → 准备队列 → 绘制”。更新失败后，即使捕获了异常，也不能继续使用之前的打包矩阵。两条 EngineRenderer 路径在清屏、上传和绘制之前检查队列状态；旧实验页的 RustRenderer 直接检查场景状态。保留的 `world_matrices()` 副本只代表读取时的数据，借用的 WASM 视图仅用于读取，不能绕过接口修改内部矩阵。
 
-Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` 一起释放，重复 dispose 不会重复释放。资源数量变化时重建 Engine；单个资源卸载和动态节点增删暂未实现。更新已有材质不需要重建 Engine。
+Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` 一起释放，重复 dispose 不会重复释放。资源数量变化时重建 Engine；单个资源卸载和动态节点增删暂未实现。更新已有材质或固定拓扑的顶点位置不需要重建 Engine。
 
 ### 上下文丢失与恢复
 
