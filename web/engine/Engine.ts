@@ -1,7 +1,7 @@
 import { SceneGraph, RenderQueue, EngineRenderer } from '../../pkg/three_wasm_rust.js';
 import { ContextLifecycle } from './ContextLifecycle.ts';
 import { validateBounds } from './bounds.ts';
-import type { CameraFrame, EngineScene, SceneBackend, FrameStats, DrawTimer } from './types.ts';
+import type { CameraFrame, EngineScene, SceneBackend, FrameStats, DrawTimer, MaterialData } from './types.ts';
 
 /** The engine path has no Three.js dependency. Call init() from the WASM package first. */
 export class Engine implements SceneBackend {
@@ -13,6 +13,7 @@ export class Engine implements SceneBackend {
   private renderer: EngineRenderer | undefined;
   private lastTime = NaN;
   private disposed = false;
+  private readonly materials: MaterialData[];
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -20,6 +21,10 @@ export class Engine implements SceneBackend {
     private readonly instanced = true,
   ) {
     validateBounds(data);
+    this.materials = data.materials.map((material) => ({
+      ...material,
+      color: [...material.color],
+    }));
     this.kind = instanced ? 'rust' : 'rust-direct';
     const gl = canvas.getContext('webgl2', {
       antialias: true,
@@ -64,7 +69,7 @@ export class Engine implements SceneBackend {
     const renderer = new EngineRenderer(canvas, this.data.meshNodes.length, this.instanced);
     try {
       for (const g of this.data.geometries) renderer.add_geometry(g.positions, g.indices);
-      for (const m of this.data.materials)
+      for (const m of this.materials)
         renderer.add_material(Float32Array.from(m.color), m.unlit);
       renderer.set_batches(this.data.batchGeometries, this.data.batchMaterials);
       return renderer;
@@ -73,6 +78,26 @@ export class Engine implements SceneBackend {
       throw error;
     }
   }
+
+  /** Applies on the next frame; changes made while the context is lost survive restoration. */
+  updateMaterial(id: number, color: readonly number[], unlit: boolean): void {
+    if (this.disposed || this.context.state === 'disposed') throw new Error('Engine is disposed');
+    if (!Number.isInteger(id) || id < 0 || id >= this.materials.length)
+      throw new Error('Invalid material id');
+    if (color.length !== 3) throw new Error('Invalid material color');
+    for (const value of color)
+      if (!Number.isFinite(value) || value < 0 || value > 1)
+        throw new Error('Invalid material color');
+    const values = Float32Array.from(color);
+    if (this.context.ready) {
+      if (!this.renderer) throw new Error('GPU resources are unavailable');
+      this.renderer.update_material(id, values, unlit);
+    }
+    this.materials[id] = {
+      ...this.materials[id], color: [values[0], values[1], values[2]], unlit,
+    };
+  }
+
   frame(time: number, camera: CameraFrame, culling: boolean, timer?: DrawTimer): FrameStats {
     if (this.disposed) throw new Error('Engine is disposed');
     this.context.assertReady();

@@ -68,11 +68,15 @@ Rust 与 Three.js 对照仍使用相同 shader，旧实验页也采用同样的�
 
 `add_geometry()` 和 `add_material()` 返回注册 ID。`set_batches()` 设定队列组到资源 ID 的映射。`render(queue, viewProjection)` 只提交绘制，不会自动更新场景或队列。
 
+`EngineRenderer.update_material(id, color, unlit)` 替换已有材质的颜色和光照开关。ID 和批次引用保持不变，参数校验通过后才写入；下一次绘制读取新值，不分配 shader、VAO 或缓冲。它不改变几何或可见性，因此不需要重新准备队列。
+
+TS 的 `Engine.updateMaterial()` 保存同样的 CPU 材质状态。构造时复制材质参数，外部修改原 `EngineScene.materials` 不会在上下文恢复时悄悄改变材质；更新也不会回写调用方的数据或持有颜色数组引用。上下文可用时同步更新 Rust 注册表，丢失期间只更新 CPU 描述，恢复时从最新描述重建。此接口暂不支持纹理、透明度、增删材质或更换批次映射。
+
 逐对象路径调用 `queue.prepare_direct(scene, viewProjection, culling)`，再调用 `renderer.render_direct(queue, scene, viewProjection)`。它不压紧或上传实例矩阵。两条绘制接口会检查队列和渲染器的模式，拒绝混用。
 
 调用顺序是“修改场景 → 更新世界矩阵 → 准备队列 → 绘制”。更新失败后，即使捕获了异常，也不能继续使用之前的打包矩阵。两条 EngineRenderer 路径在清屏、上传和绘制之前检查队列状态；旧实验页的 RustRenderer 直接检查场景状态。保留的 `world_matrices()` 副本只代表读取时的数据，借用的 WASM 视图仅用于读取，不能绕过接口修改内部矩阵。
 
-Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` 一起释放，重复 dispose 不会重复释放。资源数量变化时重建 Engine；单个资源卸载和动态节点增删暂未实现。
+Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` 一起释放，重复 dispose 不会重复释放。资源数量变化时重建 Engine；单个资源卸载和动态节点增删暂未实现。更新已有材质不需要重建 Engine。
 
 ### 上下文丢失与恢复
 

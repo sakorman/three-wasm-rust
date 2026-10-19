@@ -24,6 +24,21 @@ struct Material {
     color: [f32; 3],
     unlit: bool,
 }
+impl Material {
+    fn new(color: &[f32], unlit: bool) -> Result<Self, JsValue> {
+        if color.len() != 3
+            || color
+                .iter()
+                .any(|c| !c.is_finite() || !(0.0..=1.0).contains(c))
+        {
+            return Err("invalid material color".into());
+        }
+        Ok(Self {
+            color: color.try_into().unwrap(),
+            unlit,
+        })
+    }
+}
 
 #[wasm_bindgen]
 pub struct EngineRenderer {
@@ -205,18 +220,23 @@ impl EngineRenderer {
     }
 
     pub fn add_material(&mut self, color: &[f32], unlit: bool) -> Result<usize, JsValue> {
-        if color.len() != 3
-            || color
-                .iter()
-                .any(|c| !c.is_finite() || !(0.0..=1.0).contains(c))
-        {
-            return Err("invalid material color".into());
-        }
-        self.materials.push(Material {
-            color: color.try_into().unwrap(),
-            unlit,
-        });
+        self.materials.push(Material::new(color, unlit)?);
         Ok(self.materials.len() - 1)
+    }
+
+    /// Change a registered material without reallocating its geometry or batches.
+    pub fn update_material(
+        &mut self,
+        id: usize,
+        color: &[f32],
+        unlit: bool,
+    ) -> Result<(), JsValue> {
+        let material = self
+            .materials
+            .get_mut(id)
+            .ok_or_else(|| JsValue::from_str("invalid material id"))?;
+        *material = Material::new(color, unlit)?;
+        Ok(())
     }
 
     pub fn set_batches(&mut self, geometries: &[u32], materials: &[u32]) -> Result<(), JsValue> {
