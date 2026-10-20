@@ -123,20 +123,22 @@ function contextChanged() {
   if (disposed || failed || !backends) return;
   const contexts = [backends.rust.context, backends.reference.context];
   const broken = contexts.find((context) => context.state === 'failed');
-  if (broken) {
-    failure(broken.error ?? new Error('图形恢复失败'));
-    return;
-  }
   if (contexts.some((context) => !context.ready)) {
+    const status = broken ? '图形恢复失败' : '等待图形恢复';
+    if (!recovering || ui.status.textContent !== status) {
+      ui.error.hidden = !broken;
+      if (broken)
+        ui.error.textContent = `图形资源重建失败：${errorText(broken.error)}。等待上下文恢复，或刷新重试。`;
+      ui.status.textContent = status;
+      ui.progress.textContent = broken ? '等待重新恢复' : '图形恢复中';
+    }
     if (recovering) return;
     recovering = true;
     bench?.abort(new Error('测试已中止：图形上下文丢失'));
     report = undefined;
     ui.download.hidden = true;
     ui.results.innerHTML = '<tr><td colspan="6" class="empty">待测试</td></tr>';
-    ui.status.textContent = '等待图形恢复';
     ui.dot.classList.remove('ready');
-    ui.progress.textContent = '图形恢复中';
     ui.fps.textContent = '—';
     lastStats = {};
     document.body.classList.add('recovering');

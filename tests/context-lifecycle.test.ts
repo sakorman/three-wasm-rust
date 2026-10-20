@@ -90,3 +90,37 @@ test('disposing during loss prevents resurrection', () => {
   assert.equal(calls, 0);
   assert.equal(lifecycle.ready, false);
 });
+
+for (const earlyDetection of [false, true]) {
+  test(`a later context cycle retries a failed rebuild (early detection: ${earlyDetection})`, () => {
+    const ctx = context(), events: string[] = [];
+    let rebuilds = 0, releases = 0;
+    const lifecycle = new ContextLifecycle(ctx.gl, () => {
+      if (++rebuilds <= 2) throw new Error('temporary allocation failure');
+    }, () => { releases++; });
+    lifecycle.subscribe(() => events.push(lifecycle.state));
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      if (earlyDetection) {
+        ctx.setLost();
+        assert.throws(() => lifecycle.assertReady(), /lost/);
+      }
+      ctx.lose();
+      assert.equal(lifecycle.state, 'lost');
+      assert.equal(lifecycle.generation, cycle);
+      ctx.restore();
+      if (cycle < 3) {
+        assert.equal(lifecycle.state, 'failed');
+        assert.match(String(lifecycle.error), /temporary allocation failure/);
+        assert.throws(() => lifecycle.assertReady(), /failed/);
+        // Duplicate restore events and readiness checks must not cause retries.
+        ctx.restore();
+        assert.equal(rebuilds, cycle);
+      }
+    }
+    lifecycle.assertReady();
+    assert.equal(lifecycle.error, undefined);
+    assert.equal(releases, 3);
+    assert.deepEqual(events, ['lost', 'failed', 'lost', 'failed', 'lost', 'ready']);
+    lifecycle.dispose();
+  });
+}

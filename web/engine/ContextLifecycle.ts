@@ -47,7 +47,8 @@ export class ContextLifecycle {
   }
 
   private lose() {
-    if (this.state !== 'ready') return;
+    // A failed rebuild can be retried when the browser supplies another context.
+    if (this.state !== 'ready' && this.state !== 'failed') return;
     this.currentState = 'lost';
     this.currentGeneration++;
     // Drop the old handles while GL calls are ignored, before restoration creates a new namespace.
