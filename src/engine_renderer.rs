@@ -1,5 +1,9 @@
 //! Resource registries and batched WebGL2 submission. The queue owns CPU culling.
-use crate::{queue::RenderQueue, renderer::shader, SceneGraph, MAX_NODES};
+use crate::{
+    queue::RenderQueue,
+    renderer::{buffer_storage_matches, shader},
+    SceneGraph, MAX_NODES,
+};
 use wasm_bindgen::{prelude::*, JsCast};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext as Gl, WebGlBuffer, WebGlProgram,
@@ -134,6 +138,11 @@ impl EngineRenderer {
             };
             gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&buffer));
             gl.buffer_data_with_i32(Gl::ARRAY_BUFFER, (capacity * 64) as i32, Gl::DYNAMIC_DRAW);
+            if !buffer_storage_matches(&gl, Gl::ARRAY_BUFFER, capacity * 64) {
+                gl.delete_buffer(Some(&buffer));
+                gl.delete_program(Some(&program));
+                return Err("instance matrix buffer allocation failed".into());
+            }
             Some(buffer)
         } else {
             None

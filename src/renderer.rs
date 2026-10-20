@@ -38,6 +38,11 @@ pub(super) fn shader(gl: &Gl, kind: u32, source: &str) -> Result<WebGlShader, Js
     Ok(value)
 }
 
+pub(super) fn buffer_storage_matches(gl: &Gl, target: u32, bytes: usize) -> bool {
+    !gl.is_context_lost()
+        && gl.get_buffer_parameter(target, Gl::BUFFER_SIZE).as_f64() == Some(bytes as f64)
+}
+
 #[wasm_bindgen]
 impl RustRenderer {
     /// All instances share one indexed geometry; each has its own RGB color.
@@ -126,27 +131,54 @@ impl RustRenderer {
                 }
             }
         }
-        gl.bind_vertex_array(Some(&vao));
-        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&buffers[0]));
+        // Own every handle before uploads so storage failures run the normal cleanup path.
+        let renderer = Self {
+            gl: gl.clone(),
+            program,
+            vao,
+            matrix_buffer: buffers[2].clone(),
+            buffers,
+            vp,
+            index_count: indices.len() as i32,
+            instance_count: colors.len() / 3,
+        };
+        gl.bind_vertex_array(Some(&renderer.vao));
+        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&renderer.buffers[0]));
         gl.buffer_data_with_u8_array(
             Gl::ARRAY_BUFFER,
             bytemuck::cast_slice(positions),
             Gl::STATIC_DRAW,
         );
+        if !buffer_storage_matches(&gl, Gl::ARRAY_BUFFER, std::mem::size_of_val(positions)) {
+            gl.bind_vertex_array(None);
+            return Err("vertex buffer allocation failed".into());
+        }
         gl.enable_vertex_attrib_array(0);
         gl.vertex_attrib_pointer_with_i32(0, 3, Gl::FLOAT, false, 0, 0);
-        gl.bind_buffer(Gl::ELEMENT_ARRAY_BUFFER, Some(&buffers[1]));
+        gl.bind_buffer(Gl::ELEMENT_ARRAY_BUFFER, Some(&renderer.buffers[1]));
         gl.buffer_data_with_u8_array(
             Gl::ELEMENT_ARRAY_BUFFER,
             bytemuck::cast_slice(indices),
             Gl::STATIC_DRAW,
         );
-        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&buffers[2]));
+        if !buffer_storage_matches(
+            &gl,
+            Gl::ELEMENT_ARRAY_BUFFER,
+            std::mem::size_of_val(indices),
+        ) {
+            gl.bind_vertex_array(None);
+            return Err("index buffer allocation failed".into());
+        }
+        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&renderer.buffers[2]));
         gl.buffer_data_with_i32(
             Gl::ARRAY_BUFFER,
             (colors.len() / 3 * 64) as i32,
             Gl::DYNAMIC_DRAW,
         );
+        if !buffer_storage_matches(&gl, Gl::ARRAY_BUFFER, colors.len() / 3 * 64) {
+            gl.bind_vertex_array(None);
+            return Err("instance matrix buffer allocation failed".into());
+        }
         for column in 0..4 {
             gl.enable_vertex_attrib_array(column + 1);
             gl.vertex_attrib_pointer_with_i32(
@@ -159,27 +191,21 @@ impl RustRenderer {
             );
             gl.vertex_attrib_divisor(column + 1, 1);
         }
-        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&buffers[3]));
+        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&renderer.buffers[3]));
         gl.buffer_data_with_u8_array(
             Gl::ARRAY_BUFFER,
             bytemuck::cast_slice(colors),
             Gl::STATIC_DRAW,
         );
+        if !buffer_storage_matches(&gl, Gl::ARRAY_BUFFER, std::mem::size_of_val(colors)) {
+            gl.bind_vertex_array(None);
+            return Err("color buffer allocation failed".into());
+        }
         gl.enable_vertex_attrib_array(5);
         gl.vertex_attrib_pointer_with_i32(5, 3, Gl::FLOAT, false, 0, 0);
         gl.vertex_attrib_divisor(5, 1);
         gl.bind_vertex_array(None);
-        let matrix_buffer = buffers[2].clone();
-        Ok(Self {
-            gl,
-            program,
-            vao,
-            buffers,
-            matrix_buffer,
-            vp,
-            index_count: indices.len() as i32,
-            instance_count: colors.len() / 3,
-        })
+        Ok(renderer)
     }
 
     /// Updates GPU matrices and submits one draw; does not update the scene graph.
