@@ -127,6 +127,28 @@ export class Engine implements SceneBackend {
     this.geometries[id].positions = copy;
   }
 
+  /** Replace positions and triangle indices while preserving geometry ID and scene references. */
+  replaceGeometry(id: number, positions: Float32Array, indices: Uint32Array): void {
+    if (this.disposed || this.context.state === 'disposed') throw new Error('Engine is disposed');
+    if (!Number.isInteger(id) || id < 0 || id >= this.geometries.length)
+      throw new Error('Invalid geometry id');
+    const copy = positions.slice(), indexCopy = indices.slice();
+    const bounds = geometryBounds(copy);
+    if (!indexCopy.length || indexCopy.length % 3 !== 0 || indexCopy.length > 0x7fffffff ||
+        indexCopy.some((index) => index >= copy.length / 3))
+      throw new Error('Invalid triangle indices');
+    const groups: number[] = [];
+    this.batchGeometries.forEach((geometry, group) => {
+      if (geometry === id) groups.push(group);
+    });
+    if (this.context.ready) {
+      if (!this.renderer) throw new Error('GPU resources are unavailable');
+      this.renderer.replace_geometry(id, copy, indexCopy);
+    }
+    this.queue.set_group_bounds(Uint32Array.from(groups), bounds.center, bounds.radius);
+    this.geometries[id] = { positions: copy, indices: indexCopy };
+  }
+
   frame(time: number, camera: CameraFrame, culling: boolean, timer?: DrawTimer): FrameStats {
     if (this.disposed) throw new Error('Engine is disposed');
     this.context.assertReady();

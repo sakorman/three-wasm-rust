@@ -156,6 +156,27 @@ impl EngineRenderer {
     }
 
     pub fn add_geometry(&mut self, positions: &[f32], indices: &[u32]) -> Result<usize, JsValue> {
+        let geometry = self.create_geometry(positions, indices)?;
+        self.geometries.push(geometry);
+        Ok(self.geometries.len() - 1)
+    }
+
+    /// Replace topology under the same resource ID; retain the old geometry on failure.
+    pub fn replace_geometry(
+        &mut self,
+        id: usize,
+        positions: &[f32],
+        indices: &[u32],
+    ) -> Result<(), JsValue> {
+        if id >= self.geometries.len() {
+            return Err("invalid geometry id".into());
+        }
+        let geometry = self.create_geometry(positions, indices)?;
+        self.geometries[id] = geometry;
+        Ok(())
+    }
+
+    fn create_geometry(&self, positions: &[f32], indices: &[u32]) -> Result<Geometry, JsValue> {
         if positions.is_empty()
             || !positions.len().is_multiple_of(3)
             || !indices.len().is_multiple_of(3)
@@ -167,6 +188,9 @@ impl EngineRenderer {
             return Err("invalid geometry".into());
         }
         let gl = &self.gl;
+        if gl.is_context_lost() {
+            return Err("WebGL context lost".into());
+        }
         let Some(vao) = gl.create_vertex_array() else {
             return Err("VAO allocation failed".into());
         };
@@ -179,21 +203,43 @@ impl EngineRenderer {
             gl.delete_buffer(Some(&vertex));
             return Err("index allocation failed".into());
         };
-        gl.bind_vertex_array(Some(&vao));
-        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&vertex));
+        // From here every failure releases all three newly allocated handles.
+        let geometry = Geometry {
+            gl: gl.clone(),
+            vao,
+            vertex,
+            index,
+            count: indices.len() as i32,
+            vertex_len: positions.len(),
+        };
+        gl.bind_vertex_array(Some(&geometry.vao));
+        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&geometry.vertex));
         gl.buffer_data_with_u8_array(
             Gl::ARRAY_BUFFER,
             bytemuck::cast_slice(positions),
             Gl::STATIC_DRAW,
         );
+        let vertex_bytes = gl
+            .get_buffer_parameter(Gl::ARRAY_BUFFER, Gl::BUFFER_SIZE)
+            .as_f64();
         gl.enable_vertex_attrib_array(0);
         gl.vertex_attrib_pointer_with_i32(0, 3, Gl::FLOAT, false, 0, 0);
-        gl.bind_buffer(Gl::ELEMENT_ARRAY_BUFFER, Some(&index));
+        gl.bind_buffer(Gl::ELEMENT_ARRAY_BUFFER, Some(&geometry.index));
         gl.buffer_data_with_u8_array(
             Gl::ELEMENT_ARRAY_BUFFER,
             bytemuck::cast_slice(indices),
             Gl::STATIC_DRAW,
         );
+        let index_bytes = gl
+            .get_buffer_parameter(Gl::ELEMENT_ARRAY_BUFFER, Gl::BUFFER_SIZE)
+            .as_f64();
+        if vertex_bytes != Some(std::mem::size_of_val(positions) as f64)
+            || index_bytes != Some(std::mem::size_of_val(indices) as f64)
+            || gl.is_context_lost()
+        {
+            gl.bind_vertex_array(None);
+            return Err("geometry buffer allocation failed".into());
+        }
         if let Some(instances) = &self.instances {
             gl.bind_buffer(Gl::ARRAY_BUFFER, Some(instances));
             for col in 0..4 {
@@ -210,15 +256,7 @@ impl EngineRenderer {
             }
         }
         gl.bind_vertex_array(None);
-        self.geometries.push(Geometry {
-            gl: gl.clone(),
-            vao,
-            vertex,
-            index,
-            count: indices.len() as i32,
-            vertex_len: positions.len(),
-        });
-        Ok(self.geometries.len() - 1)
+        Ok(geometry)
     }
 
     /// Replace vertex positions while preserving topology, buffers and VAO identity.
