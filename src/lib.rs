@@ -1,3 +1,4 @@
+mod bounds;
 #[cfg(target_arch = "wasm32")]
 mod engine_renderer;
 mod math;
@@ -293,6 +294,40 @@ impl SceneGraph {
         self.worlds.clone()
     }
 
+    /// World-space AABBs in query order, packed as min xyz / max xyz per node.
+    /// Local boxes must be finite and ordered. Update world matrices before querying.
+    pub fn world_aabbs(&self, nodes: &[u32], local_bounds: &[f32]) -> Result<Vec<f32>, String> {
+        self.ensure_ready()?;
+        if nodes.len() > MAX_NODES || local_bounds.len() != nodes.len() * 6 {
+            return Err("expected six AABB coordinates per query, at most 100000 queries".into());
+        }
+        for (index, (&id, bounds)) in nodes
+            .iter()
+            .zip(local_bounds.as_chunks::<6>().0)
+            .enumerate()
+        {
+            if id as usize >= self.node_count()
+                || bounds.iter().any(|v| !v.is_finite())
+                || (0..3).any(|axis| bounds[axis] > bounds[axis + 3])
+            {
+                return Err(format!("invalid node or local AABB at query {index}"));
+            }
+        }
+        let mut result = Vec::with_capacity(local_bounds.len());
+        for (index, (&id, bounds)) in nodes
+            .iter()
+            .zip(local_bounds.as_chunks::<6>().0)
+            .enumerate()
+        {
+            let offset = id as usize * 16;
+            let world = self.worlds[offset..offset + 16].try_into().unwrap();
+            let transformed = bounds::transform_aabb(world, bounds)
+                .map_err(|error| format!("{error} at query {index}"))?;
+            result.extend_from_slice(&transformed);
+        }
+        Ok(result)
+    }
+
     /// Borrowed memory; reacquire JS views after any potentially allocating WASM call.
     pub fn matrices_ptr(&self) -> *const f32 {
         self.worlds.as_ptr()
@@ -391,6 +426,58 @@ mod tests {
 
     fn transforms(count: usize) -> Vec<f32> {
         [1., 0., 0., 0., 0., 0., 1., 1., 1., 1.].repeat(count)
+    }
+
+    #[test]
+    fn aabb_queries_validate_inputs_and_require_current_matrices() {
+        let mut graph = SceneGraph::new(&[-1], &transforms(1)).unwrap();
+        let point = [0.; 6];
+        assert_eq!(graph.world_aabbs(&[], &[]).unwrap(), []);
+        assert!(graph.world_aabbs(&[0], &[]).is_err());
+        assert!(graph.world_aabbs(&[1], &point).is_err());
+        assert!(graph.world_aabbs(&[0], &[f32::NAN; 6]).is_err());
+        assert!(graph.world_aabbs(&[0], &[1., 0., 0., 0., 0., 0.]).is_err());
+        let snapshot = graph.snapshot().unwrap();
+        assert_eq!(
+            graph.world_aabbs(&[0], &point).unwrap(),
+            [1., 0., 0., 1., 0., 0.]
+        );
+        assert!(snapshot.is_current());
+        let mut changed = transforms(1);
+        changed[0] = 2.;
+        graph.set_transform(0, &changed).unwrap();
+        assert!(graph.world_aabbs(&[0], &point).is_err());
+        graph.update_world_matrices().unwrap();
+        assert_eq!(
+            graph.world_aabbs(&[0], &point).unwrap(),
+            [2., 0., 0., 2., 0., 0.]
+        );
+    }
+
+    #[test]
+    fn aabb_queries_keep_order_and_reject_overflow_without_changing_the_scene() {
+        let mut graph = SceneGraph::new(&[-1, 0], &transforms(2)).unwrap();
+        let points = [0.; 18];
+        assert_eq!(
+            graph.world_aabbs(&[1, 0, 1], &points).unwrap(),
+            [2., 0., 0., 2., 0., 0., 1., 0., 0., 1., 0., 0., 2., 0., 0., 2., 0., 0.]
+        );
+        let mut changed = transforms(1);
+        changed[7] = 1e20;
+        graph.set_transform(1, &changed).unwrap();
+        graph.update_world_matrices().unwrap();
+        let before = graph.world_matrices();
+        let boxes = [0., 0., 0., 0., 0., 0., 1e20, 0., 0., 1e20, 0., 0.];
+        assert!(graph
+            .world_aabbs(&[0, 1], &boxes)
+            .unwrap_err()
+            .contains("query 1"));
+        assert_eq!(graph.world_matrices(), before);
+        assert!(graph.world_aabbs(&[1], &[0.; 6]).is_ok());
+        changed[7] = 1e30;
+        graph.set_transform(0, &changed).unwrap();
+        assert!(graph.update_world_matrices().is_err());
+        assert!(graph.world_aabbs(&[0], &[0.; 6]).is_err());
     }
 
     #[test]
