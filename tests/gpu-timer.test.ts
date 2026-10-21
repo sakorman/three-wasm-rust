@@ -12,13 +12,14 @@ function context(supported = true) {
   let lost = false;
   let active: unknown = null;
   let duration: unknown = 2_500_000;
+  let allocationFails = false;
   const gl = {
     canvas,
     isContextLost: () => lost,
     QUERY_RESULT_AVAILABLE: 1,
     QUERY_RESULT: 2,
     getExtension: () => (supported ? { TIME_ELAPSED_EXT: 3, GPU_DISJOINT_EXT: 4 } : null),
-    createQuery: () => ({ id: ++created }),
+    createQuery: () => allocationFails ? null : ({ id: ++created }),
     beginQuery: (_target: number, query: unknown) => {
       assert.equal(active, null, 'a timer query is already active');
       active = query;
@@ -46,6 +47,7 @@ function context(supported = true) {
       disjoint = value;
     },
     duration: (value: unknown) => { duration = value; },
+    failAllocation: (value: boolean) => { allocationFails = value; },
     active: () => active,
     stats: () => ({ created, deleted, reads }),
     lose: () => {
@@ -117,6 +119,7 @@ test('GPU timer rejects invalid durations but keeps zero-duration samples', () =
     timer.poll();
   }
   assert.deepEqual(timer.samples, [0, 2.5]);
+  assert.equal(timer.diagnostics.invalidResults, 4);
   assert.deepEqual(ctx.stats(), { created: 6, deleted: 6, reads: 6 });
   timer.dispose();
 });
@@ -149,6 +152,7 @@ test('GPU timer supports missing extensions and caps outstanding queries', () =>
   timer.dispose();
   assert.equal(timer.supported, false);
   assert.equal(missing.stats().created, 0);
+  assert.deepEqual(timer.diagnostics, { allocationFailures: 0, queueLimitSkips: 0, invalidResults: 0, pendingQueries: 0 });
   const ctx = context(),
     pending = new GpuTimer(ctx.gl);
   for (let i = 0; i < 20; i++) {
@@ -156,6 +160,7 @@ test('GPU timer supports missing extensions and caps outstanding queries', () =>
     pending.end();
   }
   assert.equal(ctx.stats().created, 8);
+  assert.deepEqual(pending.diagnostics, { allocationFailures: 0, queueLimitSkips: 12, invalidResults: 0, pendingQueries: 8 });
   pending.dispose();
   assert.equal(ctx.stats().deleted, 8);
 });
@@ -178,4 +183,33 @@ test('GPU timer never reads stale queries after context restoration', () => {
   assert.deepEqual(timer.samples, []);
   assert.equal(timer.disjoint, true);
   assert.deepEqual(ctx.stats(), { created: 2, deleted: 1, reads: 1 });
+});
+
+test('GPU diagnostics distinguish allocation failure from unread results and return isolated snapshots', () => {
+  const ctx = context(), timer = new GpuTimer(ctx.gl);
+  ctx.failAllocation(true);
+  timer.begin(); timer.end();
+  ctx.failAllocation(false);
+  timer.begin(); timer.end(); timer.poll();
+  const snapshot = timer.diagnostics;
+  assert.deepEqual(snapshot, { allocationFailures: 1, queueLimitSkips: 0, invalidResults: 0, pendingQueries: 1 });
+  assert.equal(ctx.stats().reads, 0);
+  snapshot.allocationFailures = 99;
+  assert.equal(timer.diagnostics.allocationFailures, 1);
+  ctx.available(); timer.poll();
+  assert.deepEqual(timer.samples, [2.5]);
+  assert.equal(timer.diagnostics.pendingQueries, 0);
+  assert.equal(snapshot.pendingQueries, 1);
+  timer.dispose();
+});
+
+test('pending diagnostics are captured before cleanup without waiting for GPU results', () => {
+  const ctx = context(), timer = new GpuTimer(ctx.gl);
+  for (let i = 0; i < 24; i++) { timer.begin(); timer.end(); timer.poll(); }
+  const snapshot = timer.diagnostics;
+  assert.deepEqual(snapshot, { allocationFailures: 0, queueLimitSkips: 16, invalidResults: 0, pendingQueries: 8 });
+  timer.dispose();
+  assert.equal(timer.diagnostics.pendingQueries, 0);
+  assert.equal(snapshot.pendingQueries, 8);
+  assert.deepEqual(ctx.stats(), { created: 8, deleted: 8, reads: 0 });
 });

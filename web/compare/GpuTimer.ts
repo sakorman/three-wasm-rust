@@ -3,12 +3,22 @@ interface TimerExtension {
   GPU_DISJOINT_EXT: number;
 }
 
+export interface GpuDiagnostics {
+  allocationFailures: number;
+  queueLimitSkips: number;
+  invalidResults: number;
+  pendingQueries: number;
+}
+
 /** Asynchronous timer queries. Never gl.finish() or wait on an unavailable result. */
 export class GpuTimer {
   private readonly extension: TimerExtension | null;
   private active: WebGLQuery | null = null;
   private pending: WebGLQuery[] = [];
   private disposed = false;
+  private allocationFailures = 0;
+  private queueLimitSkips = 0;
+  private invalidResults = 0;
   readonly samples: number[] = [];
   disjoint = false;
   constructor(private readonly gl: WebGL2RenderingContext) {
@@ -18,15 +28,29 @@ export class GpuTimer {
   get supported() {
     return this.extension !== null;
   }
+  /** Snapshot before disposal; reading diagnostics never queries or stalls the GPU. */
+  get diagnostics(): GpuDiagnostics {
+    return {
+      allocationFailures: this.allocationFailures,
+      queueLimitSkips: this.queueLimitSkips,
+      invalidResults: this.invalidResults,
+      pendingQueries: this.pending.length + (this.active ? 1 : 0),
+    };
+  }
   begin() {
     if (this.disposed || this.active || this.disjoint) return;
     if (this.gl.isContextLost()) {
       this.onLost();
       return;
     }
-    if (!this.extension || this.pending.length >= 8) return;
+    if (!this.extension) return;
+    if (this.pending.length >= 8) {
+      this.queueLimitSkips++;
+      return;
+    }
     this.active = this.gl.createQuery();
     if (this.active) this.gl.beginQuery(this.extension.TIME_ELAPSED_EXT, this.active);
+    else this.allocationFailures++;
   }
   end() {
     if (this.disposed) return;
@@ -63,6 +87,7 @@ export class GpuTimer {
       const nanos: unknown = this.gl.getQueryParameter(q, this.gl.QUERY_RESULT);
       if (typeof nanos === 'number' && Number.isFinite(nanos) && nanos >= 0)
         this.samples.push(nanos / 1e6);
+      else this.invalidResults++;
       this.gl.deleteQuery(q);
     }
   }

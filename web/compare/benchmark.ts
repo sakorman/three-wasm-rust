@@ -1,4 +1,5 @@
 import { GpuTimer } from './GpuTimer.ts';
+import type { GpuDiagnostics } from './GpuTimer.ts';
 import { REVISION } from 'three';
 import type {
   Backend,
@@ -24,6 +25,7 @@ export interface ModeResult {
   gpuStatus: GpuStatus;
   gpuSamples: number[];
   gpuExpectedSamples: number;
+  gpuDiagnostics: GpuDiagnostics & { unsupportedRounds: number; disjointRounds: number };
   draws: number;
   visible: number;
   triangles: number;
@@ -116,6 +118,10 @@ export async function compareBackends(
     instanced: 'unsupported',
   };
   const order: Backend[][] = [];
+  const gpuDiagnostics = new Map(modes.map((mode) => [mode, {
+    allocationFailures: 0, queueLimitSkips: 0, invalidResults: 0, pendingQueries: 0,
+    unsupportedRounds: 0, disjointRounds: 0,
+  }]));
   const generations = backends.map((backend) => backend.context.generation);
   const check = () => {
     if (options.signal.aborted)
@@ -168,6 +174,14 @@ export async function compareBackends(
           check();
           timer.poll();
         }
+        const diagnostics = gpuDiagnostics.get(mode)!;
+        const snapshot = timer.diagnostics;
+        diagnostics.allocationFailures += snapshot.allocationFailures;
+        diagnostics.queueLimitSkips += snapshot.queueLimitSkips;
+        diagnostics.invalidResults += snapshot.invalidResults;
+        diagnostics.pendingQueries += snapshot.pendingQueries;
+        if (!timer.supported) diagnostics.unsupportedRounds++;
+        if (timer.disjoint) diagnostics.disjointRounds++;
         if (timer.disjoint) {
           gpuStatus[mode] = 'disjoint';
           gpu[mode] = [];
@@ -225,6 +239,7 @@ export async function compareBackends(
       gpuStatus: status,
       gpuSamples: gpu[mode],
       gpuExpectedSamples: list.length,
+      gpuDiagnostics: gpuDiagnostics.get(mode)!,
       draws: median('draws'),
       visible: median('visible'),
       triangles: median('triangles'),

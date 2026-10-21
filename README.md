@@ -175,6 +175,19 @@ engine.replaceGeometry(0, newPositions, newIndices); // Float32Array、Uint32Arr
 
 GPU 中位数要求每个记录帧都有有效查询结果。只收到部分样本时显示“采样不全”，不计算中位数；悬停可查看已返回数量，JSON 保留部分样本和 `gpuExpectedSamples` 供排查。查询不可用时显示“不可用”，遇到 disjoint 则丢弃该组 GPU 样本。CPU 和帧间隔结果不受 GPU 样本缺失影响。
 
+每组 JSON 的 `gpuDiagnostics` 记录查询缺失原因，跨轮累加：
+
+| 字段 | 含义 |
+| --- | --- |
+| `allocationFailures` | 创建查询返回 null 的次数 |
+| `queueLimitSkips` | 已有 8 个查询待返回，因此跳过采样的帧数 |
+| `invalidResults` | 已返回但为负数、非有限值或非数值的结果数 |
+| `pendingQueries` | 每轮额外等待 8 帧后仍未返回的查询数之和，释放前记录 |
+| `unsupportedRounds` | 浏览器未提供计时扩展的轮数 |
+| `disjointRounds` | 检测到 GPU 计时失效的轮数 |
+
+这些字段记录观测到的查询状态，不判断驱动故障根因。轮数与查询数不能相加当作缺失样本数；disjoint 会使整组 GPU 结果作废，即使其他轮已收到有效样本。诊断不增加同步等待或 GPU 查询调用。
+
 查询包围绘制提交，包括驱动提交过程中可能产生的 GPU 空闲间隔，不能把它当作纯片元着色时间。Headless Chromium 可能使用软件渲染，不适合代表真实显卡性能。
 
 JSON 报告使用 schemaVersion 3，包含对照模式、是否实例化、矩阵更新策略、绘制顺序、全部样本、四轮顺序、浏览器、相机矩阵、对象/节点数量和画布尺寸。没有预填的跑分，也不承诺 Rust 总是更快。计时器精度不足时不推算倍数。
