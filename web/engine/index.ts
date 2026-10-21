@@ -5,4 +5,4 @@ export { ContextLifecycle } from './ContextLifecycle.ts';
 export { OrbitCamera } from './camera.ts';
 export { box, sphere, cylinder, geometryBounds } from './geometry.ts';
 export { createEngineScene } from './scenes.ts';
-export type { EngineScene, GeometryData, MaterialData, CameraFrame, FrameStats } from './types.ts';
+export type { EngineScene, GeometryData, MaterialData, CameraFrame, FrameStats, GpuResourceStats } from './types.ts';

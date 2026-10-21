@@ -29,6 +29,26 @@ struct Material {
     color: [f32; 3],
     unlit: bool,
 }
+
+/// Live renderer allocations, excluding driver overhead and framebuffer storage.
+#[wasm_bindgen]
+#[derive(Default)]
+pub struct RendererResources {
+    #[wasm_bindgen(readonly)]
+    pub buffers: usize,
+    #[wasm_bindgen(readonly)]
+    pub vertex_arrays: usize,
+    #[wasm_bindgen(readonly)]
+    pub programs: usize,
+    #[wasm_bindgen(readonly)]
+    pub vertex_bytes: f64,
+    #[wasm_bindgen(readonly)]
+    pub index_bytes: f64,
+    #[wasm_bindgen(readonly)]
+    pub instance_bytes: f64,
+    #[wasm_bindgen(readonly)]
+    pub buffer_bytes: f64,
+}
 impl Material {
     fn new(color: &[f32], unlit: bool) -> Result<Self, JsValue> {
         if color.len() != 3
@@ -477,6 +497,37 @@ impl EngineRenderer {
     }
     pub fn triangles(&self) -> usize {
         self.triangles
+    }
+
+    /// Read allocation metadata without binding buffers or querying GPU storage.
+    pub fn resource_stats(&self) -> RendererResources {
+        if self.gl.is_context_lost() {
+            return RendererResources::default();
+        }
+        let vertex_bytes = self
+            .geometries
+            .iter()
+            .map(|g| g.vertex_len as f64 * 4.)
+            .sum::<f64>();
+        let index_bytes = self
+            .geometries
+            .iter()
+            .map(|g| f64::from(g.count) * 4.)
+            .sum::<f64>();
+        let instance_bytes = if self.instances.is_some() {
+            self.capacity as f64 * 64.
+        } else {
+            0.
+        };
+        RendererResources {
+            buffers: self.geometries.len() * 2 + usize::from(self.instances.is_some()),
+            vertex_arrays: self.geometries.len(),
+            programs: 1,
+            vertex_bytes,
+            index_bytes,
+            instance_bytes,
+            buffer_bytes: vertex_bytes + index_bytes + instance_bytes,
+        }
     }
 }
 impl Drop for EngineRenderer {

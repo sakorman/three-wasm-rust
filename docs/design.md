@@ -90,6 +90,10 @@ TS 的 `Engine.updateMaterial()` 保存同样的 CPU 材质状态。构造时复
 
 Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` 一起释放，重复 dispose 不会重复释放。资源数量变化时重建 Engine；单个资源卸载和动态节点增删暂未实现。更新材质、顶点或替换已有几何体的拓扑都不需要重建 Engine。
 
+`EngineRenderer.resource_stats()` 返回独立的 `RendererResources` 快照。顶点和索引字节数来自注册表中已通过分配校验的几何，实例字节数按构造容量乘以 64；累加使用 f64，避免 wasm32 的 usize 总和溢出。统计不绑定缓冲，也不调用 `getBufferParameter`。零容量实例缓冲仍是一个 GPU 对象，虽然字节数为零。
+
+底层快照是 WASM 对象，读取后需调用其 `free()`；它不引用渲染器，渲染器修改或释放后仍保留采样值。`Engine.resourceStats()` 负责转换成普通 TS 对象并立即释放底层快照，类型为 `GpuResourceStats`。上下文丢失时报告零 GPU 资源，CPU 场景数据仍保留用于恢复；直接使用底层渲染器时，调用方仍需负责释放旧实例并重建。该统计不包含浏览器和驱动分配，也不代表进程内存或真实显存占用。
+
 ### 上下文丢失与恢复
 
 `ContextLifecycle` 提供只读的 `state`、`generation` 和 `error`，状态为 ready / lost / failed / disposed。Engine 会阻止浏览器放弃恢复，在丢失事件中释放旧 GPU 句柄；收到恢复事件后从场景资源描述重新注册几何体、材质和批次。CPU 侧场景图、已修改的 TRS 和队列继续复用，不重新生成场景。

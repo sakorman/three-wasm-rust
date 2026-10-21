@@ -45,6 +45,17 @@ export interface FrameStats {
   triangles: number;
   updated: number | null;
 }
+/** Renderer-owned GPU allocations; excludes CPU/WASM data and driver overhead. */
+export interface GpuResourceStats {
+  ready: boolean;
+  buffers: number;
+  vertexArrays: number;
+  programs: number;
+  vertexBytes: number;
+  indexBytes: number;
+  instanceBytes: number;
+  bufferBytes: number;
+}
 export interface SceneBackend {
   readonly kind: Backend;
   readonly gl: WebGL2RenderingContext;

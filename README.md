@@ -152,6 +152,19 @@ engine.replaceGeometry(0, newPositions, newIndices); // Float32Array、Uint32Arr
 
 几何体 ID、材质与对象引用保持不变，包围球自动同步。新缓冲创建成功后才替换旧几何并释放旧资源，参数或分配失败时保留原几何。上下文丢失期间的替换会在恢复后生效。此路径需要重新分配顶点/索引缓冲和 VAO，替换时新旧资源短暂共存；固定拓扑的频繁变形仍适合 `updateGeometry()`。
 
+可按需读取引擎的 GPU 资源快照：
+
+```ts
+const resources = engine.resourceStats();
+console.log(resources.bufferBytes, resources.buffers);
+```
+
+`buffers`、`vertexArrays`、`programs` 是引擎持有的对象数；`vertexBytes`、`indexBytes`、`instanceBytes` 分别记录顶点、索引和实例矩阵缓冲的分配字节数，`bufferBytes` 为三者之和。共享几何只计算一次，实例缓冲按预分配容量计数，不随可见对象数变化。拓扑替换成功后更新统计，失败保留原值。
+
+`ready` 表示当前可绘制。上下文丢失或重建失败时 GPU 计数为零，恢复后反映最新资源；`Engine.dispose()` 后也可读取零值快照。只调用 `engine.context.dispose()` 会停止上下文监听，不会释放引擎资源，此时 `ready` 为 false，已持有的资源仍计数，最终仍需 `engine.dispose()`。
+
+这些数字来自已成功分配的缓冲元数据，不是实际显存测量：不含驱动开销、帧缓冲、CPU/WASM 数据或替换过程的瞬时峰值。读取不会查询 GPU 缓冲存储，但会遍历几何体注册表，适合加载、编辑或释放后检查。
+
 目前节点、几何体和材质的数量固定；已有几何体可更换拓扑，增删资源或对象仍需重建。类型声明由 wasm-bindgen 生成，根目录尚未作为 npm 包发布。
 
 ## 测试结果怎么看

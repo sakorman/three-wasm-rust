@@ -2,7 +2,7 @@ import { SceneGraph, RenderQueue, EngineRenderer } from '../../pkg/three_wasm_ru
 import { ContextLifecycle } from './ContextLifecycle.ts';
 import { validateBounds } from './bounds.ts';
 import { geometryBounds } from './geometry.ts';
-import type { CameraFrame, EngineScene, SceneBackend, FrameStats, DrawTimer, MaterialData } from './types.ts';
+import type { CameraFrame, EngineScene, SceneBackend, FrameStats, DrawTimer, MaterialData, GpuResourceStats } from './types.ts';
 
 /** The engine path has no Three.js dependency. Call init() from the WASM package first. */
 export class Engine implements SceneBackend {
@@ -184,6 +184,22 @@ export class Engine implements SceneBackend {
       updated: this.graph.updated_count(),
     };
   }
+  /** Current GPU allocation snapshot. Lost, failed and disposed engines report zero. */
+  resourceStats(): GpuResourceStats {
+    if (this.disposed || !this.renderer) return {
+      ready: false, buffers: 0, vertexArrays: 0, programs: 0,
+      vertexBytes: 0, indexBytes: 0, instanceBytes: 0, bufferBytes: 0,
+    };
+    const stats = this.renderer.resource_stats();
+    try {
+      return {
+        ready: this.context.ready && stats.programs !== 0, buffers: stats.buffers, vertexArrays: stats.vertex_arrays,
+        programs: stats.programs, vertexBytes: stats.vertex_bytes, indexBytes: stats.index_bytes,
+        instanceBytes: stats.instance_bytes, bufferBytes: stats.buffer_bytes,
+      };
+    } finally { stats.free(); }
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
