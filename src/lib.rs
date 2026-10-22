@@ -474,6 +474,27 @@ mod tests {
     }
 
     #[test]
+    fn tiny_quaternion_batches_keep_zero_rejection_transactional() {
+        let mut graph = SceneGraph::new(&[-1, 0], &transforms(2)).unwrap();
+        let before = graph.world_matrices();
+        let snapshot = graph.snapshot().unwrap();
+        let mut changed = transforms(2);
+        changed[0] = 5.;
+        changed[5] = 1e-30;
+        changed[6] = 1e-30;
+        changed[16] = 0.;
+        assert!(graph.set_transforms(&changed).is_err());
+        assert_eq!(graph.world_matrices(), before);
+        assert!(snapshot.is_current());
+        changed[16] = f32::from_bits(1);
+        graph.set_transforms(&changed).unwrap();
+        assert!(!snapshot.is_current());
+        graph.update_world_matrices().unwrap();
+        assert!(graph.world_matrices().iter().all(|value| value.is_finite()));
+        assert_eq!(graph.world_matrices()[12], 5.);
+    }
+
+    #[test]
     fn ray_batches_validate_input_and_keep_box_order() {
         let origin = [0.; 3];
         let direction = [1., 0., 0.];

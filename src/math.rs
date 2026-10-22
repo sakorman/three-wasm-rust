@@ -58,13 +58,13 @@ pub fn normalize_transforms(values: &[f32]) -> Result<Vec<f32>, String> {
     }
     let mut output = values.to_vec();
     for t in output.as_chunks_mut::<10>().0 {
-        // f64 avoids overflow when normalizing large, but finite, f32 input.
+        // f64 keeps every nonzero finite f32 quaternion's squared length representable.
         let length = t[3..7]
             .iter()
             .map(|v| (*v as f64).powi(2))
             .sum::<f64>()
             .sqrt();
-        if length < 1e-12 {
+        if length == 0. {
             return Err("quaternion must have nonzero length".into());
         }
         for value in &mut t[3..7] {
@@ -147,5 +147,30 @@ mod tests {
         assert!(normalize_transforms(&[0.; 10]).is_err());
         assert!(normalize_transforms(&[f32::NAN; 10]).is_err());
         assert!(normalize_transforms(&[1.; 9]).is_err());
+    }
+
+    #[test]
+    fn normalization_accepts_nonzero_subnormal_quaternions() {
+        for magnitude in [f32::from_bits(1), 1e-30, 1e-20, 1e-13, 1., f32::MAX] {
+            for sign in [-1., 1.] {
+                let transform = [0., 0., 0., 0., 0., 0., sign * magnitude, 1., 1., 1.];
+                let normalized = normalize_transforms(&transform).unwrap();
+                assert_eq!(compose(&normalized), IDENTITY);
+                assert_eq!(normalized[6], sign);
+            }
+        }
+    }
+
+    #[test]
+    fn quaternion_rescaling_preserves_rotation_for_representable_components() {
+        let mut base = [2., -3., 4., 0.25, -0.5, 0.75, 1., -2., 3., 4.];
+        let expected = compose(&normalize_transforms(&base).unwrap());
+        for exponent in [-140, -100, -40, 0, 40, 120] {
+            for sign in [-1., 1.] {
+                let factor = sign * 2_f64.powi(exponent) as f32;
+                base[3..7].copy_from_slice(&[0.25 * factor, -0.5 * factor, 0.75 * factor, factor]);
+                assert_eq!(compose(&normalize_transforms(&base).unwrap()), expected);
+            }
+        }
     }
 }
