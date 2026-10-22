@@ -3,6 +3,7 @@ mod bounds;
 mod engine_renderer;
 mod math;
 mod queue;
+mod ray;
 #[cfg(target_arch = "wasm32")]
 mod renderer;
 
@@ -348,17 +349,7 @@ pub fn ray_aabb_intervals(
     t_min: f64,
     t_max: f64,
 ) -> Result<Vec<f64>, String> {
-    if origin.len() != 3
-        || direction.len() != 3
-        || origin.iter().chain(direction).any(|v| !v.is_finite())
-        || direction.iter().all(|&v| v == 0.)
-        || !t_min.is_finite()
-        || t_min < 0.
-        || t_max.is_nan()
-        || t_max < t_min
-    {
-        return Err("expected a finite ray with nonzero direction and 0 <= t_min <= t_max".into());
-    }
+    ray::validate_ray(origin, direction, t_min, t_max)?;
     if !world_bounds.len().is_multiple_of(6) || world_bounds.len() / 6 > MAX_NODES {
         return Err("expected six coordinates per AABB, at most 100000 boxes".into());
     }
