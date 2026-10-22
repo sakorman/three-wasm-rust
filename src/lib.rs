@@ -338,6 +338,51 @@ impl SceneGraph {
     }
 }
 
+/// Clip p(t) = origin + t * direction against packed world AABBs.
+/// Returns [enter, exit] per box, or [-1, -1] for a miss; direction is not normalized.
+#[wasm_bindgen]
+pub fn ray_aabb_intervals(
+    origin: &[f32],
+    direction: &[f32],
+    world_bounds: &[f32],
+    t_min: f64,
+    t_max: f64,
+) -> Result<Vec<f64>, String> {
+    if origin.len() != 3
+        || direction.len() != 3
+        || origin.iter().chain(direction).any(|v| !v.is_finite())
+        || direction.iter().all(|&v| v == 0.)
+        || !t_min.is_finite()
+        || t_min < 0.
+        || t_max.is_nan()
+        || t_max < t_min
+    {
+        return Err("expected a finite ray with nonzero direction and 0 <= t_min <= t_max".into());
+    }
+    if !world_bounds.len().is_multiple_of(6) || world_bounds.len() / 6 > MAX_NODES {
+        return Err("expected six coordinates per AABB, at most 100000 boxes".into());
+    }
+    let boxes = world_bounds.as_chunks::<6>().0;
+    for (index, bounds) in boxes.iter().enumerate() {
+        if bounds.iter().any(|v| !v.is_finite())
+            || (0..3).any(|axis| bounds[axis] > bounds[axis + 3])
+        {
+            return Err(format!("invalid world AABB at query {index}"));
+        }
+    }
+    let mut result = Vec::with_capacity(boxes.len() * 2);
+    for bounds in boxes {
+        result.extend_from_slice(&bounds::ray_interval(
+            bounds,
+            origin.try_into().unwrap(),
+            direction.try_into().unwrap(),
+            t_min,
+            t_max,
+        ));
+    }
+    Ok(result)
+}
+
 #[wasm_bindgen]
 pub fn multiply_matrices(a: &[f32], b: &[f32]) -> Result<Vec<f32>, String> {
     if a.len() != 16 || b.len() != 16 || a.iter().chain(b).any(|v| !v.is_finite()) {
@@ -426,6 +471,50 @@ mod tests {
 
     fn transforms(count: usize) -> Vec<f32> {
         [1., 0., 0., 0., 0., 0., 1., 1., 1., 1.].repeat(count)
+    }
+
+    #[test]
+    fn ray_batches_validate_input_and_keep_box_order() {
+        let origin = [0.; 3];
+        let direction = [1., 0., 0.];
+        let bounds = [1., -1., -1., 2., 1., 1., -2., -1., -1., -1., 1., 1.];
+        let result = ray_aabb_intervals(&origin, &direction, &bounds, 0., f64::INFINITY).unwrap();
+        assert!(result[0] <= 1. && result[1] >= 2.);
+        assert_eq!(&result[2..], &[-1.; 2]);
+        assert_eq!(
+            ray_aabb_intervals(&origin, &direction, &[], 0., f64::INFINITY).unwrap(),
+            []
+        );
+        assert!(ray_aabb_intervals(&origin[..2], &direction, &bounds, 0., 1.).is_err());
+        assert!(ray_aabb_intervals(&origin, &[0.; 3], &bounds, 0., 1.).is_err());
+        assert!(ray_aabb_intervals(&origin, &[f32::NAN; 3], &bounds, 0., 1.).is_err());
+        assert!(ray_aabb_intervals(&origin, &direction, &[0.; 5], 0., 1.).is_err());
+        assert!(ray_aabb_intervals(&origin, &direction, &[f32::INFINITY; 6], 0., 1.).is_err());
+        assert!(
+            ray_aabb_intervals(&origin, &direction, &[1., 0., 0., 0., 0., 0.], 0., 1.).is_err()
+        );
+    }
+
+    #[test]
+    fn ray_batches_reject_invalid_ranges_and_oversized_batches() {
+        for (near, far) in [
+            (-1., 2.),
+            (2., 1.),
+            (f64::NAN, 2.),
+            (0., f64::NAN),
+            (f64::INFINITY, f64::INFINITY),
+            (0., f64::NEG_INFINITY),
+        ] {
+            assert!(ray_aabb_intervals(&[0.; 3], &[1., 0., 0.], &[0.; 6], near, far).is_err());
+        }
+        assert!(ray_aabb_intervals(
+            &[0.; 3],
+            &[1., 0., 0.],
+            &vec![0.; (MAX_NODES + 1) * 6],
+            0.,
+            1.
+        )
+        .is_err());
     }
 
     #[test]

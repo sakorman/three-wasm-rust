@@ -48,6 +48,41 @@ pub(crate) fn transform_aabb(matrix: &Mat4, bounds: &[f32; 6]) -> Result<[f32; 6
     Ok(result)
 }
 
+/// Clip a forward ray parameter interval against a finite, ordered AABB.
+pub(crate) fn ray_interval(
+    bounds: &[f32; 6],
+    origin: &[f32; 3],
+    direction: &[f32; 3],
+    mut enter: f64,
+    mut exit: f64,
+) -> [f64; 2] {
+    for axis in 0..3 {
+        let o = f64::from(origin[axis]);
+        let d = f64::from(direction[axis]);
+        if d == 0. {
+            // Includes negative zero; avoid 0 * infinity on a slab boundary.
+            if o < f64::from(bounds[axis]) || o > f64::from(bounds[axis + 3]) {
+                return [-1.; 2];
+            }
+            continue;
+        }
+        let min = add_outward(f64::from(bounds[axis]), -o, false);
+        let max = add_outward(f64::from(bounds[axis + 3]), -o, true);
+        let (near, far) = if d > 0. {
+            (min / d, max / d)
+        } else {
+            (max / d, min / d)
+        };
+        // One f64 step covers division rounding. Finite f32 operands cannot overflow f64 here.
+        enter = enter.max(near.next_down());
+        exit = exit.min(far.next_up());
+        if enter > exit {
+            return [-1.; 2];
+        }
+    }
+    [enter, exit]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,6 +145,76 @@ mod tests {
         m[0] = f32::MAX;
         for x in [-2., 2.] {
             assert!(transform_aabb(&m, &[x, 0., 0., x, 0., 0.]).is_err());
+        }
+    }
+
+    #[test]
+    fn ray_intervals_handle_parallel_axes_and_boundary_contacts() {
+        let bounds = [-1., -1., -1., 1., 1., 1.];
+        for zero in [0., -0.] {
+            for y in [-1., 0., 1.] {
+                let hit = ray_interval(&bounds, &[-2., y, 0.], &[1., zero, 0.], 0., f64::INFINITY);
+                assert!(hit[0] <= 1. && hit[1] >= 3.);
+            }
+            assert_eq!(
+                ray_interval(&bounds, &[-2., 2., 0.], &[1., zero, 0.], 0., f64::INFINITY),
+                [-1.; 2]
+            );
+        }
+        let point = ray_interval(&[0.; 6], &[-1., 0., 0.], &[1., 0., 0.], 1., 1.);
+        assert_eq!(point, [1., 1.]);
+    }
+
+    #[test]
+    fn ray_intervals_clip_inside_origins_and_near_far_limits() {
+        let bounds = [-1., -1., -1., 1., 1., 1.];
+        let inside = ray_interval(&bounds, &[0.; 3], &[1., 0., 0.], 0., f64::INFINITY);
+        assert_eq!(inside[0], 0.);
+        assert!(inside[1] >= 1.);
+        assert_eq!(
+            ray_interval(&bounds, &[-2., 0., 0.], &[1., 0., 0.], 1.5, 2.5),
+            [1.5, 2.5]
+        );
+        assert_eq!(
+            ray_interval(&bounds, &[-2., 0., 0.], &[1., 0., 0.], 4., 5.),
+            [-1.; 2]
+        );
+        assert_eq!(
+            ray_interval(&bounds, &[-2., 0., 0.], &[-1., 0., 0.], 0., f64::INFINITY),
+            [-1.; 2]
+        );
+    }
+
+    #[test]
+    fn ray_intervals_keep_tiny_nonzero_directions_and_extreme_distances() {
+        let tiny = f32::from_bits(1);
+        let hit = ray_interval(
+            &[1., 0., 0., 1., 0., 0.],
+            &[0.; 3],
+            &[tiny, 0., 0.],
+            0.,
+            f64::INFINITY,
+        );
+        let exact = 1. / f64::from(tiny);
+        assert!(hit[0].is_finite() && hit[0] <= exact && hit[1] >= exact);
+        let hit = ray_interval(
+            &[f32::MAX, 0., 0., f32::MAX, 0., 0.],
+            &[-f32::MAX, 0., 0.],
+            &[tiny, 0., 0.],
+            0.,
+            f64::INFINITY,
+        );
+        let exact = 2. * f64::from(f32::MAX) / f64::from(tiny);
+        assert!(hit[0].is_finite() && hit[1].is_finite() && hit[0] <= exact && hit[1] >= exact);
+    }
+
+    #[test]
+    fn ray_intervals_preserve_direction_parameterization() {
+        let bounds = [-1., -1., -1., 1., 1., 1.];
+        for scale in [0.5, 1., 8.] {
+            let hit = ray_interval(&bounds, &[2., 0., 0.], &[-scale, 0., 0.], 0., f64::INFINITY);
+            assert!(hit[0] <= 1. / f64::from(scale) && hit[1] >= 3. / f64::from(scale));
+            assert!((hit[0] - 1. / f64::from(scale)).abs() <= 1e-14);
         }
     }
 }
