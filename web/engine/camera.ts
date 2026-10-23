@@ -1,10 +1,17 @@
 import type { CameraFrame } from './types.ts';
 
 export function multiply(a: Float32Array, b: Float32Array): Float32Array {
+  if (a.length !== 16 || b.length !== 16 || a.some((value) => !Number.isFinite(value)) || b.some((value) => !Number.isFinite(value)))
+    throw new Error('Expected two finite 4x4 matrices');
   const out = new Float32Array(16);
   for (let c = 0; c < 4; c++)
-    for (let r = 0; r < 4; r++)
-      for (let k = 0; k < 4; k++) out[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+    for (let r = 0; r < 4; r++) {
+      // Accumulate in Number and round only when storing the completed element.
+      let sum = 0;
+      for (let k = 0; k < 4; k++) sum += a[k * 4 + r] * b[c * 4 + k];
+      out[c * 4 + r] = sum;
+      if (!Number.isFinite(out[c * 4 + r])) throw new Error('Camera matrix product exceeds f32 range');
+    }
   return out;
 }
 

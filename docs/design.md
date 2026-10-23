@@ -138,6 +138,8 @@ Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` �
 
 OrbitCamera 独立生成 look-at 和透视矩阵。两边从同一份 Float32 相机矩阵绘制；Three.js 只在自己的适配器中接收这些矩阵。三种基础几何体的顶点、索引、局部包围球也共用相同输入。
 
+相机的矩阵乘法用 JS Number 累加四项乘积，完成一个元素后才写入 Float32Array，避免逐项写入时丢失抵消后的偏移或提前溢出。输入必须是 16 个有限值，最终结果超出 f32 范围时抛错，不返回含 Infinity 的相机矩阵。输入、输出及 GPU 计算仍为 f32；这项改动不解决全部大坐标投影或深度精度问题。
+
 普通组用真正的 Three.js Mesh，矩阵自动更新开启，对象排序关闭。每个 Mesh 的 boundingSphere 使用场景提供的球心与半径，交由 Three.js 内部 Frustum 转换和检查；实例化适配器也读取同一组输入。Rust 逐对象组强制全量更新；预设场景的描述顺序与 Three.js 层级遍历的 Mesh 顺序一致。剔除默认关闭，每个对象在两边都对应一次绘制，可选同时开启球剔除。
 
 优化组用 Object3D 保存层级，关闭自动局部矩阵重算，只标记动画节点，然后通过 Three.js 更新世界矩阵。它用 Frustum/Sphere 检查对象，将矩阵写入按几何、材质和朝向组织的 InstancedMesh，只标记有效的矩阵上传范围。普通 Mesh 由 Three.js 处理负缩放；实例化适配器给负行列式组使用 BackSide 材质，令 WebGL 正面切换为 CW，两边均保持背面剔除。该处理针对本项目共享的 RawShaderMaterial，不代表原生 InstancedMesh 的所有材质都支持负缩放。
