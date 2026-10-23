@@ -1,6 +1,7 @@
 export { default as init } from '../../pkg/three_wasm_rust.js';
 export { SceneGraph, RenderQueue, EngineRenderer } from '../../pkg/three_wasm_rust.js';
 export { ray_aabb_intervals, ray_triangle_hits } from '../../pkg/three_wasm_rust.js';
+export { gaussian_screen_bounds } from '../../pkg/three_wasm_rust.js';
 export { Engine } from './Engine.ts';
 export { ContextLifecycle } from './ContextLifecycle.ts';
 export { OrbitCamera } from './camera.ts';

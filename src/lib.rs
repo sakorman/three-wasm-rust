@@ -1,6 +1,7 @@
 mod bounds;
 #[cfg(target_arch = "wasm32")]
 mod engine_renderer;
+mod gaussian;
 mod math;
 mod queue;
 mod ray;

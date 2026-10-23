@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-24 · 高斯支持范围收紧
+
+- 新增 Rust/WASM `gaussian_screen_bounds()`，按不透明度与 alpha 阈值收紧屏幕四边形，跳过阈值以下高斯；保留等于阈值的中心样本。
+- 28 个合成高斯的 WebGL 测试中，提交面积减少 **61.10%**，RGBA 像素完全一致。该指标是四边形面积，尚无真实模型 FPS 或画质提升结论；目前是 3DGS 准备内核，完整高斯管线待接入。
+- 验证：196 项测试覆盖旋转椭圆、极端方差、阈值边界和非法输入；strict、Clippy 与生产构建通过。
+- 参考：[WebSplatter 论文](https://arxiv.org/abs/2602.03207)、[对应实现](https://github.com/websplatter/WebSplatter/tree/16bb06e86b8fb12193d4bb4cd2b0b3d4f3ab62be)。[研究说明](docs/gaussian-rendering.md)另记录 Gaussian-Splat-Lite 1.4.1 和 3DGEER 的适用边界。
+
 ## 2026-10-23 · 相机矩阵乘法精度
 
 - 修复 TS 相机矩阵乘法逐项写入 f32，导致大数抵消后的偏移丢失或中间结果提前溢出的问题。现在使用 Number 累加，完成每个元素后再写入 f32；`1e8 + 0.5 - 1e8` 保留 0.5。

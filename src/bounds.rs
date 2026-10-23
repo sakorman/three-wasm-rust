@@ -1,7 +1,7 @@
 use crate::math::Mat4;
 
 // Recover the sign of addition rounding before expanding an interval endpoint.
-fn add_outward(a: f64, b: f64, upper: bool) -> f64 {
+pub(crate) fn add_outward(a: f64, b: f64, upper: bool) -> f64 {
     let sum = a + b;
     let recovered_b = sum - a;
     let error = (a - (sum - recovered_b)) + (b - recovered_b);
