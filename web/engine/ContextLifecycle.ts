@@ -5,6 +5,7 @@ export class ContextLifecycle {
   private currentState: ContextState = 'ready';
   private currentGeneration = 0;
   private currentError: unknown;
+  private restoring = false;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -66,14 +67,20 @@ export class ContextLifecycle {
   };
 
   private readonly onRestored = () => {
-    if (this.state !== 'lost' || this.gl.isContextLost()) return;
+    if (this.state !== 'lost' || this.restoring || this.gl.isContextLost()) return;
+    this.restoring = true;
     try {
       this.rebuild();
+      // Rebuild callbacks can dispose the lifecycle before returning or throwing.
+      if (this.state !== 'lost') return;
       this.currentError = undefined;
       this.currentState = 'ready';
     } catch (error) {
+      if (this.state !== 'lost') return;
       this.currentError = error;
       this.currentState = 'failed';
+    } finally {
+      this.restoring = false;
     }
     this.notify();
   };

@@ -126,6 +126,8 @@ Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` �
 
 三个边界需要单独处理：丢失事件晚于 `isContextLost()` 的状态变化时，渲染入口也会拒绝绘制；恢复时资源创建失败则进入 failed；dispose 会移除事件监听，避免已释放的引擎被后续事件重新创建。
 
+恢复回调执行期间忽略同步重入的恢复事件，避免重复重建。回调中调用 `ContextLifecycle.dispose()` 后，disposed 状态不会被正常返回或异常覆盖，也不会再通知 ready；未释放的实例在回调失败后仍可等待下一次上下文恢复。重建回调按同步接口执行，防护不负责取消调用方自行启动的异步任务。生命周期管理器只维护状态与监听，资源释放仍由所有者负责，Engine 使用 `dispose()` 统一释放。
+
 对照页在任一后端失效时暂停双方，直到全部可用才继续。Three.js 自身会重建内部 GL 状态，适配器另外恢复用户设置的清屏颜色。浏览器是否以及何时恢复上下文不由引擎保证。
 
 相关接口见 [WebGL 上下文丢失规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.15.2) 和 [Three.js r186 WebGLRenderer](https://github.com/mrdoob/three.js/blob/r186/src/renderers/WebGLRenderer.js)。

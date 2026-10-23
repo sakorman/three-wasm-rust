@@ -124,3 +124,63 @@ for (const earlyDetection of [false, true]) {
     lifecycle.dispose();
   });
 }
+
+for (const throwAfterDispose of [false, true]) {
+  test(`disposing inside rebuild stays terminal (throws: ${throwAfterDispose})`, () => {
+    const ctx = context();
+    const events: string[] = [];
+    let calls = 0;
+    const lifecycle = new ContextLifecycle(ctx.gl, () => {
+      calls++;
+      lifecycle.dispose();
+      if (throwAfterDispose) throw new Error('rebuild interrupted');
+    });
+    lifecycle.subscribe(() => events.push(lifecycle.state));
+    ctx.lose();
+    ctx.restore();
+    assert.equal(lifecycle.state, 'disposed');
+    assert.equal(lifecycle.ready, false);
+    assert.equal(lifecycle.error, undefined);
+    assert.throws(() => lifecycle.assertReady(), /disposed/);
+    ctx.lose(); ctx.restore();
+    assert.equal(calls, 1);
+    assert.deepEqual(events, ['lost']);
+  });
+}
+
+test('a restore event dispatched inside rebuild does not rebuild twice', () => {
+  const ctx = context();
+  const events: string[] = [];
+  let calls = 0;
+  const lifecycle = new ContextLifecycle(ctx.gl, () => {
+    if (++calls === 1) ctx.restore();
+  });
+  lifecycle.subscribe(() => events.push(lifecycle.state));
+  ctx.lose(); ctx.restore();
+  assert.equal(calls, 1);
+  assert.deepEqual(events, ['lost', 'ready']);
+  assert.equal(lifecycle.ready, true);
+  ctx.lose(); ctx.restore();
+  assert.equal(calls, 2);
+  assert.equal(lifecycle.generation, 2);
+  lifecycle.dispose();
+});
+
+test('reentrant restore events do not bypass failure or block a later recovery', () => {
+  const ctx = context();
+  let calls = 0;
+  const lifecycle = new ContextLifecycle(ctx.gl, () => {
+    if (++calls === 1) {
+      ctx.restore();
+      throw new Error('temporary failure');
+    }
+  });
+  ctx.lose(); ctx.restore();
+  assert.equal(calls, 1);
+  assert.equal(lifecycle.state, 'failed');
+  ctx.lose(); ctx.restore();
+  assert.equal(calls, 2);
+  assert.equal(lifecycle.ready, true);
+  assert.equal(lifecycle.error, undefined);
+  lifecycle.dispose();
+});
