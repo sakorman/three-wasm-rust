@@ -4,12 +4,6 @@
 
 ## 2026-10-24 · 高斯轴数据压缩
 
-- 新增 `gaussian_pack_half_extents()`，把屏幕半宽/半高按 binary16 打包成每高斯一个 `u32`，传输占用从 8 字节降到 4 字节；输入顺序和零支持项保持不变。
-- 覆盖 round-to-nearest-even、最大有限 binary16、次正规值、非法范围和奇数长度；Node 解包检查典型值误差，暂未宣称真实模型画质等价。
-- 参考 WebSplatter 将投影椭圆轴压为 16-bit 后传入光栅阶段：[论文预处理](https://arxiv.org/html/2602.03207v1#S3.SS2)。本接口只负责 CPU/WASM 打包，不包含 WebGPU 管线。
-
-## 2026-10-24 · 高斯轴数据压缩
-
 - 新增 `gaussian_pack_half_extents()`，将屏幕半宽/半高按 binary16 打包为每个高斯一个 `u32`，后续 GPU 上传带宽从 8 字节降到 4 字节；输入顺序和零支持项保持不变。
 - 覆盖 round-to-nearest-even、最大有限 binary16、次正规值、非法范围和奇数长度；Node 解包检查典型值误差，未宣称真实模型画质等价。
 - 参考 WebSplatter 将投影椭圆轴压为 16-bit 后传入光栅阶段：[论文预处理](https://arxiv.org/html/2602.03207v1#S3.SS2)。本接口只负责 CPU/WASM 打包，不包含 WebGPU 管线。
