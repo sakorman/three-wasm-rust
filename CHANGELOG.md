@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-24 · 稳定高斯索引压缩
+
+- 新增 `gaussian_visible_indices()`，返回达到不透明度阈值的原始索引，保留输入顺序和等于阈值的项。后续步骤可直接遍历有效高斯，无需重复检查零支持范围。
+- 合成 WebGL 回归将后续遍历项从 28 个压缩到 20 个，透明混合顺序及 RGBA 像素保持一致。筛选本身仍扫描全部输入；尚无真实场景总耗时或帧率收益结论。
+- 覆盖空列表、阈值边界、非法输入、百万项限制和返回副本；验证及使用约定见[高斯光栅化准备](docs/gaussian-rendering.md)。
+- 参考：[WebSplatter 预处理与排序](https://arxiv.org/html/2602.03207v1#S3)、[项目实现](https://github.com/websplatter/WebSplatter/tree/16bb06e86b8fb12193d4bb4cd2b0b3d4f3ab62be)。本接口只进行不透明度筛选，不做深度排序。
+
 ## 2026-10-24 · 高斯支持范围收紧
 
 - 新增 Rust/WASM `gaussian_screen_bounds()`，按不透明度与 alpha 阈值收紧屏幕四边形，跳过阈值以下高斯；保留等于阈值的中心样本。

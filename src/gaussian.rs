@@ -63,6 +63,29 @@ pub fn gaussian_screen_bounds(
     Ok(result)
 }
 
+/// Return stable indices for splats whose peak opacity reaches the cutoff.
+/// This lets a later renderer compact work before projection and rasterization.
+#[wasm_bindgen]
+pub fn gaussian_visible_indices(opacities: &[f32], cutoff: f32) -> Result<Vec<u32>, String> {
+    if !cutoff.is_finite() || cutoff <= 0. || cutoff > 1. {
+        return Err("Gaussian cutoff must be finite and in (0, 1]".into());
+    }
+    if opacities.len() > MAX_SPLATS {
+        return Err("at most 1000000 Gaussian opacities are supported".into());
+    }
+    if opacities
+        .iter()
+        .any(|&value| !value.is_finite() || !(0. ..=1.).contains(&value))
+    {
+        return Err("Gaussian opacities must be finite values in [0, 1]".into());
+    }
+    Ok(opacities
+        .iter()
+        .enumerate()
+        .filter_map(|(index, &opacity)| (opacity >= cutoff).then_some(index as u32))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +141,32 @@ mod tests {
         }
         assert!(gaussian_screen_bounds(&[1., 0.], &[1.], 0.01).is_err());
         assert!(gaussian_screen_bounds(&[], &vec![1.; MAX_SPLATS + 1], 0.01).is_err());
+    }
+
+    #[test]
+    fn visible_indices_are_stable_and_match_bound_culling() {
+        let cutoff = 1. / 255.;
+        let opacity = [0., cutoff - f32::EPSILON, cutoff, 0.2, 1.];
+        assert_eq!(
+            gaussian_visible_indices(&opacity, cutoff).unwrap(),
+            [2, 3, 4]
+        );
+        let bounds =
+            gaussian_screen_bounds(&[1., 0., 1.].repeat(opacity.len()), &opacity, cutoff).unwrap();
+        for index in 0..opacity.len() {
+            assert_eq!(
+                bounds[index * 2] > 0. || bounds[index * 2 + 1] > 0.,
+                opacity[index] >= cutoff
+            );
+        }
+        assert!(gaussian_visible_indices(&[f32::NAN], cutoff).is_err());
+        assert!(gaussian_visible_indices(&[1.], 0.).is_err());
+        assert_eq!(gaussian_visible_indices(&[], cutoff).unwrap(), []);
+        assert_eq!(gaussian_visible_indices(&[0.; 4], cutoff).unwrap(), []);
+        assert_eq!(
+            gaussian_visible_indices(&[1.; 4], 1.).unwrap(),
+            [0, 1, 2, 3]
+        );
+        assert!(gaussian_visible_indices(&vec![0.; MAX_SPLATS + 1], cutoff).is_err());
     }
 }

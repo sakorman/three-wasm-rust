@@ -8,10 +8,11 @@ for (const boundary of [false, true]) {
     await page.getByRole('button', { name: '暂停动画' }).click();
     const data = gaussianCase(boundary);
     const bounds = await page.evaluate(async ({ covariance, opacity, cutoff }) => {
-      const { gaussian_screen_bounds } = await import('../../pkg/three_wasm_rust.js');
+      const { gaussian_screen_bounds, gaussian_visible_indices } = await import('../../pkg/three_wasm_rust.js');
       return {
         fixed: Array.from(gaussian_screen_bounds(new Float32Array(covariance), new Float32Array(opacity.length).fill(1), cutoff)),
         adaptive: Array.from(gaussian_screen_bounds(new Float32Array(covariance), new Float32Array(opacity), cutoff)),
+        activeIndices: Array.from(gaussian_visible_indices(new Float32Array(opacity), cutoff)),
       };
     }, data);
     const result = await page.evaluate(compareGaussianQuads, { ...data, ...bounds });
@@ -20,6 +21,10 @@ for (const boundary of [false, true]) {
     await writeFile(path, JSON.stringify(result, null, 2));
     await info.attach('gaussian-coverage.json', { path, contentType: 'application/json' });
     expect(result.differentChannels).toBe(0);
+    expect(result.compactionDifferentChannels).toBe(0);
+    expect(bounds.activeIndices).toEqual(data.opacity.flatMap((value, i) => value >= data.cutoff ? [i] : []));
+    expect(result.denseVisited).toBe(data.opacity.length);
+    expect(result.compactedVisited).toBe(boundary ? 3 : 20);
     expect(result.visiblePixels).toBeGreaterThan(boundary ? 0 : 1000);
     expect(result.areaReduction).toBeGreaterThan(boundary ? 0.95 : 0.4);
     expect(result.adaptiveDraws).toBeLessThan(result.fixedDraws);

@@ -23,7 +23,7 @@ export function gaussianCase(boundary: boolean): GaussianCase {
 }
 
 /** Raster fixture uses the same Gaussian equation and draw order for both quad sizes. */
-export function compareGaussianQuads(data: GaussianCase & { fixed: number[]; adaptive: number[] }) {
+export function compareGaussianQuads(data: GaussianCase & { fixed: number[]; adaptive: number[]; activeIndices?: number[] }) {
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 192;
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: true });
   if (!gl) throw new Error('No WebGL2');
@@ -55,10 +55,11 @@ void main() { vec2 d = gl_FragCoord.xy - center; float q = conic.x*d.x*d.x + 2.0
   const opacity = location('opacity'), cutoff = location('cutoff'), color = location('color');
   gl.useProgram(program); gl.viewport(0, 0, 256, 192); gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.uniform1f(cutoff, data.cutoff);
-  const draw = (bounds: number[]) => {
+  const allIndices = Array.from(data.opacity.keys());
+  const draw = (bounds: number[], indices = allIndices) => {
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
     let area = 0, draws = 0;
-    for (let i = 0; i < data.opacity.length; i++) {
+    for (const i of indices) {
       const x = bounds[i * 2], y = bounds[i * 2 + 1];
       if (x === 0 || y === 0) continue;
       const [xx, xy, yy] = data.covariance.slice(i * 3, i * 3 + 3), det = xx * yy - xy * xy;
@@ -69,15 +70,17 @@ void main() { vec2 d = gl_FragCoord.xy - center; float q = conic.x*d.x*d.x + 2.0
     }
     const pixels = new Uint8Array(256 * 192 * 4); gl.readPixels(0, 0, 256, 192, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     if (gl.getError()) throw new Error('WebGL error');
-    return { pixels, area, draws };
+    return { pixels, area, draws, visited: indices.length };
   };
   try {
-    const fixed = draw(data.fixed), adaptive = draw(data.adaptive);
-    let differentChannels = 0, visiblePixels = 0;
+    const fixed = draw(data.fixed), denseAdaptive = draw(data.adaptive), adaptive = draw(data.adaptive, data.activeIndices);
+    let differentChannels = 0, compactionDifferentChannels = 0, visiblePixels = 0;
     for (let i = 0; i < fixed.pixels.length; i++) if (fixed.pixels[i] !== adaptive.pixels[i]) differentChannels++;
+    for (let i = 0; i < denseAdaptive.pixels.length; i++) if (denseAdaptive.pixels[i] !== adaptive.pixels[i]) compactionDifferentChannels++;
     for (let i = 3; i < adaptive.pixels.length; i += 4) if (adaptive.pixels[i]) visiblePixels++;
     return { differentChannels, visiblePixels, fixedArea: fixed.area, adaptiveArea: adaptive.area,
       areaReduction: 1 - adaptive.area / fixed.area, fixedDraws: fixed.draws, adaptiveDraws: adaptive.draws,
+      denseVisited: denseAdaptive.visited, compactedVisited: adaptive.visited, compactionDifferentChannels,
       equalCutoffAlpha: adaptive.pixels[(32 * 256 + 32) * 4 + 3] };
   } finally { gl.deleteProgram(program); }
 }

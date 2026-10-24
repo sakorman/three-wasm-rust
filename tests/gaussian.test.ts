@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import init, { gaussian_screen_bounds } from '../pkg/three_wasm_rust.js';
+import init, { gaussian_screen_bounds, gaussian_visible_indices } from '../pkg/three_wasm_rust.js';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
@@ -45,4 +45,27 @@ test('invalid Gaussian batches leave input data unchanged and reject invisible i
   assert.throws(() => gaussian_screen_bounds(new Float32Array([1, 0]), new Float32Array([1]), 1 / 255), /three covariance/);
   assert.throws(() => gaussian_screen_bounds(new Float32Array([1, 0, 1]), new Float32Array([NaN]), 1 / 255), /splat 0/);
   assert.throws(() => gaussian_screen_bounds(new Float32Array([1, 0, 1]), new Float32Array([1]), 0), /cutoff/);
+});
+
+test('visible index compaction is stable and agrees with zero support bounds', () => {
+  const cutoff = Math.fround(1 / 255), below = new Float32Array([cutoff]);
+  new Uint32Array(below.buffer)[0]--;
+  const opacities = new Float32Array([0, below[0], cutoff, 0.2, 1]);
+  const before = opacities.slice(), indices = gaussian_visible_indices(opacities, cutoff);
+  assert.ok(indices instanceof Uint32Array);
+  assert.deepEqual(Array.from(indices), [2, 3, 4]);
+  assert.deepEqual(opacities, before);
+  const bounds = gaussian_screen_bounds(new Float32Array(Array.from(opacities, () => [1, 0, 1]).flat()), opacities, cutoff);
+  for (let i = 0; i < opacities.length; i++) assert.equal(bounds[i * 2] > 0, opacities[i] >= cutoff);
+  opacities.fill(0);
+  assert.deepEqual(Array.from(indices), [2, 3, 4]);
+  assert.equal(gaussian_visible_indices(new Float32Array(), cutoff).length, 0);
+  assert.equal(gaussian_visible_indices(opacities, cutoff).length, 0);
+  assert.deepEqual(Array.from(gaussian_visible_indices(new Float32Array([1, 1, 1]), 1)), [0, 1, 2]);
+  const many = Float32Array.from({ length: 65537 }, (_, i) => i % 3 === 0 ? 0 : 0.5);
+  assert.deepEqual(Array.from(gaussian_visible_indices(many, cutoff)), Array.from(many.keys()).filter((i) => i % 3 !== 0));
+  for (const invalid of [NaN, Infinity, -0.1, 1.1])
+    assert.throws(() => gaussian_visible_indices(new Float32Array([1, invalid]), cutoff), /opacities/);
+  for (const invalid of [0, -1, 2, NaN, Infinity])
+    assert.throws(() => gaussian_visible_indices(before, invalid), /cutoff/);
 });
