@@ -99,3 +99,23 @@ npm run test:e2e -- tests/browser/gaussian-sort.spec.ts
 | [3DGEER，ICLR 2026](https://arxiv.org/abs/2505.24053v3) · [代码](https://github.com/boschresearch/3dgeer) | 关注通用相机下的射线高斯积分与关联。它提醒投影近似误差和光栅开销是不同问题；当前屏幕范围优化不解决宽视场投影误差。 |
 
 上游论文中的性能与画质数字不作为本仓库结果。参考实现的代码许可分别以各仓库 LICENSE 为准；这里发布的内核与测试不包含其代码、模型或图片。
+
+## 轴数据压缩
+
+`gaussian_pack_half_extents()` 将 `[halfWidth, halfHeight]` 对编码成一个 `u32`，低 16 位和高 16 位分别是 IEEE 754 binary16。它适合将支持范围从 CPU/WASM 传给后续渲染阶段：每个高斯从 8 字节降到 4 字节，保留非负值和原始顺序。
+
+```ts
+import { gaussian_pack_half_extents } from './web/engine/index.ts';
+
+const packed = gaussian_pack_half_extents(halfExtents);
+// packed.length === halfExtents.length / 2
+// shader 中按 binary16 解包为 halfWidth / halfHeight
+```
+
+输入必须是成对的有限 `[0, 65504]` f32，采用 round-to-nearest-even；超出 binary16 范围会拒绝。零支持高斯仍编码为零，压缩不改变 `gaussian_visible_indices()` 的筛选语义。binary16 会量化半径，边缘绘制应保留原始 f32 或在 shader 中留出像素边界；当前测试检查典型值、最大有限值、拒绝路径和输入副本，不宣称量化后的真实模型画质等价。
+
+排序后的轴数据可使用 binary16 打包，形成“筛选 → 投影 → 打包 → 排序 → 光栅”的准备链路。WebSplatter 论文也将投影椭圆的两个轴压为 16-bit float 后传给光栅阶段；本接口保持 Rust/WASM 语义独立，不复制其 WebGPU shader 或同步实现。
+
+```bash
+npx tsx --test tests/gaussian-pack.test.ts
+```

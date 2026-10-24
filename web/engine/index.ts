@@ -4,6 +4,7 @@ export { ray_aabb_intervals, ray_triangle_hits } from '../../pkg/three_wasm_rust
 export { gaussian_screen_bounds } from '../../pkg/three_wasm_rust.js';
 export { gaussian_visible_indices } from '../../pkg/three_wasm_rust.js';
 export { gaussian_depth_order } from '../../pkg/three_wasm_rust.js';
+export { gaussian_pack_half_extents } from '../../pkg/three_wasm_rust.js';
 export { Engine } from './Engine.ts';
 export { ContextLifecycle } from './ContextLifecycle.ts';
 export { OrbitCamera } from './camera.ts';

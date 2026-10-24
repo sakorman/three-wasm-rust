@@ -147,6 +147,60 @@ pub fn gaussian_depth_order(depths: &[f32], indices: &[u32]) -> Result<Vec<u32>,
     Ok(order)
 }
 
+fn f32_to_half(value: f32) -> Result<u16, String> {
+    if !value.is_finite() || value < 0. || value > 65504. {
+        return Err("Gaussian extent must be finite and in [0, 65504]".into());
+    }
+    let bits = value.to_bits();
+    let exponent = ((bits >> 23) & 0xff) as i32 - 127 + 15;
+    let mantissa = bits & 0x7f_ff_ff;
+    if exponent <= 0 {
+        if exponent < -10 {
+            return Ok(0);
+        }
+        let value = mantissa | 0x80_00_00;
+        let shift = (14 - exponent) as u32;
+        let mut half = (value >> shift) as u16;
+        let remainder = value & ((1 << shift) - 1);
+        let halfway = 1 << (shift - 1);
+        if remainder > halfway || (remainder == halfway && half & 1 != 0) {
+            half += 1;
+        }
+        return Ok(half);
+    }
+    if exponent >= 31 {
+        return Err("Gaussian extent exceeds f16 range".into());
+    }
+    let mut half = ((exponent as u16) << 10) | (mantissa >> 13) as u16;
+    let remainder = mantissa & 0x1fff;
+    if remainder > 0x1000 || (remainder == 0x1000 && half & 1 != 0) {
+        half += 1;
+        if half & 0x7c00 == 0x7c00 {
+            return Err("Gaussian extent exceeds f16 range".into());
+        }
+    }
+    Ok(half)
+}
+
+/// Pack nonnegative [halfWidth, halfHeight] pairs into one u32 per Gaussian.
+/// The low/high 16-bit halves use IEEE 754 binary16 and preserve input order.
+#[wasm_bindgen]
+pub fn gaussian_pack_half_extents(half_extents: &[f32]) -> Result<Vec<u32>, String> {
+    if !half_extents.len().is_multiple_of(2) || half_extents.len() / 2 > MAX_SPLATS {
+        return Err("expected pairs of half extents, at most 1000000 splats".into());
+    }
+    half_extents
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            let width = u32::from(f32_to_half(pair[0])?);
+            let height = u32::from(f32_to_half(pair[1])?);
+            Ok(width | height << 16)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,5 +360,27 @@ mod tests {
         }
         assert!(gaussian_depth_order(&[1.], &[0, 0]).is_err());
         assert!(gaussian_depth_order(&vec![0.; MAX_SPLATS + 1], &[]).is_err());
+    }
+
+    #[test]
+    fn half_extent_packing_rounds_pairs_and_keeps_zero_support_compact() {
+        let packed = gaussian_pack_half_extents(&[0., 0.5, 1., 2., 65504., 0.]).unwrap();
+        assert_eq!(packed.len(), 3);
+        assert_eq!(packed[0] >> 16, 0x3800); // 0.5
+        assert_eq!(packed[0] & 0xffff, 0); // zero
+        assert_eq!(packed[1] & 0xffff, 0x3c00); // 1
+        assert_eq!(packed[1] >> 16, 0x4000); // 2
+        assert_eq!(packed[2] & 0xffff, 0x7bff); // max finite binary16
+        assert_eq!(packed[2] >> 16, 0);
+    }
+
+    #[test]
+    fn half_extent_packing_rejects_invalid_values_and_shapes() {
+        for value in [f32::NAN, f32::INFINITY, -1., 65505.] {
+            assert!(gaussian_pack_half_extents(&[value, 1.]).is_err());
+        }
+        assert!(gaussian_pack_half_extents(&[1.]).is_err());
+        assert!(gaussian_pack_half_extents(&vec![1.; MAX_SPLATS * 2 + 2]).is_err());
+        assert_eq!(gaussian_pack_half_extents(&[]).unwrap(), []);
     }
 }

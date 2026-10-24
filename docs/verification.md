@@ -1,6 +1,6 @@
 # 测试说明
 
-当前测试集共 **207 项**：60 项 Rust、64 项 Node、83 项 Chromium。2026-10-24 验证完整测试、strict 类型检查、生产构建、Rust 格式检查及原生/wasm32 Clippy。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
+当前测试集共 **211 项**：62 项 Rust、66 项 Node、83 项 Chromium。2026-10-24 验证完整测试、strict 类型检查、生产构建、Rust 格式检查及原生/wasm32 Clippy。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
 
 ## 覆盖范围
 
