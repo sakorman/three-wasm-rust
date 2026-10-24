@@ -86,6 +86,67 @@ pub fn gaussian_visible_indices(opacities: &[f32], cutoff: f32) -> Result<Vec<u3
         .collect())
 }
 
+fn descending_depth_key(depth: f32) -> u32 {
+    // Both zeros compare equal; finite f32 keys otherwise follow numeric order.
+    let bits = if depth == 0. { 0 } else { depth.to_bits() };
+    let ascending = if bits & 0x8000_0000 == 0 {
+        bits ^ 0x8000_0000
+    } else {
+        !bits
+    };
+    !ascending
+}
+
+/// Sort a unique candidate list by decreasing finite f32 depth.
+/// Larger depth means farther away. Equal depths retain candidate order.
+#[wasm_bindgen]
+pub fn gaussian_depth_order(depths: &[f32], indices: &[u32]) -> Result<Vec<u32>, String> {
+    if depths.len() > MAX_SPLATS || indices.len() > depths.len() {
+        return Err("expected at most 1000000 depths and no more candidates than depths".into());
+    }
+    if depths.iter().any(|value| !value.is_finite()) {
+        return Err("Gaussian depths must be finite".into());
+    }
+    let mut seen = vec![0_u64; depths.len().div_ceil(64)];
+    for (candidate, &id) in indices.iter().enumerate() {
+        let index = id as usize;
+        if index >= depths.len() {
+            return Err(format!(
+                "Gaussian index out of range at candidate {candidate}"
+            ));
+        }
+        let mask = 1_u64 << (index % 64);
+        if seen[index / 64] & mask != 0 {
+            return Err(format!("duplicate Gaussian index at candidate {candidate}"));
+        }
+        seen[index / 64] |= mask;
+    }
+    let mut order = indices.to_vec();
+    if order.len() < 2 {
+        return Ok(order);
+    }
+    let mut scratch = vec![0; order.len()];
+    for shift in [0, 8, 16, 24] {
+        let mut offsets = [0_usize; 256];
+        for &id in &order {
+            offsets[((descending_depth_key(depths[id as usize]) >> shift) & 255) as usize] += 1;
+        }
+        let mut prefix = 0;
+        for count in &mut offsets {
+            let length = *count;
+            *count = prefix;
+            prefix += length;
+        }
+        for &id in &order {
+            let digit = ((descending_depth_key(depths[id as usize]) >> shift) & 255) as usize;
+            scratch[offsets[digit]] = id;
+            offsets[digit] += 1;
+        }
+        std::mem::swap(&mut order, &mut scratch);
+    }
+    Ok(order)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +229,82 @@ mod tests {
             [0, 1, 2, 3]
         );
         assert!(gaussian_visible_indices(&vec![0.; MAX_SPLATS + 1], cutoff).is_err());
+    }
+
+    #[test]
+    fn depth_order_is_back_to_front_and_stable_for_ties() {
+        assert_eq!(
+            gaussian_depth_order(&[1., 3., 2., 3., 0.], &[0, 3, 2, 1, 4]).unwrap(),
+            [3, 1, 2, 0, 4]
+        );
+        assert_eq!(
+            gaussian_depth_order(&[0., -0., 0.], &[2, 1, 0]).unwrap(),
+            [2, 1, 0]
+        );
+        assert_eq!(
+            gaussian_depth_order(&[10., 1., 2., 100.], &[2, 1]).unwrap(),
+            [2, 1]
+        );
+        assert_eq!(gaussian_depth_order(&[], &[]).unwrap(), []);
+        assert_eq!(gaussian_depth_order(&[1., 2.], &[1]).unwrap(), [1]);
+    }
+
+    #[test]
+    fn depth_order_preserves_adjacent_floats_and_signed_extremes() {
+        let depths = [
+            -f32::MAX,
+            -1.,
+            -f32::from_bits(1),
+            -0.,
+            0.,
+            f32::from_bits(1),
+            1_f32.next_down(),
+            1.,
+            1_f32.next_up(),
+            f32::MAX,
+        ];
+        let candidates: Vec<u32> = (0..depths.len() as u32).collect();
+        assert_eq!(
+            gaussian_depth_order(&depths, &candidates).unwrap(),
+            [9, 8, 7, 6, 5, 3, 4, 2, 1, 0]
+        );
+    }
+
+    #[test]
+    fn radix_order_matches_stable_comparison_sort() {
+        let mut state = 12345_u32;
+        let depths: Vec<f32> = (0..4097)
+            .map(|i| {
+                state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                if i % 5 == 0 {
+                    1.
+                } else {
+                    f32::from_bits((state & 0x807f_ffff) | (((state >> 23) % 255) << 23))
+                }
+            })
+            .collect();
+        let indices: Vec<u32> = (0..depths.len() as u32).rev().collect();
+        let mut expected = indices.clone();
+        expected.sort_by(|&a, &b| depths[b as usize].partial_cmp(&depths[a as usize]).unwrap());
+        assert_eq!(gaussian_depth_order(&depths, &indices).unwrap(), expected);
+    }
+
+    #[test]
+    fn invalid_depth_batches_are_rejected_without_mutation() {
+        let depths = [1., 2., 3.];
+        let indices = [2, 0, 2];
+        assert!(gaussian_depth_order(&depths, &indices)
+            .unwrap_err()
+            .contains("duplicate"));
+        assert_eq!(indices, [2, 0, 2]);
+        assert_eq!(depths, [1., 2., 3.]);
+        assert!(gaussian_depth_order(&depths, &[3])
+            .unwrap_err()
+            .contains("out of range"));
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(gaussian_depth_order(&[1., invalid], &[0]).is_err());
+        }
+        assert!(gaussian_depth_order(&[1.], &[0, 0]).is_err());
+        assert!(gaussian_depth_order(&vec![0.; MAX_SPLATS + 1], &[]).is_err());
     }
 }

@@ -23,7 +23,7 @@ export function gaussianCase(boundary: boolean): GaussianCase {
 }
 
 /** Raster fixture uses the same Gaussian equation and draw order for both quad sizes. */
-export function compareGaussianQuads(data: GaussianCase & { fixed: number[]; adaptive: number[]; activeIndices?: number[] }) {
+export function compareGaussianQuads(data: GaussianCase & { fixed: number[]; adaptive: number[]; activeIndices?: number[]; referenceIndices?: number[] }) {
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 192;
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: true });
   if (!gl) throw new Error('No WebGL2');
@@ -73,7 +73,7 @@ void main() { vec2 d = gl_FragCoord.xy - center; float q = conic.x*d.x*d.x + 2.0
     return { pixels, area, draws, visited: indices.length };
   };
   try {
-    const fixed = draw(data.fixed), denseAdaptive = draw(data.adaptive), adaptive = draw(data.adaptive, data.activeIndices);
+    const fixed = draw(data.fixed), denseAdaptive = draw(data.adaptive, data.referenceIndices), adaptive = draw(data.adaptive, data.activeIndices);
     let differentChannels = 0, compactionDifferentChannels = 0, visiblePixels = 0;
     for (let i = 0; i < fixed.pixels.length; i++) if (fixed.pixels[i] !== adaptive.pixels[i]) differentChannels++;
     for (let i = 0; i < denseAdaptive.pixels.length; i++) if (denseAdaptive.pixels[i] !== adaptive.pixels[i]) compactionDifferentChannels++;
@@ -81,6 +81,8 @@ void main() { vec2 d = gl_FragCoord.xy - center; float q = conic.x*d.x*d.x + 2.0
     return { differentChannels, visiblePixels, fixedArea: fixed.area, adaptiveArea: adaptive.area,
       areaReduction: 1 - adaptive.area / fixed.area, fixedDraws: fixed.draws, adaptiveDraws: adaptive.draws,
       denseVisited: denseAdaptive.visited, compactedVisited: adaptive.visited, compactionDifferentChannels,
+      fixedCenter: Array.from(fixed.pixels.slice((96 * 256 + 128) * 4, (96 * 256 + 128) * 4 + 4)),
+      actualCenter: Array.from(adaptive.pixels.slice((96 * 256 + 128) * 4, (96 * 256 + 128) * 4 + 4)),
       equalCutoffAlpha: adaptive.pixels[(32 * 256 + 32) * 4 + 3] };
   } finally { gl.deleteProgram(program); }
 }

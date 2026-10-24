@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-24 · 高斯稳定深度排序
+
+- 新增 `gaussian_depth_order()`，用四轮 8-bit 基数排序生成从远到近的候选索引；保留完整 f32 深度，相等深度和正负零保持输入顺序，拒绝重复及无效索引。
+- 65,537 个深度的 WASM 结果与 JS 稳定排序一致；重叠高斯的透明混合与参考顺序逐像素一致，中心颜色符合解析结果。完整测试集为 207 项。
+- 当前为 CPU/WASM 准备内核，不做视锥剔除或逐像素深度排序，尚无真实 3DGS 场景帧率收益结论。
+- 参考：[WebSplatter 排序设计](https://arxiv.org/html/2602.03207v1#S3.SS3)。[研究说明](docs/gaussian-rendering.md)同步记录 [Gaussian-Splat-Lite 1.4.2](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/8576bb70d6f26884f7ca69ddf7f9b3b303e41484/CHANGELOG.md) 的随机渲染与去噪更新。
+
 ## 2026-10-24 · 稳定高斯索引压缩
 
 - 新增 `gaussian_visible_indices()`，返回达到不透明度阈值的原始索引，保留输入顺序和等于阈值的项。后续步骤可直接遍历有效高斯，无需重复检查零支持范围。
