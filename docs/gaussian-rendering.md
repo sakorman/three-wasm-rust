@@ -16,7 +16,13 @@ J = [ fx/z       0       -fx*x/z² ]
 Σscreen = J × Σcamera × Jᵀ
 ```
 
-计算阶段使用 f64，写回 f32 前检查中心、深度和协方差仍有限；协方差必须正定，整批失败时不返回部分结果。该一阶投影适合接到范围收紧、深度排序和 binary16 打包之前；宽视场、靠近相机平面或相机位于椭球内部时，仿射 Jacobian 可能不足，应增加裁剪或采用椭球精确投影。
+计算阶段使用 f64，转换为 f32 后检查中心、深度和协方差仍有限，并检查返回协方差满足 `xx > 0`、`yy > 0`、`xx × yy > xy²`。行列式检查将实际 f32 分量提升到 f64，避免检查过程自身下溢。投影与 `gaussian_screen_bounds()` 共用这一约束；失败时错误包含原始高斯索引，整批不返回部分结果，输入和已有返回数组保持不变。
+
+三维协方差为单位阵时，中心 `[0, 0, 1e30]`、单位焦距会将二维方差舍入为零；中心 `[100000, 100000, 1]` 会使三个二维分量均变成 `1e10`，行列式变成零。两种输入现在都在投影阶段报错。最小正 f32 方差仍可返回；接口不设置固定最小半径，也不静默增大方差或剔除问题高斯。调用方需调整视域、尺度，或明确选择滤波策略。
+
+返回数组按每项 6 个分量交错存储。批量调用范围接口前需提取每项后三个协方差分量；排序取第三个深度分量，打包输入则是范围接口输出的半宽/半高。正定校验保证数值输出可以进入范围接口，但不保证任意极端协方差的逆矩阵都能在 GPU f32 中表达。
+
+该一阶投影适合接到范围收紧、深度排序和 binary16 打包之前；宽视场、靠近相机平面或相机位于椭球内部时，仿射 Jacobian 可能不足，应增加裁剪或评估更精确的投影。
 
 设计与 `gsplat` 的标准 3DGS 投影步骤一致：[rasterization API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。当前实现只提供独立 CPU/WASM 数值内核，没有复制其 CUDA 代码，也没有接入真实模型或 GPU 管线。
 
@@ -93,10 +99,14 @@ const order = gaussian_depth_order(depths, candidates);
 
 深度排序回归对 65,537 个输入深度先筛选再反转候选，与 JavaScript 稳定排序逐项比较；覆盖混合正负深度、相邻浮点数、同深度、正负零和输入不变。WebGL 用两个重叠、alpha 均为 0.5 的高斯验证后向前混合，结果与独立排序参考逐像素一致，中心颜色与解析合成值相差不超过一个 8-bit 色阶。未经排序的相反绘制顺序会产生不同颜色。结果写入 `test-results/**/gaussian-sort.json`。
 
+投影回归以透视映射的数值差分建立 Jacobian，对照 128 组三维各向异性协方差，覆盖焦距、离轴中心、尺度和深度变化。另检查 f32 下溢、奇异和非正定输出的批次拒绝，保留最小正 f32 方差。浏览器在三次拒绝后重新投影正常数据，串联范围、排序、binary16 解包和透明绘制，与未压缩参考逐像素比较；报告保存为 `test-results/**/gaussian-projection.json`。
+
 ```bash
 cargo test --locked gaussian::tests
 npm run build:wasm
 npx tsx --test tests/gaussian.test.ts
+npx tsx --test tests/gaussian-projection.test.ts
+npm run test:e2e -- tests/browser/gaussian-projection.spec.ts
 npm run test:e2e -- tests/browser/gaussian.spec.ts
 npx tsx --test tests/gaussian-sort.test.ts
 npm run test:e2e -- tests/browser/gaussian-sort.spec.ts
@@ -106,7 +116,7 @@ npm run test:e2e -- tests/browser/gaussian-sort.spec.ts
 
 ## 文献与项目
 
-参考版本核对日期：2026-10-25。
+参考版本核对日期：2026-10-26。
 
 | 来源 | 与当前设计的关系 |
 | --- | --- |
@@ -115,6 +125,7 @@ npm run test:e2e -- tests/browser/gaussian-sort.spec.ts
 | [Gaussian-Splat-Lite RAD 缓存预算](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/d99a6294159c3b5cedcf610fd41ac875d7d29246) | 2026-10-25 的查看器分别设置 CPU/GPU 常驻缓存预算，修改后保留视角重载。后续流式资产管理应分别统计两类内存；当前尚无模型分页或淘汰机制。 |
 | [3DGEER，ICLR 2026](https://arxiv.org/abs/2505.24053v3) · [代码](https://github.com/boschresearch/3dgeer) | 关注通用相机下的射线高斯积分与关联。它提醒投影近似误差和光栅开销是不同问题；当前屏幕范围优化不解决宽视场投影误差。 |
 | [`gsplat` 投影 API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) | 说明用透视投影 Jacobian 将三维协方差近似为二维协方差；本接口采用相同数学关系，使用独立 Rust/WASM 实现。 |
+| [gsplat 滤波参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [Mip-Splatting 论文与项目](https://niujinshuchong.github.io/mip-splatting/) | `eps2d` 调整投影协方差；抗锯齿模式还补偿不透明度。滤波会影响覆盖和亮度，应明确配置并验证缩放下的画质。本接口目前只检查返回精度，不自动套用滤波，也不将数值拒绝称为抗锯齿。 |
 
 上游论文中的性能与画质数字不作为本仓库结果。参考实现的代码许可分别以各仓库 LICENSE 为准；这里发布的内核与测试不包含其代码、模型或图片。
 

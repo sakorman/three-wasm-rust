@@ -3,6 +3,11 @@ use wasm_bindgen::prelude::*;
 
 const MAX_SPLATS: usize = 1_000_000;
 
+fn valid_screen_covariance(covariance: &[f32; 3]) -> bool {
+    let [xx, xy, yy] = covariance.map(f64::from);
+    covariance.iter().all(|value| value.is_finite()) && xx > 0. && yy > 0. && xx * yy - xy * xy > 0.
+}
+
 fn finite_f32(value: f64, message: &str) -> Result<f32, String> {
     let value = value as f32;
     if value.is_finite() {
@@ -15,6 +20,7 @@ fn finite_f32(value: f64, message: &str) -> Result<f32, String> {
 /// Project camera-space 3D Gaussian covariances into pixel-space ellipses.
 /// Inputs use `[xx, xy, xz, yy, yz, zz]`; output is
 /// `[pixelX, pixelY, depth, screenXX, screenXY, screenYY]` per splat.
+/// Reject a batch if its rounded f32 screen covariance loses positive definiteness.
 #[wasm_bindgen]
 pub fn gaussian_project_covariances(
     centers: &[f32],
@@ -69,11 +75,12 @@ pub fn gaussian_project_covariances(
     let px = f64::from(principal_x);
     let py = f64::from(principal_y);
     let mut result = Vec::with_capacity(centers.len() / 3 * 6);
-    for (center, covariance) in centers
+    for (index, (center, covariance)) in centers
         .as_chunks::<3>()
         .0
         .iter()
         .zip(covariances.as_chunks::<6>().0)
+        .enumerate()
     {
         let [x, y, z] = center.map(f64::from);
         let [xx, xy, xz, yy, yz, zz] = covariance.map(f64::from);
@@ -84,7 +91,7 @@ pub fn gaussian_project_covariances(
         let c_xx = jx[0] * (jx[0] * xx + jx[2] * xz) + jx[2] * (jx[0] * xz + jx[2] * zz);
         let c_xy = jx[0] * (jy[1] * xy + jy[2] * xz) + jx[2] * (jy[1] * yz + jy[2] * zz);
         let c_yy = jy[1] * (jy[1] * yy + jy[2] * yz) + jy[2] * (jy[1] * yz + jy[2] * zz);
-        result.extend_from_slice(&[
+        let projected = [
             finite_f32(
                 fx * x * inv_z + px,
                 "projected Gaussian center exceeds f32 range",
@@ -97,7 +104,14 @@ pub fn gaussian_project_covariances(
             finite_f32(c_xx, "projected Gaussian covariance exceeds f32 range")?,
             finite_f32(c_xy, "projected Gaussian covariance exceeds f32 range")?,
             finite_f32(c_yy, "projected Gaussian covariance exceeds f32 range")?,
-        ]);
+        ];
+        // Check the stored precision consumed by bounds and conic inversion.
+        if !valid_screen_covariance(&[projected[3], projected[4], projected[5]]) {
+            return Err(format!(
+                "projected Gaussian covariance is not positive definite in f32 at splat {index}"
+            ));
+        }
+        result.extend_from_slice(&projected);
     }
     Ok(result)
 }
@@ -134,13 +148,9 @@ pub fn gaussian_screen_bounds(
     }
     let covariances = covariances.as_chunks::<3>().0;
     for (index, (covariance, &opacity)) in covariances.iter().zip(opacities).enumerate() {
-        let [xx, xy, yy] = covariance.map(f64::from);
         if !opacity.is_finite()
             || !(0. ..=1.).contains(&opacity)
-            || covariance.iter().any(|v| !v.is_finite())
-            || xx <= 0.
-            || yy <= 0.
-            || xx * yy - xy * xy <= 0.
+            || !valid_screen_covariance(covariance)
         {
             return Err(format!(
                 "invalid Gaussian opacity or positive-definite covariance at splat {index}"
@@ -330,6 +340,46 @@ mod tests {
         assert!((result[3] - 132.).abs() < 1e-5);
         assert!((result[4] - 130.).abs() < 1e-5);
         assert!((result[5] - 1852.).abs() < 1e-5);
+    }
+
+    #[test]
+    fn projection_rejects_covariances_that_degenerate_when_stored_as_f32() {
+        for center in [[0., 0., 1e30], [1e5, 1e5, 1.], [1e5, 100001., 1.]] {
+            let centers = [0., 0., 1., center[0], center[1], center[2]];
+            let covariance = [1., 0., 0., 1., 0., 1.].repeat(2);
+            let error =
+                gaussian_project_covariances(&centers, &covariance, 1., 1., 0., 0.).unwrap_err();
+            assert!(
+                error.contains("positive definite in f32 at splat 1"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn projection_keeps_representable_positive_covariances_without_an_epsilon_floor() {
+        let tiny = gaussian_project_covariances(
+            &[0., 0., 2_f32.powi(74)],
+            &[0.5, 0., 0., 0.5, 0., 1.],
+            1.,
+            1.,
+            0.,
+            0.,
+        )
+        .unwrap();
+        assert_eq!(&tiny[3..], &[f32::from_bits(1), 0., f32::from_bits(1)]);
+        assert!(gaussian_screen_bounds(&tiny[3..], &[1.], 1. / 255.).is_ok());
+        let huge = gaussian_project_covariances(
+            &[0., 0., 1.],
+            &[f32::MAX, 0., 0., f32::MAX, 0., f32::MAX],
+            1.,
+            1.,
+            0.,
+            0.,
+        )
+        .unwrap();
+        assert_eq!(&huge[3..], &[f32::MAX, 0., f32::MAX]);
+        assert!(gaussian_screen_bounds(&huge[3..], &[1.], 1. / 255.).is_ok());
     }
 
     #[test]
