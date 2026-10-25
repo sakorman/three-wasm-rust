@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import init, { gaussian_screen_bounds, gaussian_visible_indices } from '../pkg/three_wasm_rust.js';
+import init, { gaussian_screen_bounds, gaussian_visible_indices, gaussian_project_covariances } from '../pkg/three_wasm_rust.js';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
@@ -45,6 +45,31 @@ test('invalid Gaussian batches leave input data unchanged and reject invisible i
   assert.throws(() => gaussian_screen_bounds(new Float32Array([1, 0]), new Float32Array([1]), 1 / 255), /three covariance/);
   assert.throws(() => gaussian_screen_bounds(new Float32Array([1, 0, 1]), new Float32Array([NaN]), 1 / 255), /splat 0/);
   assert.throws(() => gaussian_screen_bounds(new Float32Array([1, 0, 1]), new Float32Array([1]), 0), /cutoff/);
+});
+
+test('3D covariance projection matches the perspective Jacobian in pixel space', () => {
+  const centers = new Float32Array([2, 3, 10, -1, 0.5, 4]);
+  const covariances = new Float32Array([
+    1, 0.2, 0.1, 4, 0.3, 9,
+    0.5, -0.1, 0.05, 0.75, 0.02, 0.9,
+  ]);
+  const actual = gaussian_project_covariances(centers, covariances, 100, 200, 320, 240);
+  assert.deepEqual(Array.from(actual.slice(0, 3)), [340, 300, 10]);
+  assert.ok(Math.abs(actual[3] - 132) < 1e-5);
+  assert.ok(Math.abs(actual[4] - 130) < 1e-5);
+  assert.ok(Math.abs(actual[5] - 1852) < 1e-5);
+  assert.equal(actual[6], 295);
+  assert.equal(actual[7], 265);
+  assert.equal(actual[8], 4);
+  assert.ok(actual[9] > 0 && actual[11] > 0);
+});
+
+test('3D covariance projection validates the whole batch before returning', () => {
+  const centers = new Float32Array([0, 0, 2, 0, 0, -1]);
+  const covariances = new Float32Array([1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1]);
+  assert.throws(() => gaussian_project_covariances(centers, covariances, 1, 1, 0, 0), /splat 1/);
+  assert.throws(() => gaussian_project_covariances(new Float32Array([0, 0]), new Float32Array(), 1, 1, 0, 0), /centers/);
+  assert.throws(() => gaussian_project_covariances(new Float32Array([0, 0, 1]), new Float32Array([1, 0, 0, 1, 0, 1]), 0, 1, 0, 0), /intrinsics/);
 });
 
 test('visible index compaction is stable and agrees with zero support bounds', () => {

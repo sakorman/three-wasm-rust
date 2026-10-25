@@ -3,6 +3,105 @@ use wasm_bindgen::prelude::*;
 
 const MAX_SPLATS: usize = 1_000_000;
 
+fn finite_f32(value: f64, message: &str) -> Result<f32, String> {
+    let value = value as f32;
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(message.into())
+    }
+}
+
+/// Project camera-space 3D Gaussian covariances into pixel-space ellipses.
+/// Inputs use `[xx, xy, xz, yy, yz, zz]`; output is
+/// `[pixelX, pixelY, depth, screenXX, screenXY, screenYY]` per splat.
+#[wasm_bindgen]
+pub fn gaussian_project_covariances(
+    centers: &[f32],
+    covariances: &[f32],
+    focal_x: f32,
+    focal_y: f32,
+    principal_x: f32,
+    principal_y: f32,
+) -> Result<Vec<f32>, String> {
+    if !centers.len().is_multiple_of(3)
+        || covariances.len() != centers.len() / 3 * 6
+        || centers.len() / 3 > MAX_SPLATS
+    {
+        return Err(
+            "expected xyz centers and six covariance values per splat, at most 1000000 splats"
+                .into(),
+        );
+    }
+    if [focal_x, focal_y, principal_x, principal_y]
+        .iter()
+        .any(|value| !value.is_finite())
+        || focal_x <= 0.
+        || focal_y <= 0.
+    {
+        return Err("camera intrinsics must be finite with positive focal lengths".into());
+    }
+    for (index, (center, covariance)) in centers
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(covariances.as_chunks::<6>().0)
+        .enumerate()
+    {
+        let [_, _, z] = center.map(f64::from);
+        let [xx, xy, xz, yy, yz, zz] = covariance.map(f64::from);
+        let determinant =
+            xx * (yy * zz - yz * yz) - xy * (xy * zz - yz * xz) + xz * (xy * yz - yy * xz);
+        if !center.iter().all(|value| value.is_finite())
+            || !covariance.iter().all(|value| value.is_finite())
+            || z <= 0.
+            || xx <= 0.
+            || xx * yy - xy * xy <= 0.
+            || determinant <= 0.
+        {
+            return Err(format!(
+                "invalid Gaussian center, depth or covariance at splat {index}"
+            ));
+        }
+    }
+    let fx = f64::from(focal_x);
+    let fy = f64::from(focal_y);
+    let px = f64::from(principal_x);
+    let py = f64::from(principal_y);
+    let mut result = Vec::with_capacity(centers.len() / 3 * 6);
+    for (center, covariance) in centers
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(covariances.as_chunks::<6>().0)
+    {
+        let [x, y, z] = center.map(f64::from);
+        let [xx, xy, xz, yy, yz, zz] = covariance.map(f64::from);
+        let inv_z = 1. / z;
+        let inv_z2 = inv_z * inv_z;
+        let jx = [fx * inv_z, 0., -fx * x * inv_z2];
+        let jy = [0., fy * inv_z, -fy * y * inv_z2];
+        let c_xx = jx[0] * (jx[0] * xx + jx[2] * xz) + jx[2] * (jx[0] * xz + jx[2] * zz);
+        let c_xy = jx[0] * (jy[1] * xy + jy[2] * xz) + jx[2] * (jy[1] * yz + jy[2] * zz);
+        let c_yy = jy[1] * (jy[1] * yy + jy[2] * yz) + jy[2] * (jy[1] * yz + jy[2] * zz);
+        result.extend_from_slice(&[
+            finite_f32(
+                fx * x * inv_z + px,
+                "projected Gaussian center exceeds f32 range",
+            )?,
+            finite_f32(
+                fy * y * inv_z + py,
+                "projected Gaussian center exceeds f32 range",
+            )?,
+            finite_f32(z, "Gaussian depth exceeds f32 range")?,
+            finite_f32(c_xx, "projected Gaussian covariance exceeds f32 range")?,
+            finite_f32(c_xy, "projected Gaussian covariance exceeds f32 range")?,
+            finite_f32(c_yy, "projected Gaussian covariance exceeds f32 range")?,
+        ]);
+    }
+    Ok(result)
+}
+
 fn half_extent(variance: f64, radius_squared: f64) -> f32 {
     // One f32 step covers arithmetic rounding; half a pixel preserves boundary samples.
     let extent = if radius_squared == 0. {
@@ -214,6 +313,38 @@ mod tests {
         let radius = (2. * (1. / f64::from(cutoff)).ln()).sqrt();
         assert!(f64::from(values[0]) >= radius * 2. + 0.5);
         assert!(f64::from(values[1]) >= radius * 3. + 0.5);
+    }
+
+    #[test]
+    fn perspective_projection_uses_f64_jacobian_and_keeps_cross_terms() {
+        let result = gaussian_project_covariances(
+            &[2., 3., 10.],
+            &[1., 0.2, 0.1, 4., 0.3, 9.],
+            100.,
+            200.,
+            320.,
+            240.,
+        )
+        .unwrap();
+        assert_eq!(&result[..3], &[340., 300., 10.]);
+        assert!((result[3] - 132.).abs() < 1e-5);
+        assert!((result[4] - 130.).abs() < 1e-5);
+        assert!((result[5] - 1852.).abs() < 1e-5);
+    }
+
+    #[test]
+    fn perspective_projection_rejects_invalid_batch_atomically() {
+        assert!(gaussian_project_covariances(
+            &[0., 0., 2., 0., 0., -1.],
+            &[1., 0., 0., 1., 0., 1., 1., 0., 0., 1., 0., 1.],
+            1.,
+            1.,
+            0.,
+            0.
+        )
+        .unwrap_err()
+        .contains("splat 1"));
+        assert!(gaussian_project_covariances(&[0., 0.], &[], 1., 1., 0., 0.).is_err());
     }
 
     #[test]

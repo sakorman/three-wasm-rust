@@ -1,8 +1,24 @@
 # 高斯光栅化准备
 
-Rust/WASM 高斯准备接口包含屏幕支持范围、不透明度筛选和稳定深度排序。低不透明度高斯使用更小的支持范围，低于阈值的高斯可先压缩掉，候选再按中心深度排序。完整 3DGS 的加载、三维协方差投影和 SH 着色仍需接入。
+Rust/WASM 高斯准备接口包含三维协方差投影、屏幕支持范围、不透明度筛选和稳定深度排序。低不透明度高斯使用更小的支持范围，低于阈值的高斯可先压缩掉，候选再按中心深度排序。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
 
 ## 公式与接口
+
+### 三维协方差投影
+
+`gaussian_project_covariances()` 接收相机空间中的中心和三维协方差，按像素焦距与主点计算二维屏幕协方差。每个协方差按 `[xx, xy, xz, yy, yz, zz]` 传入，返回 `[pixelX, pixelY, depth, screenXX, screenXY, screenYY]`。相机空间约定 `z > 0` 表示在相机前方。
+
+对中心 `(x, y, z)` 使用透视投影 `u = fx × x / z + cx`、`v = fy × y / z + cy`，在该点取 Jacobian：
+
+```text
+J = [ fx/z       0       -fx*x/z² ]
+    [  0       fy/z      -fy*y/z² ]
+Σscreen = J × Σcamera × Jᵀ
+```
+
+计算阶段使用 f64，写回 f32 前检查中心、深度和协方差仍有限；协方差必须正定，整批失败时不返回部分结果。该一阶投影适合接到范围收紧、深度排序和 binary16 打包之前；宽视场、靠近相机平面或相机位于椭球内部时，仿射 Jacobian 可能不足，应增加裁剪或采用椭球精确投影。
+
+设计与 `gsplat` 的标准 3DGS 投影步骤一致：[rasterization API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。当前实现只提供独立 CPU/WASM 数值内核，没有复制其 CUDA 代码，也没有接入真实模型或 GPU 管线。
 
 ### 屏幕范围
 
@@ -98,6 +114,7 @@ npm run test:e2e -- tests/browser/gaussian-sort.spec.ts
 | [Gaussian-Splat-Lite 1.4.2 更新](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/8576bb70d6f26884f7ca69ddf7f9b3b303e41484/CHANGELOG.md) · [仓库](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite) | 2026-10-24 的版本将随机渲染改为每高斯一个三角形，并调整慢速运动中的去噪细节。当前保留排序 alpha 混合基线，随机覆盖和去噪需另测噪声、时序稳定性及总开销。 |
 | [Gaussian-Splat-Lite RAD 缓存预算](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/d99a6294159c3b5cedcf610fd41ac875d7d29246) | 2026-10-25 的查看器分别设置 CPU/GPU 常驻缓存预算，修改后保留视角重载。后续流式资产管理应分别统计两类内存；当前尚无模型分页或淘汰机制。 |
 | [3DGEER，ICLR 2026](https://arxiv.org/abs/2505.24053v3) · [代码](https://github.com/boschresearch/3dgeer) | 关注通用相机下的射线高斯积分与关联。它提醒投影近似误差和光栅开销是不同问题；当前屏幕范围优化不解决宽视场投影误差。 |
+| [`gsplat` 投影 API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) | 说明用透视投影 Jacobian 将三维协方差近似为二维协方差；本接口采用相同数学关系，使用独立 Rust/WASM 实现。 |
 
 上游论文中的性能与画质数字不作为本仓库结果。参考实现的代码许可分别以各仓库 LICENSE 为准；这里发布的内核与测试不包含其代码、模型或图片。
 

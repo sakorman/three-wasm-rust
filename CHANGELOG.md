@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-25 · 接入三维高斯投影内核
+
+- 新增 `gaussian_project_covariances()`：将相机空间三维协方差按透视 Jacobian 投影为像素空间二维协方差，同时返回像素中心和深度，结果可直接接入范围收紧、排序与 binary16 打包。
+- 使用 f64 完成协方差乘法，验证交叉项、正定性、相机前方深度和整批原子拒绝；Node 与 Chromium 均直接调用 WASM 结果。
+- 参考 [`gsplat` 投影 API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)；当前仍未接入 PLY/其他高斯资产、SH 着色或完整 GPU 光栅化，宽视场/近裁剪面仍需精确椭球投影。
+- 验证：221 项测试通过（65 Rust、69 Node、87 Chromium），strict、原生/wasm32 Clippy 和生产构建通过。
+
 ## 2026-10-25 · 保留压缩后的高斯边缘
 
 - 修复 binary16 最近舍入缩小包围范围的问题：半宽约 2048.75 像素原先变为 2048，可能漏画边缘；现在向外取到 2050。极小正范围不再归零，真正的零支持仍保持为零。
