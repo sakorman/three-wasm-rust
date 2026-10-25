@@ -206,10 +206,7 @@ fn descending_depth_key(depth: f32) -> u32 {
     !ascending
 }
 
-/// Sort a unique candidate list by decreasing finite f32 depth.
-/// Larger depth means farther away. Equal depths retain candidate order.
-#[wasm_bindgen]
-pub fn gaussian_depth_order(depths: &[f32], indices: &[u32]) -> Result<Vec<u32>, String> {
+fn validate_depth_candidates(depths: &[f32], indices: &[u32]) -> Result<(), String> {
     if depths.len() > MAX_SPLATS || indices.len() > depths.len() {
         return Err("expected at most 1000000 depths and no more candidates than depths".into());
     }
@@ -230,6 +227,38 @@ pub fn gaussian_depth_order(depths: &[f32], indices: &[u32]) -> Result<Vec<u32>,
         }
         seen[index / 64] |= mask;
     }
+    Ok(())
+}
+
+/// Keep candidate centers with near <= depth <= far, preserving candidate order.
+/// Depth is positive forward; near must be finite and positive. Far may be +infinity.
+/// This filters centers only, not the full Gaussian support volume.
+#[wasm_bindgen]
+pub fn gaussian_clip_depth_indices(
+    depths: &[f32],
+    indices: &[u32],
+    near: f32,
+    far: f32,
+) -> Result<Vec<u32>, String> {
+    if !near.is_finite() || near <= 0. || far.is_nan() || far < near {
+        return Err("expected finite near > 0 and far >= near for Gaussian depth clipping".into());
+    }
+    validate_depth_candidates(depths, indices)?;
+    Ok(indices
+        .iter()
+        .copied()
+        .filter(|&id| {
+            let depth = depths[id as usize];
+            depth >= near && depth <= far
+        })
+        .collect())
+}
+
+/// Sort a unique candidate list by decreasing finite f32 depth.
+/// Larger depth means farther away. Equal depths retain candidate order.
+#[wasm_bindgen]
+pub fn gaussian_depth_order(depths: &[f32], indices: &[u32]) -> Result<Vec<u32>, String> {
+    validate_depth_candidates(depths, indices)?;
     let mut order = indices.to_vec();
     if order.len() < 2 {
         return Ok(order);
@@ -462,6 +491,70 @@ mod tests {
             [0, 1, 2, 3]
         );
         assert!(gaussian_visible_indices(&vec![0.; MAX_SPLATS + 1], cutoff).is_err());
+    }
+
+    #[test]
+    fn depth_clipping_keeps_boundary_centers_and_candidate_order() {
+        let depths = [
+            -1.,
+            -0.,
+            0.,
+            0.5,
+            1.,
+            1_f32.next_up(),
+            2.,
+            2_f32.next_up(),
+            f32::MAX,
+        ];
+        assert_eq!(
+            gaussian_clip_depth_indices(&depths, &[8, 6, 4, 3, 5, 7, 0, 2, 1], 1., 2.).unwrap(),
+            [6, 4, 5]
+        );
+        assert_eq!(
+            gaussian_clip_depth_indices(&depths, &[8, 4], 1., f32::INFINITY).unwrap(),
+            [8, 4]
+        );
+        assert_eq!(
+            gaussian_clip_depth_indices(&depths, &[4, 5], 1., 1.).unwrap(),
+            [4]
+        );
+        let tiny = f32::from_bits(1);
+        assert_eq!(
+            gaussian_clip_depth_indices(&[0., tiny], &[0, 1], tiny, tiny).unwrap(),
+            [1]
+        );
+        assert_eq!(gaussian_clip_depth_indices(&[], &[], 1., 2.).unwrap(), []);
+        assert_eq!(
+            gaussian_clip_depth_indices(&depths, &[0, 1, 2], 1., 2.).unwrap(),
+            []
+        );
+    }
+
+    #[test]
+    fn depth_clipping_validates_even_discarded_candidates() {
+        for (near, far) in [
+            (0., 1.),
+            (-0., 1.),
+            (-1., 1.),
+            (2., 1.),
+            (1., f32::NEG_INFINITY),
+            (f32::INFINITY, f32::INFINITY),
+            (f32::NAN, 1.),
+            (1., f32::NAN),
+        ] {
+            assert!(gaussian_clip_depth_indices(&[], &[], near, far).is_err());
+        }
+        for depth in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(gaussian_clip_depth_indices(&[1., depth], &[0], 1., 2.).is_err());
+        }
+        assert!(gaussian_clip_depth_indices(&[-1., 1.], &[0, 0], 1., 2.)
+            .unwrap_err()
+            .contains("duplicate"));
+        assert!(gaussian_clip_depth_indices(&[1.], &[1], 1., 2.)
+            .unwrap_err()
+            .contains("out of range"));
+        assert!(gaussian_clip_depth_indices(&[1.], &[0, 0], 1., 2.).is_err());
+        assert!(gaussian_clip_depth_indices(&vec![1.; MAX_SPLATS + 1], &[], 1., 2.).is_err());
     }
 
     #[test]
