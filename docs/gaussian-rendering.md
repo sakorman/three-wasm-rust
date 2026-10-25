@@ -90,12 +90,13 @@ npm run test:e2e -- tests/browser/gaussian-sort.spec.ts
 
 ## 文献与项目
 
-参考版本核对日期：2026-10-24。
+参考版本核对日期：2026-10-25。
 
 | 来源 | 与当前设计的关系 |
 | --- | --- |
 | [WebSplatter 论文](https://arxiv.org/abs/2602.03207) · [项目](https://websplatter.github.io/) · [代码版本 16bb06e](https://github.com/websplatter/WebSplatter/tree/16bb06e86b8fb12193d4bb4cd2b0b3d4f3ab62be) | 参考不透明度支持范围与完整 32-bit 稳定排序的设计。论文半径采用 exp(-r²) 坐标约定，这里以协方差写成 exp(-q/2)。实现为独立 Rust CPU/WASM 内核，不沿用论文的 GPU workgroup 同步或速度结论。 |
 | [Gaussian-Splat-Lite 1.4.2 更新](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/8576bb70d6f26884f7ca69ddf7f9b3b303e41484/CHANGELOG.md) · [仓库](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite) | 2026-10-24 的版本将随机渲染改为每高斯一个三角形，并调整慢速运动中的去噪细节。当前保留排序 alpha 混合基线，随机覆盖和去噪需另测噪声、时序稳定性及总开销。 |
+| [Gaussian-Splat-Lite RAD 缓存预算](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/d99a6294159c3b5cedcf610fd41ac875d7d29246) | 2026-10-25 的查看器分别设置 CPU/GPU 常驻缓存预算，修改后保留视角重载。后续流式资产管理应分别统计两类内存；当前尚无模型分页或淘汰机制。 |
 | [3DGEER，ICLR 2026](https://arxiv.org/abs/2505.24053v3) · [代码](https://github.com/boschresearch/3dgeer) | 关注通用相机下的射线高斯积分与关联。它提醒投影近似误差和光栅开销是不同问题；当前屏幕范围优化不解决宽视场投影误差。 |
 
 上游论文中的性能与画质数字不作为本仓库结果。参考实现的代码许可分别以各仓库 LICENSE 为准；这里发布的内核与测试不包含其代码、模型或图片。
@@ -112,10 +113,17 @@ const packed = gaussian_pack_half_extents(halfExtents);
 // shader 中按 binary16 解包为 halfWidth / halfHeight
 ```
 
-输入必须是成对的有限 `[0, 65504]` f32，采用 round-to-nearest-even；超出 binary16 范围会拒绝。零支持高斯仍编码为零，压缩不改变 `gaussian_visible_indices()` 的筛选语义。binary16 会量化半径，边缘绘制应保留原始 f32 或在 shader 中留出像素边界；当前测试检查典型值、最大有限值、拒绝路径和输入副本，不宣称量化后的真实模型画质等价。
+输入必须是成对的有限 `[0, 65504]` f32，最多一百万项。每个分量向上舍入到不小于原值的最小 binary16，保证解码后的包围范围不收缩；正负零均编码为零，极小正数至少编码为 `2⁻²⁴`。超出范围会拒绝，调用方可保留原始 f32 路径。输出为独立 Uint32Array，输入不变。
+
+最近偶数舍入不适合保守范围：例如半宽 `2048.750244140625` 会缩到 `2048`，超过半像素边距；向外舍入则得到 `2050`。片元仍用原协方差和阈值计算 alpha，扩大的四边形只影响覆盖候选，不改变高斯方程。该保证仅针对范围量化，不消除 GPU 坐标计算或片元精度误差。
+
+数值回归遍历全部 31,744 个非负有限 binary16 编码，并检查相邻编码之间的 f32 邻点与中点。WebGL2 回归实际调用 `unpackHalf2x16`，在旋转/重叠椭圆、阈值边界及大范围边缘三组测试中与原始 f32 范围逐像素一致。大范围负对照使用旧舍入宽度时有 3 个 RGBA 通道不同，向外舍入后为 0。报告保存在 `test-results/**/gaussian-pack.json`。
+
+每项编码数据量仍为 4 字节，向外舍入可能增加候选片元；尚未测量真实模型的 GPU 带宽、帧率或画质收益，现有 Mesh 对照不使用该接口。
 
 排序后的轴数据可使用 binary16 打包，形成“筛选 → 投影 → 打包 → 排序 → 光栅”的准备链路。WebSplatter 论文也将投影椭圆的两个轴压为 16-bit float 后传给光栅阶段；本接口保持 Rust/WASM 语义独立，不复制其 WebGPU shader 或同步实现。
 
 ```bash
 npx tsx --test tests/gaussian-pack.test.ts
+npm run test:e2e -- tests/browser/gaussian-pack.spec.ts
 ```

@@ -147,43 +147,41 @@ pub fn gaussian_depth_order(depths: &[f32], indices: &[u32]) -> Result<Vec<u32>,
     Ok(order)
 }
 
-fn f32_to_half(value: f32) -> Result<u16, String> {
+fn f32_to_half_outward(value: f32) -> Result<u16, String> {
     if !value.is_finite() || value < 0. || value > 65504. {
         return Err("Gaussian extent must be finite and in [0, 65504]".into());
+    }
+    if value == 0. {
+        return Ok(0);
     }
     let bits = value.to_bits();
     let exponent = ((bits >> 23) & 0xff) as i32 - 127 + 15;
     let mantissa = bits & 0x7f_ff_ff;
     if exponent <= 0 {
         if exponent < -10 {
-            return Ok(0);
+            return Ok(1);
         }
         let value = mantissa | 0x80_00_00;
         let shift = (14 - exponent) as u32;
         let mut half = (value >> shift) as u16;
         let remainder = value & ((1 << shift) - 1);
-        let halfway = 1 << (shift - 1);
-        if remainder > halfway || (remainder == halfway && half & 1 != 0) {
+        if remainder != 0 {
             half += 1;
         }
         return Ok(half);
     }
-    if exponent >= 31 {
-        return Err("Gaussian extent exceeds f16 range".into());
-    }
     let mut half = ((exponent as u16) << 10) | (mantissa >> 13) as u16;
     let remainder = mantissa & 0x1fff;
-    if remainder > 0x1000 || (remainder == 0x1000 && half & 1 != 0) {
+    // The validated upper bound keeps outward rounding finite.
+    if remainder != 0 {
         half += 1;
-        if half & 0x7c00 == 0x7c00 {
-            return Err("Gaussian extent exceeds f16 range".into());
-        }
     }
     Ok(half)
 }
 
 /// Pack nonnegative [halfWidth, halfHeight] pairs into one u32 per Gaussian.
 /// The low/high 16-bit halves use IEEE 754 binary16 and preserve input order.
+/// Each extent rounds upward so decoding cannot shrink the input bounds.
 #[wasm_bindgen]
 pub fn gaussian_pack_half_extents(half_extents: &[f32]) -> Result<Vec<u32>, String> {
     if !half_extents.len().is_multiple_of(2) || half_extents.len() / 2 > MAX_SPLATS {
@@ -194,8 +192,8 @@ pub fn gaussian_pack_half_extents(half_extents: &[f32]) -> Result<Vec<u32>, Stri
         .0
         .iter()
         .map(|pair| {
-            let width = u32::from(f32_to_half(pair[0])?);
-            let height = u32::from(f32_to_half(pair[1])?);
+            let width = u32::from(f32_to_half_outward(pair[0])?);
+            let height = u32::from(f32_to_half_outward(pair[1])?);
             Ok(width | height << 16)
         })
         .collect()
@@ -372,6 +370,20 @@ mod tests {
         assert_eq!(packed[1] >> 16, 0x4000); // 2
         assert_eq!(packed[2] & 0xffff, 0x7bff); // max finite binary16
         assert_eq!(packed[2] >> 16, 0);
+    }
+
+    #[test]
+    fn half_extent_packing_never_shrinks_positive_support() {
+        let packed = gaussian_pack_half_extents(&[
+            2049.,
+            2_f32.powi(-25),
+            -0.,
+            f32::from_bits(1),
+            2_f32.powi(-14).next_down(),
+            65504_f32.next_down(),
+        ])
+        .unwrap();
+        assert_eq!(packed, [0x0001_6801, 0x0001_0000, 0x7bff_0400]);
     }
 
     #[test]

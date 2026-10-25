@@ -23,7 +23,7 @@ export function gaussianCase(boundary: boolean): GaussianCase {
 }
 
 /** Raster fixture uses the same Gaussian equation and draw order for both quad sizes. */
-export function compareGaussianQuads(data: GaussianCase & { fixed: number[]; adaptive: number[]; activeIndices?: number[]; referenceIndices?: number[] }) {
+export function compareGaussianQuads(data: GaussianCase & { fixed: number[]; adaptive: number[]; activeIndices?: number[]; referenceIndices?: number[]; packedExtents?: number[] }) {
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 192;
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: true });
   if (!gl) throw new Error('No WebGL2');
@@ -35,9 +35,13 @@ export function compareGaussianQuads(data: GaussianCase & { fixed: number[]; ada
   };
   const vertex = shader(gl.VERTEX_SHADER, `#version 300 es
 precision highp float;
+precision highp int;
 uniform vec2 center, extent;
+uniform uint packedExtent;
+uniform bool usePackedExtent;
 const vec2 corners[6] = vec2[6](vec2(-1,-1), vec2(1,-1), vec2(1,1), vec2(-1,-1), vec2(1,1), vec2(-1,1));
-void main() { vec2 pixel = center + extent * corners[gl_VertexID]; gl_Position = vec4(pixel / vec2(128,96) - 1.0, 0, 1); }`);
+void main() { vec2 halfSize = usePackedExtent ? unpackHalf2x16(packedExtent) : extent;
+  vec2 pixel = center + halfSize * corners[gl_VertexID]; gl_Position = vec4(pixel / vec2(128,96) - 1.0, 0, 1); }`);
   const fragment = shader(gl.FRAGMENT_SHADER, `#version 300 es
 precision highp float;
 uniform vec2 center;
@@ -53,27 +57,35 @@ void main() { vec2 d = gl_FragCoord.xy - center; float q = conic.x*d.x*d.x + 2.0
   const location = (name: string) => { const value = gl.getUniformLocation(program, name); if (!value) throw new Error(name); return value; };
   const center = location('center'), extent = location('extent'), conic = location('conic');
   const opacity = location('opacity'), cutoff = location('cutoff'), color = location('color');
+  const packedExtent = location('packedExtent'), usePackedExtent = location('usePackedExtent');
   gl.useProgram(program); gl.viewport(0, 0, 256, 192); gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.uniform1f(cutoff, data.cutoff);
   const allIndices = Array.from(data.opacity.keys());
-  const draw = (bounds: number[], indices = allIndices) => {
+  const halfValue = (bits: number) => {
+    const exponent = bits >>> 10, fraction = bits & 1023;
+    return exponent ? 2 ** (exponent - 15) * (1 + fraction / 1024) : 2 ** -24 * fraction;
+  };
+  const draw = (bounds: number[], indices = allIndices, packed?: number[]) => {
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1i(usePackedExtent, packed ? 1 : 0);
     let area = 0, draws = 0;
     for (const i of indices) {
       const x = bounds[i * 2], y = bounds[i * 2 + 1];
       if (x === 0 || y === 0) continue;
       const [xx, xy, yy] = data.covariance.slice(i * 3, i * 3 + 3), det = xx * yy - xy * xy;
       gl.uniform2f(center, data.centers[i * 2], data.centers[i * 2 + 1]); gl.uniform2f(extent, x, y);
+      if (packed) gl.uniform1ui(packedExtent, packed[i]);
       gl.uniform3f(conic, yy / det, -xy / det, xx / det); gl.uniform1f(opacity, data.opacity[i]);
       gl.uniform3f(color, 1, i % 2 ? 0.25 : 0.75, i % 3 ? 0.6 : 0.2);
-      gl.drawArrays(gl.TRIANGLES, 0, 6); draws++; area += 4 * x * y;
+      gl.drawArrays(gl.TRIANGLES, 0, 6); draws++;
+      area += packed ? 4 * halfValue(packed[i] & 0xffff) * halfValue(packed[i] >>> 16) : 4 * x * y;
     }
     const pixels = new Uint8Array(256 * 192 * 4); gl.readPixels(0, 0, 256, 192, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     if (gl.getError()) throw new Error('WebGL error');
     return { pixels, area, draws, visited: indices.length };
   };
   try {
-    const fixed = draw(data.fixed), denseAdaptive = draw(data.adaptive, data.referenceIndices), adaptive = draw(data.adaptive, data.activeIndices);
+    const fixed = draw(data.fixed), denseAdaptive = draw(data.adaptive, data.referenceIndices), adaptive = draw(data.adaptive, data.activeIndices, data.packedExtents);
     let differentChannels = 0, compactionDifferentChannels = 0, visiblePixels = 0;
     for (let i = 0; i < fixed.pixels.length; i++) if (fixed.pixels[i] !== adaptive.pixels[i]) differentChannels++;
     for (let i = 0; i < denseAdaptive.pixels.length; i++) if (denseAdaptive.pixels[i] !== adaptive.pixels[i]) compactionDifferentChannels++;
