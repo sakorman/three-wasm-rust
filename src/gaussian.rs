@@ -8,6 +8,16 @@ fn valid_screen_covariance(covariance: &[f32; 3]) -> bool {
     covariance.iter().all(|value| value.is_finite()) && xx > 0. && yy > 0. && xx * yy - xy * xy > 0.
 }
 
+fn valid_camera_covariance(covariance: &[f32; 6]) -> bool {
+    let [xx, xy, xz, yy, yz, zz] = covariance.map(f64::from);
+    let determinant =
+        xx * (yy * zz - yz * yz) - xy * (xy * zz - yz * xz) + xz * (xy * yz - yy * xz);
+    covariance.iter().all(|value| value.is_finite())
+        && xx > 0.
+        && xx * yy - xy * xy > 0.
+        && determinant > 0.
+}
+
 fn finite_f32(value: f64, message: &str) -> Result<f32, String> {
     let value = value as f32;
     if value.is_finite() {
@@ -54,16 +64,9 @@ pub fn gaussian_project_covariances(
         .zip(covariances.as_chunks::<6>().0)
         .enumerate()
     {
-        let [_, _, z] = center.map(f64::from);
-        let [xx, xy, xz, yy, yz, zz] = covariance.map(f64::from);
-        let determinant =
-            xx * (yy * zz - yz * yz) - xy * (xy * zz - yz * xz) + xz * (xy * yz - yy * xz);
         if !center.iter().all(|value| value.is_finite())
-            || !covariance.iter().all(|value| value.is_finite())
-            || z <= 0.
-            || xx <= 0.
-            || xx * yy - xy * xy <= 0.
-            || determinant <= 0.
+            || center[2] <= 0.
+            || !valid_camera_covariance(covariance)
         {
             return Err(format!(
                 "invalid Gaussian center, depth or covariance at splat {index}"
@@ -292,7 +295,7 @@ pub fn gaussian_clip_depth_indices(
     near: f32,
     far: f32,
 ) -> Result<Vec<u32>, String> {
-    if !near.is_finite() || near <= 0. || far.is_nan() || far < near {
+    if !valid_depth_clip_range(near, far) {
         return Err("expected finite near > 0 and far >= near for Gaussian depth clipping".into());
     }
     validate_depth_candidates(depths, indices)?;
@@ -302,6 +305,95 @@ pub fn gaussian_clip_depth_indices(
         .filter(|&id| {
             let depth = depths[id as usize];
             depth >= near && depth <= far
+        })
+        .collect())
+}
+
+fn valid_depth_clip_range(near: f32, far: f32) -> bool {
+    near.is_finite() && near > 0. && !far.is_nan() && far >= near
+}
+
+fn depth_support_radius(variance_z: f32, opacity: f32, cutoff: f32) -> f64 {
+    if opacity == cutoff {
+        return 0.;
+    }
+    // Each step expands the f64 approximation so culling cannot shrink support
+    // merely because of the logarithm, product, square root or endpoint sum.
+    let ratio = (f64::from(opacity) / f64::from(cutoff)).next_up();
+    let radius_squared = (2. * ratio.ln()).next_up();
+    (f64::from(variance_z).next_up() * radius_squared)
+        .next_up()
+        .sqrt()
+        .next_up()
+}
+
+/// Keep candidates whose alpha support intersects the camera depth interval.
+///
+/// The support is derived from `alpha = opacity * exp(-0.5 * d^T Sigma^-1 d)`
+/// at `cutoff`. Its maximum camera-z displacement is
+/// `sqrt(2 * Sigma_zz * ln(opacity / cutoff))`. This retains a positive-depth
+/// center when its support reaches the near or far plane; it does not clip the
+/// Gaussian geometry or make the perspective projection exact near the camera.
+#[wasm_bindgen]
+pub fn gaussian_clip_depth_support_indices(
+    centers: &[f32],
+    covariances: &[f32],
+    opacities: &[f32],
+    indices: &[u32],
+    cutoff: f32,
+    near: f32,
+    far: f32,
+) -> Result<Vec<u32>, String> {
+    if !centers.len().is_multiple_of(3)
+        || covariances.len() != centers.len() / 3 * 6
+        || opacities.len() != centers.len() / 3
+        || opacities.len() > MAX_SPLATS
+        || indices.len() > opacities.len()
+    {
+        return Err("expected xyz centers, six covariance values and one opacity per splat, at most 1000000 splats and no more candidates than splats".into());
+    }
+    if !cutoff.is_finite() || cutoff <= 0. || cutoff > 1. {
+        return Err("Gaussian cutoff must be finite and in (0, 1]".into());
+    }
+    if !valid_depth_clip_range(near, far) {
+        return Err("expected finite near > 0 and far >= near for Gaussian depth clipping".into());
+    }
+    for (index, ((center, covariance), &opacity)) in centers
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(covariances.as_chunks::<6>().0)
+        .zip(opacities)
+        .enumerate()
+    {
+        if !center.iter().all(|value| value.is_finite())
+            || center[2] <= 0.
+            || !valid_camera_covariance(covariance)
+            || !opacity.is_finite()
+            || !(0. ..=1.).contains(&opacity)
+        {
+            return Err(format!(
+                "invalid Gaussian center, depth, covariance or opacity at splat {index}"
+            ));
+        }
+    }
+    validate_candidate_indices(opacities.len(), indices)?;
+    let near = f64::from(near);
+    let far = f64::from(far);
+    Ok(indices
+        .iter()
+        .copied()
+        .filter(|&id| {
+            let index = id as usize;
+            let opacity = opacities[index];
+            if opacity < cutoff {
+                return false;
+            }
+            let depth = f64::from(centers[index * 3 + 2]);
+            let radius = depth_support_radius(covariances[index * 6 + 5], opacity, cutoff);
+            let lower = add_outward(depth, -radius, false);
+            let upper = add_outward(depth, radius, true);
+            lower <= far && upper >= near
         })
         .collect())
 }
@@ -692,6 +784,134 @@ mod tests {
             .contains("out of range"));
         assert!(gaussian_clip_depth_indices(&[1.], &[0, 0], 1., 2.).is_err());
         assert!(gaussian_clip_depth_indices(&vec![1.; MAX_SPLATS + 1], &[], 1., 2.).is_err());
+    }
+
+    #[test]
+    fn depth_support_clipping_keeps_crossing_bounds_in_candidate_order() {
+        let cutoff = 1. / 255.;
+        let centers = [
+            0., 0., 0.8, // reaches the near plane through z support
+            0., 0., 4.4, // reaches the far plane through z support
+            0., 0., 1., // exact near boundary, zero support at cutoff
+            0., 0., 0.9, // zero support stays before the near plane
+            0., 0., 2., // opacity below cutoff has no retained support
+        ];
+        let covariances = [
+            0.01, 0., 0., 0.01, 0., 0.04, 0.01, 0., 0., 0.01, 0., 0.09, 0.01, 0., 0., 0.01, 0.,
+            0.04, 0.01, 0., 0., 0.01, 0., 0.04, 0.01, 0., 0., 0.01, 0., 0.04,
+        ];
+        let opacities = [1., 1., cutoff, cutoff, cutoff * 0.5];
+        let candidates = [4, 1, 3, 0, 2];
+        assert_eq!(
+            gaussian_clip_depth_support_indices(
+                &centers,
+                &covariances,
+                &opacities,
+                &candidates,
+                cutoff,
+                1.,
+                4.,
+            )
+            .unwrap(),
+            [1, 0, 2]
+        );
+        assert_eq!(
+            gaussian_clip_depth_indices(&[0.8, 4.4, 1., 0.9, 2.], &[1, 3, 0, 2], 1., 4.).unwrap(),
+            [2]
+        );
+        assert_eq!(
+            gaussian_clip_depth_support_indices(&[], &[], &[], &[], cutoff, 1., 4.).unwrap(),
+            []
+        );
+    }
+
+    #[test]
+    fn depth_support_clipping_validates_complete_batches() {
+        let centers = [0., 0., 2., 0., 0., 2.];
+        let covariances = [1., 0., 0., 1., 0., 1., 1., 0., 0., 1., 0., 1.];
+        let opacities = [1., 1.];
+        for cutoff in [0., -1., 2., f32::NAN, f32::INFINITY] {
+            assert!(gaussian_clip_depth_support_indices(
+                &centers,
+                &covariances,
+                &opacities,
+                &[],
+                cutoff,
+                1.,
+                4.
+            )
+            .is_err());
+        }
+        assert!(gaussian_clip_depth_support_indices(
+            &centers,
+            &[1., 0., 0., 1., 0., 1., 1., 0., 0., 1., 0., 0.],
+            &opacities,
+            &[0],
+            0.01,
+            1.,
+            4.
+        )
+        .is_err());
+        assert!(gaussian_clip_depth_support_indices(
+            &[0., 0., 2., 0., 0., 0.],
+            &covariances,
+            &opacities,
+            &[0],
+            0.01,
+            1.,
+            4.
+        )
+        .is_err());
+        assert!(gaussian_clip_depth_support_indices(
+            &centers,
+            &covariances,
+            &[1., f32::NAN],
+            &[0],
+            0.01,
+            1.,
+            4.
+        )
+        .is_err());
+        assert!(gaussian_clip_depth_support_indices(
+            &centers,
+            &covariances,
+            &opacities,
+            &[0, 0],
+            0.01,
+            1.,
+            4.
+        )
+        .is_err());
+        assert!(gaussian_clip_depth_support_indices(
+            &centers,
+            &covariances,
+            &opacities,
+            &[2],
+            0.01,
+            1.,
+            4.
+        )
+        .is_err());
+        assert!(gaussian_clip_depth_support_indices(
+            &centers,
+            &covariances,
+            &opacities,
+            &[],
+            0.01,
+            0.,
+            4.
+        )
+        .is_err());
+        assert!(gaussian_clip_depth_support_indices(
+            &centers,
+            &covariances,
+            &opacities,
+            &[],
+            0.01,
+            1.,
+            f32::NAN
+        )
+        .is_err());
     }
 
     #[test]

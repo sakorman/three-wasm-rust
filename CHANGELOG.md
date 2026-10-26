@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-26 · 保留跨近平面的高斯支持范围
+
+- 新增 `gaussian_clip_depth_support_indices()`：根据三维协方差的 z 支持范围与 alpha 阈值筛选近远平面候选，保留跨近平面、相切项、原始索引和候选顺序；f64 端点向外扩展以避免相切项因舍入漏筛。
+- 4,097 组有限 f32 协方差与 f64 公式参考一致。浏览器用例中，4 个不透明候选按中心筛选仅余 1 个，支持范围筛选保留 3 个；3 个候选的画面有 4,303 个可见像素，错误地丢弃跨平面项会产生 14,627 个不同 RGBA 通道。
+- 该接口只决定候选，不裁切椭球几何，也不解决近平面附近的透视近似或完整 3DGS 光栅化；没有真实模型性能或画质结论。参考 [gsplat 近远平面参数](https://docs.gsplat.studio/main/apis/rasterization.html)、[Gaussian Point Splatting](https://doi.org/10.1145/3811272) 和[项目实现](https://github.com/JorisAR/gaussian-point-splatting)。
+- 验证：247 项测试通过（74 Rust、81 Node、92 Chromium），strict、原生/wasm32 Clippy 和生产构建通过；覆盖交叉近远面、阈值边界、正定协方差、非法整批和像素负对照。
+
 ## 2026-10-26 · 剔除完全离屏的高斯范围
 
 - 新增 `gaussian_viewport_indices()`，按屏幕中心与半宽/半高筛选视口相交范围，保留相切项、原始索引和候选顺序；零面积范围排除，端点采用 f64 向外舍入。

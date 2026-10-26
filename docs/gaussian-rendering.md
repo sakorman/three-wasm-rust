@@ -1,6 +1,6 @@
 # 高斯光栅化准备
 
-Rust/WASM 高斯准备接口包含三维协方差投影、屏幕支持范围、不透明度/深度/视口筛选、稳定排序和范围打包。候选可先按不透明度与相机深度筛选，投影后再按视口范围筛选。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
+Rust/WASM 高斯准备接口包含三维协方差投影、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序和范围打包。候选可先按不透明度与相机深度筛选，投影后再按视口范围筛选。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
 
 ## 公式与接口
 
@@ -83,6 +83,31 @@ const order = gaussian_depth_order(depths, clipped);
 
 复杂度为 O(N + K)：校验全部 N 个深度、K 个候选并筛选，另有去重位图、输出数组和 JS/WASM 复制成本。后续投影可以只处理保留项，但这不是 GPU 或端到端速度结论。收集子集后，投影输出按子集顺序排列，需保留原始 ID 映射，才能正确读取颜色、SH 等属性。
 
+### 近远支持范围筛选
+
+`gaussian_clip_depth_support_indices(centers, covariances, opacities, candidates, cutoff, near, far)` 按三维高斯在 z 轴上的阈值支持范围筛选，而不是只看中心。输入中心为相机空间 `[x, y, z]`，协方差为 `[xx, xy, xz, yy, yz, zz]`。当 `opacity ≥ cutoff` 时，令 `k = 2 ln(opacity / cutoff)`，椭球 `dᵀΣ⁻¹d ≤ k` 沿相机 z 的最大偏移为：
+
+```text
+r_z = sqrt(k × Σzz)
+```
+
+接口保留闭区间 `[z - r_z, z + r_z]` 与 `[near, far]` 相交的候选。该结论包含协方差交叉项：在椭球约束下，z 方向的极值只由 `Σzz` 决定。等于 `cutoff` 时 `r_z = 0`，与中心筛选一致；低于阈值的项不返回。内部以 f64 计算并向外扩展对数、半径和端点，避免数值舍入把相切支持误剔除。
+
+```ts
+import { gaussian_clip_depth_support_indices, gaussian_depth_order } from './web/engine/index.ts';
+
+const candidates = gaussian_clip_depth_support_indices(
+  cameraCenters, cameraCovariances, opacities, visibleIndices,
+  Math.fround(1 / 255), near, far,
+);
+const order = gaussian_depth_order(
+  Float32Array.from(opacities, (_, index) => cameraCenters[index * 3 + 2]),
+  candidates,
+);
+```
+
+中心必须在相机前方，全部中心、协方差和不透明度都会校验，即使不在候选列表中；协方差需为正定，候选必须唯一且不越界。该接口只决定是否保留候选，不对椭球做近平面几何裁切，也不消除近平面附近的一阶透视投影误差。支持范围穿过相机平面时，后续实际光栅器仍需定义裁切策略。
+
 ### 屏幕视口筛选
 
 `gaussian_viewport_indices(centers, halfExtents, candidates, width, height)` 保留与 `[0, width] × [0, height]` 相交的轴对齐范围。中心和半宽/半高均按 `[x, y]` 成对传入，单位为绘制缓冲像素；宽高为有限正 f32。四边相切的范围保留，任一半宽/半高为零的项排除。
@@ -143,6 +168,8 @@ const order = gaussian_depth_order(depths, candidates);
 
 深度筛选以 65,537 项输入对照 JavaScript 的不透明度筛选、深度条件和稳定排序。浏览器用例的 8 个高斯中，7 个通过不透明度筛选，3 个通过 `[2, 10]` 深度范围；未经筛选的整批投影会因相机后方中心报错，筛选后正确保留近远边界项及其不透明度，绘制 2,074 个可见像素，与 f32 范围参考 RGBA 一致。报告保存为 `test-results/**/gaussian-clip.json`；这验证的是筛选规则和管线衔接，不代表裁剪前后的画面应当相同。
 
+支持范围回归以 4,097 组有限 f32 三维协方差和 f64 公式参考核对，不丢失与深度区间相交的候选。浏览器用例中，4 个不透明候选以中心筛选只会留下 1 个；支持范围筛选保留 3 个，其中两个中心分别在近平面前与远平面后。3 个支持候选的绘制有 4,303 个可见像素，与同候选参考 RGBA 完全一致；错误地只保留中心项会产生 14,627 个不同通道。报告保存为 `test-results/**/gaussian-depth-support.json`。此用例尚未实现真实近平面裁切，不把像素差异解释为真实模型质量或性能结论。
+
 视口回归用 BigInt 表示 f32 的精确二进制值，核对 4,097 个随机范围在三组视口尺寸下的相交结果，包含次正规量级与极端端点。256×192 浏览器用例有 36 项输入，28 项具有非零支持范围；移除 4 个完全离屏范围后提交 24 次绘制，3,635 个可见像素与未筛选参考完全一致。f32 与实际 binary16 解包范围两条路径均通过；只判断中心是否在画布内的负对照会丢失边缘像素，产生 2,161 个不同 RGBA 通道。报告保存为 `test-results/**/gaussian-viewport.json`。这些是合成用例的工作量与画面结果，不是实际模型帧率收益。
 
 ```bash
@@ -156,6 +183,8 @@ npx tsx --test tests/gaussian-sort.test.ts
 npm run test:e2e -- tests/browser/gaussian-sort.spec.ts
 npx tsx --test tests/gaussian-clip.test.ts
 npm run test:e2e -- tests/browser/gaussian-clip.spec.ts
+npx tsx --test tests/gaussian-depth-support.test.ts
+npm run test:e2e -- tests/browser/gaussian-depth-support.spec.ts
 npx tsx --test tests/gaussian-viewport.test.ts
 npm run test:e2e -- tests/browser/gaussian-viewport.spec.ts
 ```
@@ -177,6 +206,7 @@ npm run test:e2e -- tests/browser/gaussian-viewport.spec.ts
 | [`gsplat` 投影 API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) | 说明用透视投影 Jacobian 将三维协方差近似为二维协方差；本接口采用相同数学关系，使用独立 Rust/WASM 实现。 |
 | [gsplat 滤波参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [Mip-Splatting 论文与项目](https://niujinshuchong.github.io/mip-splatting/) | `eps2d` 调整投影协方差；抗锯齿模式还补偿不透明度。滤波会影响覆盖和亮度，应明确配置并验证缩放下的画质。本接口目前只检查返回精度，不自动套用滤波，也不将数值拒绝称为抗锯齿。 |
 | [gsplat 近远平面参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [WebSplatter 预处理](https://arxiv.org/html/2602.03207v1#S3.SS2) | 参考在投影/绘制前限制候选的设计。深度筛选采用中心深度闭区间，视口相交由单独接口负责；不移用其他实现的性能结论。 |
+| [Gaussian Point Splatting](https://doi.org/10.1145/3811272) · [项目](https://github.com/JorisAR/gaussian-point-splatting) | 该项目公开近远平面和分层筛选的使用边界。这里补充的是独立的协方差支持范围候选规则，不采用其随机采样、层级结构或性能数据。 |
 | [WebSplatter 屏幕 AABB 筛选](https://arxiv.org/html/2602.03207v1#S3.SS2) | 参考用投影范围与视口相交筛选候选。这里实现独立 Rust/WASM 二维范围接口，保留相切项和候选顺序；没有沿用其 WebGPU 实现或性能数字。 |
 
 上游论文中的性能与画质数字不作为本仓库结果。参考实现的代码许可分别以各仓库 LICENSE 为准；这里发布的内核与测试不包含其代码、模型或图片。
