@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-27 · 屏幕低通滤波与不透明度补偿
+
+- 新增 `gaussian_filter_screen_covariances()`：为投影二维协方差加入各向同性滤波方差，并按返回 f32 协方差的行列式比补偿峰值不透明度。此前下游只能使用未滤波协方差；现在可在范围、视口筛选和光栅前使用同一份滤波后数据。
+- 4,097 组正定 f32 协方差与 f64 公式参考一致，零滤波按位保留输入。512×512 单高斯 WebGL 回归中，alpha 字节和从 12,166 变为 12,152，解析连续积分相对差小于 `2e-6`；该结果不等同于真实模型的画质或帧率。
+- 连续积分补偿不保证 alpha 混合、阈值丢弃、多个高斯重叠或不同分辨率下的像素亮度、PSNR/SSIM 一致；未接入三维平滑、真实近平面裁切或 SH 着色。公式参考 [gsplat antialiased rasterization](https://docs.gsplat.studio/main/apis/rasterization.html) 与 [Mip-Splatting（CVPR 2024）](https://openaccess.thecvf.com/content/CVPR2024/html/Yu_Mip-Splatting_Alias-free_3D_Gaussian_Splatting_CVPR_2024_paper.html)。
+- 验证：253 项测试通过（76 Rust、84 Node、93 Chromium），strict、原生/wasm32 Clippy 和生产构建通过；覆盖输出 f32 对齐、能量补偿、非法整批、范围衔接及实际 WebGL 像素读取。
+
 ## 2026-10-26 · 保留跨近平面的高斯支持范围
 
 - 新增 `gaussian_clip_depth_support_indices()`：根据三维协方差的 z 支持范围与 alpha 阈值筛选近远平面候选，保留跨近平面、相切项、原始索引和候选顺序；f64 端点向外扩展以避免相切项因舍入漏筛。

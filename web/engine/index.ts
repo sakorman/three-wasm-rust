@@ -2,6 +2,7 @@ export { default as init } from '../../pkg/three_wasm_rust.js';
 export { SceneGraph, RenderQueue, EngineRenderer } from '../../pkg/three_wasm_rust.js';
 export { ray_aabb_intervals, ray_triangle_hits } from '../../pkg/three_wasm_rust.js';
 export { gaussian_screen_bounds } from '../../pkg/three_wasm_rust.js';
+export { gaussian_filter_screen_covariances } from '../../pkg/three_wasm_rust.js';
 export { gaussian_project_covariances } from '../../pkg/three_wasm_rust.js';
 export { gaussian_visible_indices } from '../../pkg/three_wasm_rust.js';
 export { gaussian_clip_depth_indices } from '../../pkg/three_wasm_rust.js';

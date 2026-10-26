@@ -119,6 +119,76 @@ pub fn gaussian_project_covariances(
     Ok(result)
 }
 
+/// Apply an isotropic screen-space low-pass filter to projected covariances.
+///
+/// Each output is `[xx, xy, yy, opacity]`. The filter adds
+/// `filter_variance * I` to the covariance, then scales peak opacity by
+/// `sqrt(det(original) / det(filtered))` so the continuous Gaussian integral
+/// is preserved. The returned f32 covariance, rather than an intermediate
+/// f64 value, defines the compensation used by later bounds and raster stages.
+#[wasm_bindgen]
+pub fn gaussian_filter_screen_covariances(
+    covariances: &[f32],
+    opacities: &[f32],
+    filter_variance: f32,
+) -> Result<Vec<f32>, String> {
+    if !filter_variance.is_finite() || filter_variance < 0. {
+        return Err("Gaussian filter variance must be finite and nonnegative".into());
+    }
+    if opacities.len() > MAX_SPLATS || covariances.len() != opacities.len() * 3 {
+        return Err("expected three covariance values per opacity, at most 1000000 splats".into());
+    }
+    let covariances = covariances.as_chunks::<3>().0;
+    for (index, (covariance, &opacity)) in covariances.iter().zip(opacities).enumerate() {
+        if !opacity.is_finite()
+            || !(0. ..=1.).contains(&opacity)
+            || !valid_screen_covariance(covariance)
+        {
+            return Err(format!(
+                "invalid Gaussian opacity or positive-definite covariance at splat {index}"
+            ));
+        }
+    }
+    let variance = f64::from(filter_variance);
+    let mut result = Vec::with_capacity(opacities.len() * 4);
+    for (index, (covariance, &opacity)) in covariances.iter().zip(opacities).enumerate() {
+        if filter_variance == 0. {
+            result.extend_from_slice(&[covariance[0], covariance[1], covariance[2], opacity]);
+            continue;
+        }
+        let [xx, xy, yy] = covariance.map(f64::from);
+        let filtered = [
+            finite_f32(
+                xx + variance,
+                "filtered Gaussian covariance exceeds f32 range",
+            )?,
+            covariance[1],
+            finite_f32(
+                yy + variance,
+                "filtered Gaussian covariance exceeds f32 range",
+            )?,
+        ];
+        if !valid_screen_covariance(&filtered) {
+            return Err(format!(
+                "filtered Gaussian covariance is not positive definite in f32 at splat {index}"
+            ));
+        }
+        let determinant = xx * yy - xy * xy;
+        let filtered_determinant = f64::from(filtered[0]) * f64::from(filtered[2]) - xy * xy;
+        let compensated = finite_f32(
+            f64::from(opacity) * (determinant / filtered_determinant).sqrt(),
+            "filtered Gaussian opacity exceeds f32 range",
+        )?;
+        if !(0. ..=1.).contains(&compensated) {
+            return Err(format!(
+                "filtered Gaussian opacity is invalid at splat {index}"
+            ));
+        }
+        result.extend_from_slice(&[filtered[0], filtered[1], filtered[2], compensated]);
+    }
+    Ok(result)
+}
+
 fn half_extent(variance: f64, radius_squared: f64) -> f32 {
     // One f32 step covers arithmetic rounding; half a pixel preserves boundary samples.
     let extent = if radius_squared == 0. {
@@ -513,6 +583,45 @@ mod tests {
         assert!((result[3] - 132.).abs() < 1e-5);
         assert!((result[4] - 130.).abs() < 1e-5);
         assert!((result[5] - 1852.).abs() < 1e-5);
+    }
+
+    #[test]
+    fn screen_filter_expands_covariance_and_preserves_continuous_energy() {
+        let covariance = [4., 1., 9.];
+        let opacity = [0.5];
+        assert_eq!(
+            gaussian_filter_screen_covariances(&covariance, &opacity, 0.).unwrap(),
+            [4., 1., 9., 0.5]
+        );
+        let filtered = gaussian_filter_screen_covariances(&covariance, &opacity, 1.).unwrap();
+        assert_eq!(&filtered[..3], &[5., 1., 10.]);
+        let original_area = (4_f64 * 9. - 1.).sqrt();
+        let filtered_area = (5_f64 * 10. - 1.).sqrt();
+        assert!(filtered[3] < opacity[0]);
+        assert!(
+            (f64::from(filtered[3]) * filtered_area - f64::from(opacity[0]) * original_area).abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn screen_filter_validates_complete_batches_and_output_range() {
+        let covariance = [1., 0., 1., 1., 0., 1.];
+        let opacity = [1., 0.5];
+        for variance in [-1., f32::NAN, f32::INFINITY] {
+            assert!(gaussian_filter_screen_covariances(&covariance, &opacity, variance).is_err());
+        }
+        assert!(
+            gaussian_filter_screen_covariances(&[1., 0., 1., 1., 2., 1.], &opacity, 1.).is_err()
+        );
+        assert!(gaussian_filter_screen_covariances(&covariance, &[1., f32::NAN], 1.).is_err());
+        assert!(
+            gaussian_filter_screen_covariances(&[f32::MAX, 0., f32::MAX], &[1.], f32::MAX).is_err()
+        );
+        assert_eq!(
+            gaussian_filter_screen_covariances(&[], &[], 1.).unwrap(),
+            []
+        );
     }
 
     #[test]
