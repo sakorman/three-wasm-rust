@@ -1,6 +1,6 @@
 # 高斯光栅化准备
 
-Rust/WASM 高斯准备接口包含三维协方差投影、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序和范围打包。候选可先按不透明度与相机深度筛选，投影、滤波并重算范围后再按视口范围筛选。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
+Rust/WASM 高斯准备接口包含三维协方差投影、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先按不透明度与相机深度筛选，投影、滤波并重算范围后再按视口范围筛选、排序和分箱。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
 
 ## 公式与接口
 
@@ -171,6 +171,25 @@ const order = gaussian_depth_order(depths, candidates);
 
 排序仅依据给定的 f32 中心深度，不能恢复输入量化前的差异，也不解决相互穿插高斯的逐像素遮挡关系；同深度稳定性只在候选相对顺序不变时成立。
 
+### 瓦片分箱
+
+`gaussian_tile_bins(centers, halfExtents, candidates, width, height, tileSize)` 把屏幕空间的轴对齐范围分配到行优先的绘制瓦片。返回的 `Uint32Array` 前 `tileCount + 1` 项是偏移，余下为原始高斯 ID；第 `t` 个瓦片的候选位于 `[offsets[t], offsets[t + 1])`。`tileCount = ceil(width / tileSize) × ceil(height / tileSize)`，其中 `width`、`height` 和 `tileSize` 都是正整数像素。
+
+```ts
+import { gaussian_depth_order, gaussian_tile_bins } from './web/engine/index.ts';
+
+const ordered = gaussian_depth_order(depths, visibleCandidates);
+const packed = gaussian_tile_bins(screenCenters, halfExtents, ordered, canvas.width, canvas.height, 16);
+const tileCount = Math.ceil(canvas.width / 16) * Math.ceil(canvas.height / 16);
+const offsets = packed.subarray(0, tileCount + 1);
+const ids = packed.subarray(tileCount + 1);
+// 第 tile 项：ids.subarray(offsets[tile], offsets[tile + 1])
+```
+
+分箱以 f64 向外计算范围端点；与视口或瓦片边界相切的高斯保留，半宽或半高为零以及完全离屏的项不产生引用。每个瓦片中的 ID 严格沿用输入候选顺序，不进行深度重排。因此透明光栅应先传入稳定深度排序结果；全局中心深度排序仍不是逐瓦片或逐像素精确排序。
+
+为约束 WASM 和 JS 侧分配，单次最多支持 1,000,000 个瓦片与 4,000,000 个高斯—瓦片引用；超出时整批报错，不返回部分缓冲。该接口只生成 CPU/WASM 的分箱描述，不提交 GPU 命令、不改变高斯数据，也不保证相邻瓦片之间的复用、带宽或帧率收益。设计参考 [`gsplat` 的 tile_size](https://docs.gsplat.studio/main/apis/rasterization.html) 与 [TileGS](https://arxiv.org/abs/2609.03613) 对 tile-local 列表开销的讨论；当前实现不采用其 GPU 分桶、局部重排或性能数据。
+
 ## 可复现结果
 
 256×192 WebGL2 合成测试包含 28 个圆形、旋转椭圆及重叠高斯，不透明度覆盖 0–1。参考四边形按最坏峰值 1 计算范围，两边片元使用相同的真实不透明度、协方差、阈值、颜色、混合和绘制顺序。
@@ -199,14 +218,18 @@ const order = gaussian_depth_order(depths, candidates);
 
 屏幕滤波回归以 4,097 组正定 f32 协方差与 f64 行列式公式对照，检查滤波后的 f32 输出、补偿不透明度及连续积分。512×512 的单高斯 WebGL2 用例将 `[16, 5, 9]` 与 `α=0.7` 加入 `ε=0.6`：像素 alpha 字节和从 12,166 变为 12,152，且解析积分相对差小于 `2e-6`。该结果只验证本滤波公式在合成单高斯上的数值和像素管线，不是模型级抗锯齿或画质结论。报告保存为 `test-results/**/gaussian-filter.json`。
 
+瓦片分箱回归以 4,097 个屏幕范围对照独立的行优先 JavaScript 参考，检查离屏、边界相切、候选顺序和偏移格式。256×192 的 WebGL2 用例先滤波再分箱，8 个候选产生 25 个瓦片引用；每个瓦片仅绘制自己的有序候选，画面与逐项全屏绘制逐通道一致，得到 4,387 个可见像素。该用例的分箱路径提交了更多四边形，用于验证覆盖而不是衡量性能；结果保存为 `test-results/**/gaussian-tiles.json`。
+
 ```bash
 cargo test --locked gaussian::tests
 npm run build:wasm
 npx tsx --test tests/gaussian.test.ts
 npx tsx --test tests/gaussian-filter.test.ts
+npx tsx --test tests/gaussian-tiles.test.ts
 npx tsx --test tests/gaussian-projection.test.ts
 npm run test:e2e -- tests/browser/gaussian-projection.spec.ts
 npm run test:e2e -- tests/browser/gaussian-filter.spec.ts
+npm run test:e2e -- tests/browser/gaussian-tiles.spec.ts
 npm run test:e2e -- tests/browser/gaussian.spec.ts
 npx tsx --test tests/gaussian-sort.test.ts
 npm run test:e2e -- tests/browser/gaussian-sort.spec.ts
@@ -234,6 +257,7 @@ npm run test:e2e -- tests/browser/gaussian-viewport.spec.ts
 | [3DGEER，ICLR 2026](https://arxiv.org/abs/2505.24053v3) · [代码](https://github.com/boschresearch/3dgeer) | 关注通用相机下的射线高斯积分与关联。它提醒投影近似误差和光栅开销是不同问题；当前屏幕范围优化不解决宽视场投影误差。 |
 | [`gsplat` 投影 API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) | 说明用透视投影 Jacobian 将三维协方差近似为二维协方差；本接口采用相同数学关系，使用独立 Rust/WASM 实现。 |
 | [gsplat 滤波参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [Mip-Splatting 论文](https://openaccess.thecvf.com/content/CVPR2024/html/Yu_Mip-Splatting_Alias-free_3D_Gaussian_Splatting_CVPR_2024_paper.html) · [项目](https://github.com/autonomousvision/mip-splatting) | `eps2d` 调整投影协方差，抗锯齿模式以行列式比补偿不透明度。当前接口独立实现同一二维公式，输出供后续范围/筛选阶段使用；没有移用 CUDA 代码、三维平滑或论文的质量和性能结果。 |
+| [gsplat tile_size](https://docs.gsplat.studio/main/apis/rasterization.html) · [TileGS](https://arxiv.org/abs/2609.03613) | 前者公开屏幕瓦片粒度参数，后者讨论 tile-local 列表与属性访问成本。当前内核只生成稳定的保守引用和偏移；没有采用 GPU 分桶、局部深度重排或其性能数字。 |
 | [gsplat 近远平面参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [WebSplatter 预处理](https://arxiv.org/html/2602.03207v1#S3.SS2) | 参考在投影/绘制前限制候选的设计。深度筛选采用中心深度闭区间，视口相交由单独接口负责；不移用其他实现的性能结论。 |
 | [Gaussian Point Splatting](https://doi.org/10.1145/3811272) · [项目](https://github.com/JorisAR/gaussian-point-splatting) | 该项目公开近远平面和分层筛选的使用边界。这里补充的是独立的协方差支持范围候选规则，不采用其随机采样、层级结构或性能数据。 |
 | [WebSplatter 屏幕 AABB 筛选](https://arxiv.org/html/2602.03207v1#S3.SS2) | 参考用投影范围与视口相交筛选候选。这里实现独立 Rust/WASM 二维范围接口，保留相切项和候选顺序；没有沿用其 WebGPU 实现或性能数字。 |

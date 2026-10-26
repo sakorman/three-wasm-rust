@@ -2,6 +2,8 @@ use crate::bounds::add_outward;
 use wasm_bindgen::prelude::*;
 
 const MAX_SPLATS: usize = 1_000_000;
+const MAX_TILES: usize = 1_000_000;
+const MAX_TILE_REFERENCES: usize = 4_000_000;
 
 fn valid_screen_covariance(covariance: &[f32; 3]) -> bool {
     let [xx, xy, yy] = covariance.map(f64::from);
@@ -353,6 +355,137 @@ pub fn gaussian_viewport_indices(
             })
         })
         .collect())
+}
+
+fn tile_dimensions(width: u32, height: u32, tile_size: u32) -> Result<(usize, usize), String> {
+    if width == 0 || height == 0 || tile_size == 0 {
+        return Err("Gaussian tile dimensions and tile size must be positive".into());
+    }
+    let columns = (width - 1) / tile_size + 1;
+    let rows = (height - 1) / tile_size + 1;
+    if u64::from(columns) * u64::from(rows) > MAX_TILES as u64 {
+        return Err("at most 1000000 Gaussian tiles are supported".into());
+    }
+    Ok((columns as usize, rows as usize))
+}
+
+fn tile_axis_range(
+    center: f32,
+    extent: f32,
+    length: u32,
+    tile_size: u32,
+    tile_count: usize,
+) -> Option<(usize, usize)> {
+    if extent == 0. {
+        return None;
+    }
+    let lower = add_outward(f64::from(center), -f64::from(extent), false);
+    let upper = add_outward(f64::from(center), f64::from(extent), true);
+    let length = f64::from(length);
+    if upper < 0. || lower > length {
+        return None;
+    }
+    let tile_size = f64::from(tile_size);
+    let first = (lower.max(0.) / tile_size).floor() as usize;
+    let last = (upper.min(length) / tile_size).floor() as usize;
+    Some((first.min(tile_count - 1), last.min(tile_count - 1)))
+}
+
+/// Bin screen-space Gaussian bounds into row-major tiles.
+///
+/// The output begins with `tile_count + 1` offsets, followed by candidate IDs.
+/// `tile_count` is `ceil(width / tile_size) * ceil(height / tile_size)`. For
+/// tile `t`, IDs occupy `output[offsets[t]..offsets[t + 1]]`. Each tile keeps
+/// input candidate order. Bounds touching a tile edge are retained so callers
+/// can use the result for conservative raster work submission.
+#[wasm_bindgen]
+pub fn gaussian_tile_bins(
+    centers: &[f32],
+    half_extents: &[f32],
+    indices: &[u32],
+    width: u32,
+    height: u32,
+    tile_size: u32,
+) -> Result<Vec<u32>, String> {
+    if !centers.len().is_multiple_of(2)
+        || half_extents.len() != centers.len()
+        || centers.len() / 2 > MAX_SPLATS
+        || indices.len() > centers.len() / 2
+    {
+        return Err("expected paired xy centers and half extents, at most 1000000 splats and no more candidates than splats".into());
+    }
+    if centers.iter().any(|value| !value.is_finite())
+        || half_extents
+            .iter()
+            .any(|&value| !value.is_finite() || value < 0.)
+    {
+        return Err(
+            "Gaussian screen centers must be finite and half extents finite and nonnegative".into(),
+        );
+    }
+    validate_candidate_indices(centers.len() / 2, indices)?;
+    let (columns, rows) = tile_dimensions(width, height, tile_size)?;
+    let tile_count = columns * rows;
+    let mut ranges = Vec::with_capacity(indices.len());
+    let mut counts = vec![0_usize; tile_count];
+    let mut reference_count = 0_usize;
+    for &id in indices {
+        let offset = id as usize * 2;
+        let range = match (
+            tile_axis_range(
+                centers[offset],
+                half_extents[offset],
+                width,
+                tile_size,
+                columns,
+            ),
+            tile_axis_range(
+                centers[offset + 1],
+                half_extents[offset + 1],
+                height,
+                tile_size,
+                rows,
+            ),
+        ) {
+            (Some((x0, x1)), Some((y0, y1))) => Some((x0, x1, y0, y1)),
+            _ => None,
+        };
+        if let Some((x0, x1, y0, y1)) = range {
+            let references = (x1 - x0 + 1) * (y1 - y0 + 1);
+            reference_count = reference_count
+                .checked_add(references)
+                .filter(|&count| count <= MAX_TILE_REFERENCES)
+                .ok_or("at most 4000000 Gaussian tile references are supported")?;
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    counts[y * columns + x] += 1;
+                }
+            }
+        }
+        ranges.push(range);
+    }
+    let mut offsets = Vec::with_capacity(tile_count + 1);
+    offsets.push(0);
+    for count in counts {
+        offsets.push(offsets.last().unwrap() + count);
+    }
+    let mut cursors = offsets[..tile_count].to_vec();
+    let mut entries = vec![0_u32; reference_count];
+    for (&id, range) in indices.iter().zip(ranges) {
+        if let Some((x0, x1, y0, y1)) = range {
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    let tile = y * columns + x;
+                    entries[cursors[tile]] = id;
+                    cursors[tile] += 1;
+                }
+            }
+        }
+    }
+    let mut result = Vec::with_capacity(tile_count + 1 + reference_count);
+    result.extend(offsets.into_iter().map(|offset| offset as u32));
+    result.extend(entries);
+    Ok(result)
 }
 
 /// Keep candidate centers with near <= depth <= far, preserving candidate order.
@@ -829,6 +962,46 @@ mod tests {
             1.
         )
         .is_err());
+    }
+
+    #[test]
+    fn tile_bins_keep_candidate_order_and_conservative_edges() {
+        let centers = [
+            8., 8., // touches four tiles at (16, 16)
+            20., 6., // tile 1
+            -1., 8., // reaches the left edge of tile 0
+            40., 2., // entirely outside the 35px viewport
+        ];
+        let extents = [8., 8., 2., 2., 2., 1., 2., 2.];
+        let result = gaussian_tile_bins(&centers, &extents, &[2, 0, 3, 1], 35, 18, 16).unwrap();
+        // Six tiles: offsets [0, 2, 4, 4, 5, 6, 6], then row-major IDs.
+        assert_eq!(result, [0, 2, 4, 4, 5, 6, 6, 2, 0, 0, 1, 0, 0]);
+        assert_eq!(
+            gaussian_tile_bins(&[8., 8.], &[0., 1.], &[0], 16, 16, 16).unwrap(),
+            [0, 0]
+        );
+    }
+
+    #[test]
+    fn tile_bins_validate_dimensions_batches_and_reference_budget() {
+        for dimensions in [(0, 1, 1), (1, 0, 1), (1, 1, 0), (1001, 1000, 1)] {
+            assert!(
+                gaussian_tile_bins(&[], &[], &[], dimensions.0, dimensions.1, dimensions.2)
+                    .is_err()
+            );
+        }
+        assert!(gaussian_tile_bins(&[0., 0., f32::NAN, 0.], &[1.; 4], &[0], 1, 1, 1).is_err());
+        assert!(gaussian_tile_bins(&[0., 0.], &[1., -1.], &[0], 1, 1, 1).is_err());
+        assert!(gaussian_tile_bins(&[0., 0.], &[1., 1.], &[0, 0], 1, 1, 1).is_err());
+        assert!(gaussian_tile_bins(&[0., 0.], &[1., 1.], &[1], 1, 1, 1).is_err());
+
+        let centers = vec![500.; 10];
+        let extents = vec![500.; 10];
+        assert!(
+            gaussian_tile_bins(&centers, &extents, &[0, 1, 2, 3, 4], 1000, 1000, 1)
+                .unwrap_err()
+                .contains("4000000")
+        );
     }
 
     #[test]
