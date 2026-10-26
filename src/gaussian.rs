@@ -213,10 +213,14 @@ fn validate_depth_candidates(depths: &[f32], indices: &[u32]) -> Result<(), Stri
     if depths.iter().any(|value| !value.is_finite()) {
         return Err("Gaussian depths must be finite".into());
     }
-    let mut seen = vec![0_u64; depths.len().div_ceil(64)];
+    validate_candidate_indices(depths.len(), indices)
+}
+
+fn validate_candidate_indices(count: usize, indices: &[u32]) -> Result<(), String> {
+    let mut seen = vec![0_u64; count.div_ceil(64)];
     for (candidate, &id) in indices.iter().enumerate() {
         let index = id as usize;
-        if index >= depths.len() {
+        if index >= count {
             return Err(format!(
                 "Gaussian index out of range at candidate {candidate}"
             ));
@@ -228,6 +232,54 @@ fn validate_depth_candidates(depths: &[f32], indices: &[u32]) -> Result<(), Stri
         seen[index / 64] |= mask;
     }
     Ok(())
+}
+
+/// Keep positive-area screen bounds intersecting [0, width] x [0, height].
+/// Centers and half extents are packed xy pairs. Touching bounds retain their
+/// original candidate order; this is a bounds test, not a visibility guarantee.
+#[wasm_bindgen]
+pub fn gaussian_viewport_indices(
+    centers: &[f32],
+    half_extents: &[f32],
+    indices: &[u32],
+    width: f32,
+    height: f32,
+) -> Result<Vec<u32>, String> {
+    if !centers.len().is_multiple_of(2)
+        || half_extents.len() != centers.len()
+        || centers.len() / 2 > MAX_SPLATS
+        || indices.len() > centers.len() / 2
+    {
+        return Err("expected paired xy centers and half extents, at most 1000000 splats and no more candidates than splats".into());
+    }
+    if !width.is_finite() || !height.is_finite() || width <= 0. || height <= 0. {
+        return Err("Gaussian viewport dimensions must be finite and positive".into());
+    }
+    if centers.iter().any(|value| !value.is_finite())
+        || half_extents
+            .iter()
+            .any(|&value| !value.is_finite() || value < 0.)
+    {
+        return Err(
+            "Gaussian screen centers must be finite and half extents finite and nonnegative".into(),
+        );
+    }
+    validate_candidate_indices(centers.len() / 2, indices)?;
+    let limits = [f64::from(width), f64::from(height)];
+    Ok(indices
+        .iter()
+        .copied()
+        .filter(|&id| {
+            let offset = id as usize * 2;
+            (0..2).all(|axis| {
+                let center = f64::from(centers[offset + axis]);
+                let extent = f64::from(half_extents[offset + axis]);
+                extent > 0.
+                    && add_outward(center, extent, true) >= 0.
+                    && add_outward(center, -extent, false) <= limits[axis]
+            })
+        })
+        .collect())
 }
 
 /// Keep candidate centers with near <= depth <= far, preserving candidate order.
@@ -491,6 +543,91 @@ mod tests {
             [0, 1, 2, 3]
         );
         assert!(gaussian_visible_indices(&vec![0.; MAX_SPLATS + 1], cutoff).is_err());
+    }
+
+    #[test]
+    fn viewport_candidates_keep_all_touching_edges_and_input_order() {
+        let centers = [
+            -1., 2., 5., 2., 2., -1., 2., 5., -2., 2., 6., 2., 2., -2., 2., 6., 2., 2., 2., 2.,
+        ];
+        let mut extents = [1.; 20];
+        extents[18] = 0.;
+        let candidates = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
+        assert_eq!(
+            gaussian_viewport_indices(&centers, &extents, &candidates, 4., 4.).unwrap(),
+            [8, 3, 2, 1, 0]
+        );
+        assert_eq!(
+            gaussian_viewport_indices(&[], &[], &[], 4., 4.).unwrap(),
+            []
+        );
+        assert_eq!(
+            gaussian_viewport_indices(&centers, &extents, &[], 4., 4.).unwrap(),
+            []
+        );
+    }
+
+    #[test]
+    fn viewport_candidates_handle_extreme_and_subnormal_bounds() {
+        let tiny = f32::from_bits(1);
+        assert_eq!(
+            gaussian_viewport_indices(
+                &[-f32::MAX, 0., f32::MAX, 0., tiny, tiny, -tiny, tiny],
+                &[f32::MAX, 1., f32::MAX, 1., tiny, tiny, tiny, tiny],
+                &[3, 2, 1, 0],
+                tiny,
+                tiny,
+            )
+            .unwrap(),
+            [3, 2, 1, 0]
+        );
+        assert_eq!(
+            gaussian_viewport_indices(&[2. + f32::EPSILON * 2., 1.], &[1., 1.], &[0], 1., 1.)
+                .unwrap(),
+            []
+        );
+    }
+
+    #[test]
+    fn viewport_candidates_validate_entire_batches() {
+        for invalid in [0., -1., f32::INFINITY, f32::NAN] {
+            assert!(gaussian_viewport_indices(&[], &[], &[], invalid, 1.).is_err());
+            assert!(gaussian_viewport_indices(&[], &[], &[], 1., invalid).is_err());
+        }
+        for invalid in [-1., f32::INFINITY, f32::NAN] {
+            assert!(gaussian_viewport_indices(
+                &[0., 0., 0., 0.],
+                &[1., 1., invalid, 1.],
+                &[0],
+                1.,
+                1.
+            )
+            .is_err());
+        }
+        assert!(
+            gaussian_viewport_indices(&[0., 0., f32::NAN, 0.], &[1.; 4], &[0], 1., 1.).is_err()
+        );
+        assert!(gaussian_viewport_indices(&[0.], &[1.], &[], 1., 1.).is_err());
+        assert!(gaussian_viewport_indices(&[0., 0.], &[], &[], 1., 1.).is_err());
+        assert!(
+            gaussian_viewport_indices(&[0.; 4], &[1.; 4], &[0, 0], 1., 1.)
+                .unwrap_err()
+                .contains("duplicate")
+        );
+        assert!(
+            gaussian_viewport_indices(&[0., 0.], &[1., 1.], &[1], 1., 1.)
+                .unwrap_err()
+                .contains("out of range")
+        );
+        assert!(gaussian_viewport_indices(&[0., 0.], &[1., 1.], &[0, 0], 1., 1.).is_err());
+        assert!(gaussian_viewport_indices(
+            &vec![0.; MAX_SPLATS * 2 + 2],
+            &vec![1.; MAX_SPLATS * 2 + 2],
+            &[],
+            1.,
+            1.
+        )
+        .is_err());
     }
 
     #[test]

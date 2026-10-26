@@ -1,6 +1,6 @@
 # 高斯光栅化准备
 
-Rust/WASM 高斯准备接口包含三维协方差投影、屏幕支持范围、不透明度与深度筛选、稳定排序和范围打包。候选可先按不透明度与相机深度筛选，再进入投影和排序。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
+Rust/WASM 高斯准备接口包含三维协方差投影、屏幕支持范围、不透明度/深度/视口筛选、稳定排序和范围打包。候选可先按不透明度与相机深度筛选，投影后再按视口范围筛选。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
 
 ## 公式与接口
 
@@ -83,6 +83,25 @@ const order = gaussian_depth_order(depths, clipped);
 
 复杂度为 O(N + K)：校验全部 N 个深度、K 个候选并筛选，另有去重位图、输出数组和 JS/WASM 复制成本。后续投影可以只处理保留项，但这不是 GPU 或端到端速度结论。收集子集后，投影输出按子集顺序排列，需保留原始 ID 映射，才能正确读取颜色、SH 等属性。
 
+### 屏幕视口筛选
+
+`gaussian_viewport_indices(centers, halfExtents, candidates, width, height)` 保留与 `[0, width] × [0, height]` 相交的轴对齐范围。中心和半宽/半高均按 `[x, y]` 成对传入，单位为绘制缓冲像素；宽高为有限正 f32。四边相切的范围保留，任一半宽/半高为零的项排除。
+
+```ts
+import { gaussian_viewport_indices } from './web/engine/index.ts';
+
+const centers = new Float32Array([-2, 96, 128, 96, 300, 96]);
+const halfExtents = new Float32Array([12, 8, 12, 8, 12, 8]);
+const visible = gaussian_viewport_indices(centers, halfExtents, new Uint32Array([2, 0, 1]), 256, 192);
+// [0, 1]：第 0 项中心虽在屏幕外，范围仍覆盖左侧像素
+```
+
+端点加减在 f64 中向外舍入，避免有限 f32 的大数加减溢出或收缩范围。输入最多一百万项；全部中心须有限，全部半宽/半高须有限且非负，即使该项不在候选中也要满足。候选不能重复或越界；返回独立 Uint32Array，保留原始 ID 和候选顺序，不修改输入。
+
+范围须覆盖实际绘制几何，不能只用中心判断。若后续使用 binary16 半宽，传入解包后的实际范围或更大的保守范围，避免量化扩大几何后沿用较小的剔除范围。视口尺寸应使用 canvas 绘制缓冲尺寸，不是 CSS 尺寸；相机、范围或画布尺寸变化后需重新筛选。
+
+该接口只做二维范围相交，不负责投影、近远深度、遮挡或精确椭圆与矩形求交；保留项仍可能不产生片元。保守性针对给定范围，不涵盖任意病态协方差或 GPU 坐标运算误差。复杂度 O(N + K)，包含全部范围校验、候选去重位图与输出分配，JS/WASM 传输仍有复制成本。
+
 ### 深度顺序
 
 ```ts
@@ -124,6 +143,8 @@ const order = gaussian_depth_order(depths, candidates);
 
 深度筛选以 65,537 项输入对照 JavaScript 的不透明度筛选、深度条件和稳定排序。浏览器用例的 8 个高斯中，7 个通过不透明度筛选，3 个通过 `[2, 10]` 深度范围；未经筛选的整批投影会因相机后方中心报错，筛选后正确保留近远边界项及其不透明度，绘制 2,074 个可见像素，与 f32 范围参考 RGBA 一致。报告保存为 `test-results/**/gaussian-clip.json`；这验证的是筛选规则和管线衔接，不代表裁剪前后的画面应当相同。
 
+视口回归用 BigInt 表示 f32 的精确二进制值，核对 4,097 个随机范围在三组视口尺寸下的相交结果，包含次正规量级与极端端点。256×192 浏览器用例有 36 项输入，28 项具有非零支持范围；移除 4 个完全离屏范围后提交 24 次绘制，3,635 个可见像素与未筛选参考完全一致。f32 与实际 binary16 解包范围两条路径均通过；只判断中心是否在画布内的负对照会丢失边缘像素，产生 2,161 个不同 RGBA 通道。报告保存为 `test-results/**/gaussian-viewport.json`。这些是合成用例的工作量与画面结果，不是实际模型帧率收益。
+
 ```bash
 cargo test --locked gaussian::tests
 npm run build:wasm
@@ -135,6 +156,8 @@ npx tsx --test tests/gaussian-sort.test.ts
 npm run test:e2e -- tests/browser/gaussian-sort.spec.ts
 npx tsx --test tests/gaussian-clip.test.ts
 npm run test:e2e -- tests/browser/gaussian-clip.spec.ts
+npx tsx --test tests/gaussian-viewport.test.ts
+npm run test:e2e -- tests/browser/gaussian-viewport.spec.ts
 ```
 
 尚未对真实重建模型验证 PSNR、SSIM、帧率或跨设备收益；CPU 计算、数组复制和 JS/WASM 传输也有成本。现有 Mesh 对照没有使用该接口。
@@ -149,10 +172,12 @@ npm run test:e2e -- tests/browser/gaussian-clip.spec.ts
 | [Gaussian-Splat-Lite 1.4.2 更新](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/8576bb70d6f26884f7ca69ddf7f9b3b303e41484/CHANGELOG.md) · [仓库](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite) | 2026-10-24 的版本将随机渲染改为每高斯一个三角形，并调整慢速运动中的去噪细节。当前保留排序 alpha 混合基线，随机覆盖和去噪需另测噪声、时序稳定性及总开销。 |
 | [Gaussian-Splat-Lite RAD 缓存预算](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/d99a6294159c3b5cedcf610fd41ac875d7d29246) | 2026-10-25 的查看器分别设置 CPU/GPU 常驻缓存预算，修改后保留视角重载。后续流式资产管理应分别统计两类内存；当前尚无模型分页或淘汰机制。 |
 | [Gaussian-Splat-Lite 固定 RAD 槽位](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/a1b86e002447d98059de0ef7b706ffdbad0f5c81) | 2026-10-25 改为每槽 65,536 个高斯，小块占整槽，超出单槽上限的块在初始化时拒绝。后续资源池复用可参考固定容量与完整槽位预算的取舍，当前尚未实现 RAD 加载。 |
+| [Gaussian-Splat-Lite SOG 环境加载选项](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/607bc79aebe4932c2475f09ae65426e4772d4aeb) | 2026-10-25 新增可关闭的环境加载选项，以保留场景细节预算。后续流式加载需要明确环境与主体数据的预算分配；当前尚未实现 SOG 加载。 |
 | [3DGEER，ICLR 2026](https://arxiv.org/abs/2505.24053v3) · [代码](https://github.com/boschresearch/3dgeer) | 关注通用相机下的射线高斯积分与关联。它提醒投影近似误差和光栅开销是不同问题；当前屏幕范围优化不解决宽视场投影误差。 |
 | [`gsplat` 投影 API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) | 说明用透视投影 Jacobian 将三维协方差近似为二维协方差；本接口采用相同数学关系，使用独立 Rust/WASM 实现。 |
 | [gsplat 滤波参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [Mip-Splatting 论文与项目](https://niujinshuchong.github.io/mip-splatting/) | `eps2d` 调整投影协方差；抗锯齿模式还补偿不透明度。滤波会影响覆盖和亮度，应明确配置并验证缩放下的画质。本接口目前只检查返回精度，不自动套用滤波，也不将数值拒绝称为抗锯齿。 |
-| [gsplat 近远平面参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [WebSplatter 预处理](https://arxiv.org/html/2602.03207v1#S3.SS2) | 参考在投影/绘制前限制候选的设计。本接口明确采用中心深度的闭区间，不复现论文的视口包围盒剔除，也不移用其他实现的性能结论。 |
+| [gsplat 近远平面参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [WebSplatter 预处理](https://arxiv.org/html/2602.03207v1#S3.SS2) | 参考在投影/绘制前限制候选的设计。深度筛选采用中心深度闭区间，视口相交由单独接口负责；不移用其他实现的性能结论。 |
+| [WebSplatter 屏幕 AABB 筛选](https://arxiv.org/html/2602.03207v1#S3.SS2) | 参考用投影范围与视口相交筛选候选。这里实现独立 Rust/WASM 二维范围接口，保留相切项和候选顺序；没有沿用其 WebGPU 实现或性能数字。 |
 
 上游论文中的性能与画质数字不作为本仓库结果。参考实现的代码许可分别以各仓库 LICENSE 为准；这里发布的内核与测试不包含其代码、模型或图片。
 
