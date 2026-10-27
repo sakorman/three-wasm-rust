@@ -121,6 +121,153 @@ pub fn gaussian_project_covariances(
     Ok(result)
 }
 
+/// Build affine-EWA half-space clipping coefficients for screen-space Gaussian shaders.
+///
+/// `plane_normal` and `plane_offset` describe the kept side
+/// `dot(plane_normal, position) <= plane_offset` in camera space. The normal
+/// is normalized internally, so scaling both plane inputs leaves the result
+/// unchanged. Each output is `[kx, ky, h]`; for a pixel displacement
+/// `delta = projected_center - pixel`, multiply the un-clipped alpha by
+/// `normal_cdf(kx * delta.x + ky * delta.y + h)`.
+#[wasm_bindgen]
+pub fn gaussian_halfspace_clip_coefficients(
+    centers: &[f32],
+    covariances: &[f32],
+    focal_x: f32,
+    focal_y: f32,
+    plane_normal: &[f32],
+    plane_offset: f32,
+) -> Result<Vec<f32>, String> {
+    if !centers.len().is_multiple_of(3)
+        || covariances.len() != centers.len() / 3 * 6
+        || centers.len() / 3 > MAX_SPLATS
+    {
+        return Err(
+            "expected xyz centers and six covariance values per splat, at most 1000000 splats"
+                .into(),
+        );
+    }
+    if !focal_x.is_finite() || !focal_y.is_finite() || focal_x <= 0. || focal_y <= 0. {
+        return Err("camera focal lengths must be finite and positive".into());
+    }
+    if plane_normal.len() != 3
+        || !plane_normal.iter().all(|value| value.is_finite())
+        || !plane_offset.is_finite()
+    {
+        return Err(
+            "Gaussian clip plane must have three finite normal values and a finite offset".into(),
+        );
+    }
+    let normal_length = plane_normal
+        .iter()
+        .map(|&value| f64::from(value).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    if !normal_length.is_finite() || normal_length == 0. {
+        return Err("Gaussian clip plane normal must be nonzero".into());
+    }
+    let normal = [
+        f64::from(plane_normal[0]) / normal_length,
+        f64::from(plane_normal[1]) / normal_length,
+        f64::from(plane_normal[2]) / normal_length,
+    ];
+    let offset = f64::from(plane_offset) / normal_length;
+    for (index, (center, covariance)) in centers
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(covariances.as_chunks::<6>().0)
+        .enumerate()
+    {
+        if !center.iter().all(|value| value.is_finite())
+            || center[2] <= 0.
+            || !valid_camera_covariance(covariance)
+        {
+            return Err(format!(
+                "invalid Gaussian center, depth or covariance at splat {index}"
+            ));
+        }
+    }
+    let fx = f64::from(focal_x);
+    let fy = f64::from(focal_y);
+    let mut result = Vec::with_capacity(centers.len());
+    for (index, (center, covariance)) in centers
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(covariances.as_chunks::<6>().0)
+        .enumerate()
+    {
+        let [x, y, z] = center.map(f64::from);
+        let [xx, xy, xz, yy, yz, zz] = covariance.map(f64::from);
+        let inv_z = 1. / z;
+        let inv_z2 = inv_z * inv_z;
+        let mx = [fx * inv_z, 0., -fx * x * inv_z2];
+        let my = [0., fy * inv_z, -fy * y * inv_z2];
+        let a_xx = mx[0] * (mx[0] * xx + mx[2] * xz) + mx[2] * (mx[0] * xz + mx[2] * zz);
+        let a_xy = mx[0] * (my[1] * xy + my[2] * xz) + mx[2] * (my[1] * yz + my[2] * zz);
+        let a_yy = my[1] * (my[1] * yy + my[2] * yz) + my[2] * (my[1] * yz + my[2] * zz);
+        let covariance_2d = [
+            finite_f32(a_xx, "projected Gaussian covariance exceeds f32 range")?,
+            finite_f32(a_xy, "projected Gaussian covariance exceeds f32 range")?,
+            finite_f32(a_yy, "projected Gaussian covariance exceeds f32 range")?,
+        ];
+        if !valid_screen_covariance(&covariance_2d) {
+            return Err(format!(
+                "projected Gaussian covariance is not positive definite in f32 at splat {index}"
+            ));
+        }
+        let covariance_2d = covariance_2d.map(f64::from);
+        let determinant = covariance_2d[0] * covariance_2d[2] - covariance_2d[1] * covariance_2d[1];
+        let inverse = [
+            covariance_2d[2] / determinant,
+            -covariance_2d[1] / determinant,
+            covariance_2d[0] / determinant,
+        ];
+        let sigma_normal = [
+            xx * normal[0] + xy * normal[1] + xz * normal[2],
+            xy * normal[0] + yy * normal[1] + yz * normal[2],
+            xz * normal[0] + yz * normal[1] + zz * normal[2],
+        ];
+        let b = [
+            mx[0] * sigma_normal[0] + mx[2] * sigma_normal[2],
+            my[1] * sigma_normal[1] + my[2] * sigma_normal[2],
+        ];
+        let inverse_b = [
+            inverse[0] * b[0] + inverse[1] * b[1],
+            inverse[1] * b[0] + inverse[2] * b[1],
+        ];
+        let variance = normal
+            .iter()
+            .zip(sigma_normal)
+            .map(|(normal, value)| *normal * value)
+            .sum::<f64>();
+        let conditional_variance = variance - b[0] * inverse_b[0] - b[1] * inverse_b[1];
+        if !conditional_variance.is_finite() || !variance.is_finite() || variance <= 0. {
+            return Err(format!("invalid Gaussian clip variance at splat {index}"));
+        }
+        // The affine conditional distribution can degenerate when a plane coordinate
+        // is determined by screen position. Keep the shader coefficients finite.
+        let standard_deviation = conditional_variance.max(1e-8).sqrt();
+        let signed_distance = offset - (normal[0] * x + normal[1] * y + normal[2] * z);
+        result.extend_from_slice(&[
+            finite_f32(
+                inverse_b[0] / standard_deviation,
+                "Gaussian clip coefficient exceeds f32 range",
+            )?,
+            finite_f32(
+                inverse_b[1] / standard_deviation,
+                "Gaussian clip coefficient exceeds f32 range",
+            )?,
+            finite_f32(
+                signed_distance / standard_deviation,
+                "Gaussian clip coefficient exceeds f32 range",
+            )?,
+        ]);
+    }
+    Ok(result)
+}
+
 /// Apply an isotropic screen-space low-pass filter to projected covariances.
 ///
 /// Each output is `[xx, xy, yy, opacity]`. The filter adds
@@ -835,6 +982,75 @@ mod tests {
         assert!((result[3] - 132.).abs() < 1e-5);
         assert!((result[4] - 130.).abs() < 1e-5);
         assert!((result[5] - 1852.).abs() < 1e-5);
+    }
+
+    #[test]
+    fn halfspace_clip_coefficients_follow_the_affine_conditional_gaussian() {
+        let centered = gaussian_halfspace_clip_coefficients(
+            &[0., 0., 2.],
+            &[1., 0., 0., 1., 0., 1.],
+            2.,
+            2.,
+            &[0., 0., -1.],
+            -1.,
+        )
+        .unwrap();
+        assert_eq!(centered, [0., 0., 1.]);
+
+        let coefficients = gaussian_halfspace_clip_coefficients(
+            &[0., 0., 2.],
+            &[0.02, 0., 0., 0.02, 0., 0.04],
+            96.,
+            96.,
+            &[0.8, 0., -0.6],
+            -1.2,
+        )
+        .unwrap();
+        assert!((coefficients[0] - 0.138_888_9).abs() < 1e-6);
+        assert_eq!(coefficients[1], 0.);
+        assert_eq!(coefficients[2], 0.);
+        let scaled = gaussian_halfspace_clip_coefficients(
+            &[0., 0., 2.],
+            &[0.02, 0., 0., 0.02, 0., 0.04],
+            96.,
+            96.,
+            &[2.4, 0., -1.8],
+            -3.6,
+        )
+        .unwrap();
+        for (value, scaled) in coefficients.iter().zip(scaled) {
+            assert!((value - scaled).abs() < 2e-6);
+        }
+    }
+
+    #[test]
+    fn halfspace_clip_coefficients_reject_invalid_complete_batches() {
+        let centers = [0., 0., 2., 0., 0., 2.];
+        let covariance = [1., 0., 0., 1., 0., 1.].repeat(2);
+        for normal in [[0., 0., 0.], [f32::NAN, 0., 1.]] {
+            assert!(gaussian_halfspace_clip_coefficients(
+                &centers,
+                &covariance,
+                1.,
+                1.,
+                &normal,
+                0.
+            )
+            .is_err());
+        }
+        assert!(
+            gaussian_halfspace_clip_coefficients(&centers, &covariance, 1., 1., &[0., 0.], 0.)
+                .is_err()
+        );
+        assert!(gaussian_halfspace_clip_coefficients(
+            &[0., 0., 2., 0., 0., -1.],
+            &covariance,
+            1.,
+            1.,
+            &[0., 0., -1.],
+            -1.
+        )
+        .is_err());
     }
 
     #[test]

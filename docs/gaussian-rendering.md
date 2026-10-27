@@ -1,6 +1,6 @@
 # 高斯光栅化准备
 
-Rust/WASM 高斯准备接口包含三维协方差投影、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先按不透明度与相机深度筛选，投影、滤波并重算范围后再按视口范围筛选、排序和分箱。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
+Rust/WASM 高斯准备接口包含三维协方差投影、仿射半空间裁切系数、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先按不透明度与相机深度筛选，投影、滤波并重算范围后再按视口范围筛选、排序和分箱。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
 
 ## 公式与接口
 
@@ -25,6 +25,38 @@ J = [ fx/z       0       -fx*x/z² ]
 该一阶投影适合接到范围收紧、深度排序和 binary16 打包之前；宽视场、靠近相机平面或相机位于椭球内部时，仿射 Jacobian 可能不足，应增加裁剪或评估更精确的投影。
 
 设计与 `gsplat` 的标准 3DGS 投影步骤一致：[rasterization API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。当前实现只提供独立 CPU/WASM 数值内核，没有复制其 CUDA 代码，也没有接入真实模型或 GPU 管线。
+
+### 半空间裁切系数
+
+`gaussian_halfspace_clip_coefficients()` 为每个相机空间高斯准备一个裁切三元组 `[kx, ky, h]`。平面保留侧为 `dot(normal, position) ≤ offset`；法线与偏移会一起归一化，因此按同一非零比例缩放两者仍表示同一平面。近平面 `z ≥ near` 可传入 `normal = [0, 0, -1]`、`offset = -near`。
+
+对投影中心与当前像素的位移 `delta = screenCenter - pixel`，片元阶段将原有 alpha 乘以：
+
+```text
+Φ(kx × delta.x + ky × delta.y + h)
+```
+
+其中 `Φ` 是标准正态 CDF。令 `J` 为投影 Jacobian、`A = JΣJᵀ`、`b = JΣn`，系数为：
+
+```text
+s² = nᵀΣn - bᵀA⁻¹b
+k  = A⁻¹b / s
+h  = (offset - nᵀcenter) / s
+```
+
+```ts
+import { gaussian_halfspace_clip_coefficients } from './web/engine/index.ts';
+
+const clip = gaussian_halfspace_clip_coefficients(
+  cameraCenters, cameraCovariances, focalX, focalY,
+  new Float32Array([0, 0, -1]), -near,
+);
+// 每项 [kx, ky, h]；片元阶段以 normal CDF 乘原有 alpha。
+```
+
+接口使用与投影接口一致的 f32 屏幕协方差，并拒绝无效中心、协方差、焦距或平面。仿射条件方差因屏幕坐标已确定某个平面方向而退化时，`s²` 最小按 `1e-8` 处理以保持输出有限；这是一项数值保护，不是更精确的几何裁切。
+
+当前结果只准备系数，主渲染器尚未上传它或在片元中实现 CDF。该模型只覆盖局部仿射 EWA 近似；宽视场、相机接近或位于高斯内部、多个高斯的合成顺序仍需在完整渲染路径中验证。它不提供模型级 PSNR、SSIM、GPU 时间或帧率结论。公式参考 [XClipGS](https://arxiv.org/abs/2608.07760)，实现不包含其代码、模型或实验数据。
 
 ### 屏幕低通滤波
 
@@ -131,7 +163,7 @@ const order = gaussian_depth_order(
 );
 ```
 
-中心必须在相机前方，全部中心、协方差和不透明度都会校验，即使不在候选列表中；协方差需为正定，候选必须唯一且不越界。该接口只决定是否保留候选，不对椭球做近平面几何裁切，也不消除近平面附近的一阶透视投影误差。支持范围穿过相机平面时，后续实际光栅器仍需定义裁切策略。
+中心必须在相机前方，全部中心、协方差和不透明度都会校验，即使不在候选列表中；协方差需为正定，候选必须唯一且不越界。该接口只决定是否保留候选，不对椭球做近平面几何裁切，也不消除近平面附近的一阶透视投影误差。保留候选可再交给半空间裁切系数接口，但实际光栅器仍需在片元阶段应用 CDF。
 
 ### 屏幕视口筛选
 
@@ -226,6 +258,8 @@ const ids = orderedPacked.subarray(tileCount + 1);
 
 投影回归以透视映射的数值差分建立 Jacobian，对照 128 组三维各向异性协方差，覆盖焦距、离轴中心、尺度和深度变化。另检查 f32 下溢、奇异和非正定输出的批次拒绝，保留最小正 f32 方差。浏览器在三次拒绝后重新投影正常数据，串联范围、排序、binary16 解包和透明绘制，与未压缩参考逐像素比较；报告保存为 `test-results/**/gaussian-projection.json`。
 
+半空间裁切系数回归以 4,097 组正定协方差和独立公式参考核对 `[kx, ky, h]`，并检查平面等比例缩放及整批输入拒绝。256×192 WebGL2 用例在一个穿过中心的斜平面上实际应用 CDF：左右采样 alpha 分别为 15 与 0，中心采样按其半像素坐标得到 CDF 因子 0.4723179，共有 1,166 个可见像素。报告保存为 `test-results/**/gaussian-halfspace.json`；这只验证单高斯的局部裁切方向，不代表完整近平面裁切、混合质量或性能结果。
+
 深度筛选以 65,537 项输入对照 JavaScript 的不透明度筛选、深度条件和稳定排序。浏览器用例的 8 个高斯中，7 个通过不透明度筛选，3 个通过 `[2, 10]` 深度范围；未经筛选的整批投影会因相机后方中心报错，筛选后正确保留近远边界项及其不透明度，绘制 2,074 个可见像素，与 f32 范围参考 RGBA 一致。报告保存为 `test-results/**/gaussian-clip.json`；这验证的是筛选规则和管线衔接，不代表裁剪前后的画面应当相同。
 
 支持范围回归以 4,097 组有限 f32 三维协方差和 f64 公式参考核对，不丢失与深度区间相交的候选。浏览器用例中，4 个不透明候选以中心筛选只会留下 1 个；支持范围筛选保留 3 个，其中两个中心分别在近平面前与远平面后。3 个支持候选的绘制有 4,303 个可见像素，与同候选参考 RGBA 完全一致；错误地只保留中心项会产生 14,627 个不同通道。报告保存为 `test-results/**/gaussian-depth-support.json`。此用例尚未实现真实近平面裁切，不把像素差异解释为真实模型质量或性能结论。
@@ -243,7 +277,9 @@ npx tsx --test tests/gaussian.test.ts
 npx tsx --test tests/gaussian-filter.test.ts
 npx tsx --test tests/gaussian-tiles.test.ts
 npx tsx --test tests/gaussian-projection.test.ts
+npx tsx --test tests/gaussian-halfspace.test.ts
 npm run test:e2e -- tests/browser/gaussian-projection.spec.ts
+npm run test:e2e -- tests/browser/gaussian-halfspace.spec.ts
 npm run test:e2e -- tests/browser/gaussian-filter.spec.ts
 npm run test:e2e -- tests/browser/gaussian-tiles.spec.ts
 npm run test:e2e -- tests/browser/gaussian.spec.ts
@@ -271,6 +307,7 @@ npm run test:e2e -- tests/browser/gaussian-viewport.spec.ts
 | [Gaussian-Splat-Lite 固定 RAD 槽位](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/a1b86e002447d98059de0ef7b706ffdbad0f5c81) | 2026-10-25 改为每槽 65,536 个高斯，小块占整槽，超出单槽上限的块在初始化时拒绝。后续资源池复用可参考固定容量与完整槽位预算的取舍，当前尚未实现 RAD 加载。 |
 | [Gaussian-Splat-Lite SOG 环境加载选项](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/607bc79aebe4932c2475f09ae65426e4772d4aeb) | 2026-10-25 新增可关闭的环境加载选项，以保留场景细节预算。后续流式加载需要明确环境与主体数据的预算分配；当前尚未实现 SOG 加载。 |
 | [3DGEER，ICLR 2026](https://arxiv.org/abs/2505.24053v3) · [代码](https://github.com/boschresearch/3dgeer) | 关注通用相机下的射线高斯积分与关联。它提醒投影近似误差和光栅开销是不同问题；当前屏幕范围优化不解决宽视场投影误差。 |
+| [XClipGS](https://arxiv.org/abs/2608.07760) | 给出仿射 EWA 下以条件高斯 CDF 表达半空间裁切的系数关系。这里独立实现 CPU/WASM 系数准备与单高斯像素回归；未采用其 CUDA 实现、模型、实验设置或性能数据。 |
 | [`gsplat` 投影 API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) | 说明用透视投影 Jacobian 将三维协方差近似为二维协方差；本接口采用相同数学关系，使用独立 Rust/WASM 实现。 |
 | [gsplat 滤波参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [Mip-Splatting 论文](https://openaccess.thecvf.com/content/CVPR2024/html/Yu_Mip-Splatting_Alias-free_3D_Gaussian_Splatting_CVPR_2024_paper.html) · [项目](https://github.com/autonomousvision/mip-splatting) | `eps2d` 调整投影协方差，抗锯齿模式以行列式比补偿不透明度。当前接口独立实现同一二维公式，输出供后续范围/筛选阶段使用；没有移用 CUDA 代码、三维平滑或论文的质量和性能结果。 |
 | [`gsplat` 瓦片与深度排序](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) · [WebGPU Gaussian Splatting](https://github.com/lu-m-dev/WebGPU-gaussian-splatting) | `gsplat` 文档将高斯按瓦片分组并按深度排序；后者公开了瓦片交集、键值排序和范围构建的实现取舍。当前内核独立实现 CPU/WASM 的保守分箱与稳定瓦片内排序，不采用其 GPU 代码、性能数字或模型数据。 |
