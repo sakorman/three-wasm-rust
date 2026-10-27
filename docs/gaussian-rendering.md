@@ -238,6 +238,31 @@ const ids = orderedPacked.subarray(tileCount + 1);
 
 `depths` 必须全部是有限 f32；偏移必须从零开始、单调且末项等于 ID 数。同一 ID 可以出现在不同瓦片，但不能在同一瓦片重复。接口逐批校验这些约束以及深度、瓦片和引用上限，失败不返回部分结果。实现使用 CPU/WASM 稳定基数排序和一块按最大瓦片复用的临时缓冲；不执行 GPU 键值排序，也不代表帧率收益。
 
+### 视图准备
+
+`prepareGaussianRaster()` 将已有的 WASM 内核组合为一份相机视图数据：不透明度筛选、近远支持范围筛选、投影、可选屏幕滤波、范围、视口筛选和中心深度排序依次执行；可选地附加半空间裁切系数和瓦片分箱。它不创建 WebGL 资源，因此可用于不同的 WebGL/WebGPU 上传策略。
+
+```ts
+import { init, prepareGaussianRaster } from './web/engine/index.ts';
+
+await init();
+const prepared = prepareGaussianRaster({
+  centers: cameraCenters,
+  covariances: cameraCovariances,
+  opacities,
+  cutoff: 1 / 255,
+  camera: { focalX, focalY, principalX, principalY, near, far, width: canvas.width, height: canvas.height },
+  filterVariance: 0.3,
+  clipPlane: { normal: new Float32Array([0, 0, -1]), offset: -near },
+  tileSize: 16,
+});
+// originalIds、屏幕属性与 clipCoefficients 都按远到近的紧凑局部顺序排列。
+```
+
+`originalIds` 将紧凑顺序映射回源属性；`tiles.packed` 的 ID 则索引紧凑输出数组，不是源 ID。这样顶点/片元上传不必再间接索引原始数组，也避免将视口筛选后的局部 ID 当成源 ID。滤波后的不透明度、协方差和范围在同一条链路内保持对齐；相机、画布、阈值、滤波或平面改变后应重新准备。
+
+输入布局先在 TypeScript 检查，再交由各 WASM 阶段完整校验；无效批次不返回部分准备结果。`tileSize` 存在时，画布宽高和瓦片大小必须是正整数。此接口未加载 PLY/SOG、未实现 SH、未上传 GPU 缓冲，也不在主渲染器执行 CDF；浏览器回归只证明准备数据可供片元裁切使用，不代表真实模型性能或画质。
+
 ## 可复现结果
 
 256×192 WebGL2 合成测试包含 28 个圆形、旋转椭圆及重叠高斯，不透明度覆盖 0–1。参考四边形按最坏峰值 1 计算范围，两边片元使用相同的真实不透明度、协方差、阈值、颜色、混合和绘制顺序。
@@ -260,6 +285,8 @@ const ids = orderedPacked.subarray(tileCount + 1);
 
 半空间裁切系数回归以 4,097 组正定协方差和独立公式参考核对 `[kx, ky, h]`，并检查平面等比例缩放及整批输入拒绝。256×192 WebGL2 用例在一个穿过中心的斜平面上实际应用 CDF：左右采样 alpha 分别为 15 与 0，中心采样按其半像素坐标得到 CDF 因子 0.4723179，共有 1,166 个可见像素。报告保存为 `test-results/**/gaussian-halfspace.json`；这只验证单高斯的局部裁切方向，不代表完整近平面裁切、混合质量或性能结果。
 
+视图准备回归使用四个相机空间高斯：支持范围阶段保留四项，视口阶段移除一项离屏候选，输出源 ID 为远到近的 `[2, 1, 0]`。16 像素瓦片产生 52 条局部引用。把输出裁切系数用于片元 CDF 后，相对未裁切路径有 23,264 个不同 RGBA 通道和 1,976 个可见像素；报告保存为 `test-results/**/gaussian-prepare.json`。该数据只用于检查映射、顺序与裁切衔接，不作为绘制次数、GPU 时间或画质比较。
+
 深度筛选以 65,537 项输入对照 JavaScript 的不透明度筛选、深度条件和稳定排序。浏览器用例的 8 个高斯中，7 个通过不透明度筛选，3 个通过 `[2, 10]` 深度范围；未经筛选的整批投影会因相机后方中心报错，筛选后正确保留近远边界项及其不透明度，绘制 2,074 个可见像素，与 f32 范围参考 RGBA 一致。报告保存为 `test-results/**/gaussian-clip.json`；这验证的是筛选规则和管线衔接，不代表裁剪前后的画面应当相同。
 
 支持范围回归以 4,097 组有限 f32 三维协方差和 f64 公式参考核对，不丢失与深度区间相交的候选。浏览器用例中，4 个不透明候选以中心筛选只会留下 1 个；支持范围筛选保留 3 个，其中两个中心分别在近平面前与远平面后。3 个支持候选的绘制有 4,303 个可见像素，与同候选参考 RGBA 完全一致；错误地只保留中心项会产生 14,627 个不同通道。报告保存为 `test-results/**/gaussian-depth-support.json`。此用例尚未实现真实近平面裁切，不把像素差异解释为真实模型质量或性能结论。
@@ -278,8 +305,10 @@ npx tsx --test tests/gaussian-filter.test.ts
 npx tsx --test tests/gaussian-tiles.test.ts
 npx tsx --test tests/gaussian-projection.test.ts
 npx tsx --test tests/gaussian-halfspace.test.ts
+npx tsx --test tests/gaussian-prepare.test.ts
 npm run test:e2e -- tests/browser/gaussian-projection.spec.ts
 npm run test:e2e -- tests/browser/gaussian-halfspace.spec.ts
+npm run test:e2e -- tests/browser/gaussian-prepare.spec.ts
 npm run test:e2e -- tests/browser/gaussian-filter.spec.ts
 npm run test:e2e -- tests/browser/gaussian-tiles.spec.ts
 npm run test:e2e -- tests/browser/gaussian.spec.ts

@@ -13,6 +13,8 @@ export { gaussian_tile_bins } from '../../pkg/three_wasm_rust.js';
 export { gaussian_tile_depth_order } from '../../pkg/three_wasm_rust.js';
 export { gaussian_depth_order } from '../../pkg/three_wasm_rust.js';
 export { gaussian_pack_half_extents } from '../../pkg/three_wasm_rust.js';
+export { prepareGaussianRaster } from './gaussian.ts';
+export type { GaussianClipPlane, GaussianRasterCamera, GaussianRasterPreparationOptions, GaussianRasterTiles, PreparedGaussianRaster } from './gaussian.ts';
 export { Engine } from './Engine.ts';
 export { ContextLifecycle } from './ContextLifecycle.ts';
 export { OrbitCamera } from './camera.ts';

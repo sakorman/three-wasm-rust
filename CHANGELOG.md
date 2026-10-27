@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-27 · 高斯视图准备链路
+
+- 新增 `prepareGaussianRaster()`：将不透明度/支持范围筛选、投影、可选滤波、范围、视口筛选与深度排序收敛为一份紧凑相机视图数据，可选生成半空间裁切系数和瓦片分箱。此前调用方必须自行维护每阶段的局部索引与源 ID；现在 `originalIds` 和瓦片局部 ID 的语义固定并保持对齐。
+- 四项输入的回归中，支持范围保留四项、视口移除一项离屏候选，输出源 ID 为 `[2, 1, 0]`；16 像素瓦片有 52 条局部引用。WebGL2 将准备数据送入 CDF 片元路径，裁切相对未裁切有 23,264 个不同通道、1,976 个可见像素。
+- 验证：270 项测试通过（82 Rust、92 Node、96 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：接口不创建 GPU 资源，未加载高斯资产、未实现 SH 或主渲染器上传；中心深度排序与局部瓦片引用不解决逐像素遮挡。参考 [`gsplat` rasterization API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) 与 [XClipGS](https://arxiv.org/abs/2608.07760)，未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-27 · 高斯半空间裁切系数
 
 - 新增 `gaussian_halfspace_clip_coefficients()`：以相机空间半空间和投影 Jacobian 生成每个高斯的 `[kx, ky, h]`，片元可用条件高斯 CDF 调整 alpha。此前跨近平面的候选只能保留或丢弃，不能表达单个高斯在平面两侧的连续覆盖变化。
