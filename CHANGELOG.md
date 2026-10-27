@@ -2,6 +2,14 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-28 · 高斯上传缓冲恢复
+
+- 新增 `GaussianUploadBuffers`：高斯上传记录现在会由资源层保存独立 CPU 副本，并维护交错数据和瓦片两类 WebGL2 缓冲。此前调用方需直接创建缓冲，且上下文恢复后没有可重传的资源状态。
+- 容量足够的记录更新改为 `bufferSubData`，缩减记录不会收缩已有 VBO；移除瓦片时释放其缓冲。上下文丢失时不再暴露旧句柄，恢复后使用最新副本重建并重传。
+- 上传后核验实际缓冲容量，静默分配失败会清理句柄并允许后续更新重试。浏览器回归覆盖 3 条记录缩减到 2 条时复用 144 字节 VBO、真实 `WEBGL_lose_context`、恢复前写入和恢复后读回；单元测试覆盖副本隔离、瓦片释放、畸形上传和分配失败重试。
+- 验证：276 项测试通过（82 Rust、96 Node、98 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：该资源层尚未连接主高斯绘制器，不管理 VAO、shader、纹理或实际 draw call；容量复用和恢复测试不代表 GPU 时间、帧率、显存收益或完整场景恢复时间。参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/) 与 [`gsplat` rasterization API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)，未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-27 · 高斯上传数据打包
 
 - 新增 `packGaussianRasterUpload()` 与 `GAUSSIAN_RASTER_UPLOAD_STRIDE`：将紧凑视图转换为每项 12-f32 的交错记录，包含屏幕中心、范围、逆协方差、不透明度、裁切系数和启用位。此前准备结果仍是分散数组；现在可直接按固定属性偏移上传实例缓冲。

@@ -104,3 +104,76 @@ void main() { vec2 d = gl_FragCoord.xy - vCenter;
   await writeFile(path, JSON.stringify(result, null, 2));
   await info.attach('gaussian-upload.json', { path, contentType: 'application/json' });
 });
+
+test('Gaussian upload buffers reuse capacity and restore copied data after WebGL context loss', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('引擎已就绪');
+  const result = await page.evaluate(async () => {
+    const { ContextLifecycle, GaussianUploadBuffers, packGaussianRasterUpload, prepareGaussianRaster } = await import('../../web/engine/index.ts');
+    const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 192;
+    const gl = canvas.getContext('webgl2'); if (!gl) throw new Error('WebGL2 unavailable');
+    const extension = gl.getExtension('WEBGL_lose_context'); if (!extension) throw new Error('Context-loss extension unavailable');
+    const calls = { create: 0, delete: 0, data: 0, subData: 0 };
+    for (const method of ['createBuffer', 'deleteBuffer', 'bufferData', 'bufferSubData'] as const) {
+      Object.defineProperty(gl, method, { value: new Proxy(gl[method], {
+        apply(target, context, args: unknown[]) {
+          if (method === 'createBuffer') calls.create++;
+          else if (method === 'deleteBuffer') calls.delete++;
+          else if (method === 'bufferData') calls.data++;
+          else calls.subData++;
+          return Reflect.apply(target, context, args);
+        },
+      }) });
+    }
+    const lifecycle = new ContextLifecycle(gl), buffers = new GaussianUploadBuffers(gl, lifecycle);
+    const makeUpload = () => packGaussianRasterUpload(prepareGaussianRaster({
+      centers: new Float32Array([0, 0, .8, .1, 0, 2, 0, 0, 4.5, 10, 0, 2]),
+      covariances: new Float32Array([
+        .04, 0, 0, .04, 0, .25, .04, 0, 0, .04, 0, .25,
+        .04, 0, 0, .04, 0, .25, .04, 0, 0, .04, 0, .25,
+      ]),
+      opacities: new Float32Array([.5, .8, .7, .9]), cutoff: .1, filterVariance: .25, tileSize: 16,
+      camera: { focalX: 96, focalY: 96, principalX: 128, principalY: 96, near: 1, far: 4, width: 256, height: 192 },
+      clipPlane: { normal: new Float32Array([0, 0, -1]), offset: -1 },
+    }));
+    const event = (name: string, action: () => void) => new Promise<void>((resolve) => {
+      canvas.addEventListener(name, () => setTimeout(resolve, 0), { once: true }); action();
+    });
+    try {
+      const initialUpload = makeUpload(); buffers.update(initialUpload);
+      const initial = buffers.snapshot(); if (!initial) throw new Error('Missing initial Gaussian buffers');
+      const smaller = { splatData: initialUpload.splatData.slice(0, 24), originalIds: initialUpload.originalIds.slice(0, 2) };
+      buffers.update(smaller);
+      const reused = buffers.snapshot(); if (!reused) throw new Error('Missing reused Gaussian buffer');
+      await event('webglcontextlost', () => extension.loseContext());
+      const duringLoss = buffers.snapshot();
+      const recoveryUpload = makeUpload(), expectedCenter = recoveryUpload.splatData[0];
+      buffers.update(recoveryUpload);
+      recoveryUpload.splatData[0] = -999;
+      await event('webglcontextrestored', () => extension.restoreContext());
+      const restored = buffers.snapshot(); if (!restored) throw new Error('Missing restored Gaussian buffer');
+      gl.bindBuffer(gl.ARRAY_BUFFER, restored.splatBuffer);
+      const values = new Float32Array(12); gl.getBufferSubData(gl.ARRAY_BUFFER, 0, values);
+      const error = gl.getError();
+      return {
+        initialBytes: initial.splatBytes, initialCapacity: initial.splatCapacityBytes, initialTileBytes: initial.tileBytes,
+        reusedBytes: reused.splatBytes, reusedCapacity: reused.splatCapacityBytes, reusedHasTile: Boolean(reused.tileBuffer),
+        duringLoss, restoredBytes: restored.splatBytes, restoredTileBytes: restored.tileBytes,
+        sameHandle: restored.splatBuffer === initial.splatBuffer, expectedCenter, restoredCenter: values[0], error, calls,
+      };
+    } finally { buffers.dispose(); lifecycle.dispose(); }
+  });
+  expect(result.initialBytes).toBe(144);
+  expect(result.initialCapacity).toBe(144);
+  expect(result.initialTileBytes).toBe(980);
+  expect(result.reusedBytes).toBe(96);
+  expect(result.reusedCapacity).toBe(144);
+  expect(result.reusedHasTile).toBe(false);
+  expect(result.duringLoss).toBeUndefined();
+  expect(result.restoredBytes).toBe(144);
+  expect(result.restoredTileBytes).toBe(980);
+  expect(result.sameHandle).toBe(false);
+  expect(result.restoredCenter).toBe(result.expectedCenter);
+  expect(result.error).toBe(0);
+  expect(result.calls).toEqual({ create: 4, delete: 3, data: 4, subData: 1 });
+});

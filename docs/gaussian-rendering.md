@@ -286,6 +286,21 @@ gl.bufferData(gl.ARRAY_BUFFER, upload.splatData, gl.DYNAMIC_DRAW);
 
 瓦片偏移—引用缓冲保留在 `upload.tiles`，引用的是交错记录的局部索引；`originalIds` 仅用于回查源属性。该函数不拥有或释放 WebGL 缓冲，不处理上下文丢失，也不声明带宽、GPU 时间或帧率收益；资源复用与实际绘制器仍需单独接入。
 
+### 可复用上传缓冲
+
+`GaussianUploadBuffers` 将上传记录保存在独立 CPU 副本中，并以指定的 `ContextLifecycle` 管理一对 WebGL2 缓冲。`update()` 在容量足够时使用 `bufferSubData`，增长时才重新分配；瓦片数据缺失时释放瓦片缓冲。它只保存数据和句柄，不创建 VAO、shader 或绘制提交。
+
+```ts
+import { ContextLifecycle, GaussianUploadBuffers } from './web/engine/index.ts';
+
+const lifecycle = new ContextLifecycle(gl);
+const buffers = new GaussianUploadBuffers(gl, lifecycle);
+buffers.update(upload);
+const gpu = buffers.snapshot(); // ready 时返回 VBO、可用字节数和容量
+```
+
+上下文丢失时 `snapshot()` 返回 `undefined`，旧 WebGL 句柄不会再暴露；恢复后自动以内部副本新建缓冲并重传。调用方在恢复后的 `snapshot()` 中重新绑定 VAO 和属性即可。传入数组在 `update()` 后可以修改，不会影响恢复内容。该类尚未接入首页 Mesh 场景或完整高斯主渲染器；缓冲容量、上传次数和本节 WebGL 测试均不是 GPU 时间、帧率或显存收益结论。
+
 ## 可复现结果
 
 256×192 WebGL2 合成测试包含 28 个圆形、旋转椭圆及重叠高斯，不透明度覆盖 0–1。参考四边形按最坏峰值 1 计算范围，两边片元使用相同的真实不透明度、协方差、阈值、颜色、混合和绘制顺序。
@@ -312,6 +327,8 @@ gl.bufferData(gl.ARRAY_BUFFER, upload.splatData, gl.DYNAMIC_DRAW);
 
 上传打包回归将同一份准备数据以 12-f32 交错属性上传到真实 WebGL2 VBO，并以一次 3 实例绘制执行 CDF 片元路径。记录步长为 48 字节，VBO 实际容量为 144 字节；包含 52 条引用的瓦片缓冲容量为 980 字节。裁切相对未裁切有 23,264 个不同通道、1,976 个可见像素，`gl.getError()` 为零；报告保存为 `test-results/**/gaussian-upload.json`。容量是该合成输入的缓冲大小，不是带宽、帧率或显存收益。
 
+上传缓冲恢复回归先上传 3 条记录和瓦片数据，再更新为 2 条记录，数据缓冲容量维持 144 字节并只进行子更新。触发真实 `WEBGL_lose_context` 后资源快照为空；在恢复前写入的新上传数据由内部副本重传，新的 VBO 中首项中心与写入时一致。该结果只验证所有权、容量和恢复语义，不代表完整场景的资源占用或恢复时间。
+
 深度筛选以 65,537 项输入对照 JavaScript 的不透明度筛选、深度条件和稳定排序。浏览器用例的 8 个高斯中，7 个通过不透明度筛选，3 个通过 `[2, 10]` 深度范围；未经筛选的整批投影会因相机后方中心报错，筛选后正确保留近远边界项及其不透明度，绘制 2,074 个可见像素，与 f32 范围参考 RGBA 一致。报告保存为 `test-results/**/gaussian-clip.json`；这验证的是筛选规则和管线衔接，不代表裁剪前后的画面应当相同。
 
 支持范围回归以 4,097 组有限 f32 三维协方差和 f64 公式参考核对，不丢失与深度区间相交的候选。浏览器用例中，4 个不透明候选以中心筛选只会留下 1 个；支持范围筛选保留 3 个，其中两个中心分别在近平面前与远平面后。3 个支持候选的绘制有 4,303 个可见像素，与同候选参考 RGBA 完全一致；错误地只保留中心项会产生 14,627 个不同通道。报告保存为 `test-results/**/gaussian-depth-support.json`。此用例尚未实现真实近平面裁切，不把像素差异解释为真实模型质量或性能结论。
@@ -331,6 +348,7 @@ npx tsx --test tests/gaussian-tiles.test.ts
 npx tsx --test tests/gaussian-projection.test.ts
 npx tsx --test tests/gaussian-halfspace.test.ts
 npx tsx --test tests/gaussian-prepare.test.ts
+npx tsx --test tests/gaussian-upload-buffers.test.ts
 npm run test:e2e -- tests/browser/gaussian-projection.spec.ts
 npm run test:e2e -- tests/browser/gaussian-halfspace.spec.ts
 npm run test:e2e -- tests/browser/gaussian-prepare.spec.ts
