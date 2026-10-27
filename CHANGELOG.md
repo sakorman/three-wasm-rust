@@ -2,6 +2,14 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-27 · 高斯上传数据打包
+
+- 新增 `packGaussianRasterUpload()` 与 `GAUSSIAN_RASTER_UPLOAD_STRIDE`：将紧凑视图转换为每项 12-f32 的交错记录，包含屏幕中心、范围、逆协方差、不透明度、裁切系数和启用位。此前准备结果仍是分散数组；现在可直接按固定属性偏移上传实例缓冲。
+- 复制源 ID 和瓦片偏移—引用缓冲，后者始终引用紧凑记录；拒绝数组长度不匹配、重复源 ID、非正定协方差、无效瓦片偏移及溢出 f32 的逆矩阵。
+- WebGL2 回归将三项记录写入 144 字节 VBO，以一次实例化绘制读取所有属性；瓦片缓冲为 980 字节、52 条引用，裁切相对未裁切有 23,264 个不同通道，未出现 WebGL 错误。
+- 验证：273 项测试通过（82 Rust、94 Node、97 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：该接口只生成 CPU 侧上传数据，不创建、复用或恢复 GPU 资源，也未接入主渲染器、SH 或真实高斯资产。参考 [`gsplat` rasterization API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) 与 [XClipGS](https://arxiv.org/abs/2608.07760)，未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-27 · 高斯视图准备链路
 
 - 新增 `prepareGaussianRaster()`：将不透明度/支持范围筛选、投影、可选滤波、范围、视口筛选与深度排序收敛为一份紧凑相机视图数据，可选生成半空间裁切系数和瓦片分箱。此前调用方必须自行维护每阶段的局部索引与源 ID；现在 `originalIds` 和瓦片局部 ID 的语义固定并保持对齐。

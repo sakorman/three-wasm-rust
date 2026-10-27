@@ -58,6 +58,22 @@ export interface PreparedGaussianRaster {
   tiles?: GaussianRasterTiles;
 }
 
+/** Number of f32 values in one GPU-ready Gaussian vertex record. */
+export const GAUSSIAN_RASTER_UPLOAD_STRIDE = 12;
+
+export interface PackedGaussianRasterUpload {
+  /**
+   * Per-Gaussian f32 records:
+   * `[centerX, centerY, halfWidth, halfHeight, conicXX, conicXY, conicYY,
+   *   opacity, clipX, clipY, clipH, clipEnabled]`.
+   */
+  splatData: Float32Array;
+  /** Source IDs aligned with `splatData` records. */
+  originalIds: Uint32Array;
+  /** Independent tile data whose references index `splatData` records. */
+  tiles?: GaussianRasterTiles;
+}
+
 function gather(values: Float32Array, stride: number, indices: Uint32Array): Float32Array {
   const result = new Float32Array(indices.length * stride);
   for (let output = 0; output < indices.length; output++) {
@@ -83,6 +99,39 @@ function checkTileSize(tileSize: number | undefined, camera: GaussianRasterCamer
   if (!Number.isSafeInteger(camera.width) || !Number.isSafeInteger(camera.height) || camera.width <= 0 || camera.height <= 0) {
     throw new Error('Gaussian tiled preparation requires positive integer viewport dimensions');
   }
+}
+
+function checkFinite(value: number, label: string, index: number): void {
+  if (!Number.isFinite(value)) throw new Error(`Gaussian ${label} must be finite at index ${index}`);
+}
+
+function finiteF32(value: number, label: string, index: number): number {
+  checkFinite(value, label, index);
+  const rounded = Math.fround(value);
+  if (!Number.isFinite(rounded)) throw new Error(`Gaussian ${label} exceeds f32 range at index ${index}`);
+  return rounded;
+}
+
+function copyTiles(tiles: GaussianRasterTiles, splatCount: number): GaussianRasterTiles {
+  if (!Number.isSafeInteger(tiles.tileSize) || tiles.tileSize <= 0
+    || !Number.isSafeInteger(tiles.columns) || tiles.columns <= 0
+    || !Number.isSafeInteger(tiles.rows) || tiles.rows <= 0) {
+    throw new Error('Gaussian tile metadata must use positive safe integers');
+  }
+  const tileCount = tiles.columns * tiles.rows;
+  if (!Number.isSafeInteger(tileCount) || tiles.packed.length < tileCount + 1 || tiles.packed[0] !== 0) {
+    throw new Error('Gaussian tile offsets are malformed');
+  }
+  const referenceStart = tileCount + 1;
+  const referenceCount = tiles.packed.length - referenceStart;
+  if (tiles.packed[tileCount] !== referenceCount) throw new Error('Gaussian tile offsets must end at the reference count');
+  for (let index = 0; index < tileCount; index++) {
+    if (tiles.packed[index] > tiles.packed[index + 1]) throw new Error('Gaussian tile offsets must be monotonic');
+  }
+  for (let index = referenceStart; index < tiles.packed.length; index++) {
+    if (tiles.packed[index] >= splatCount) throw new Error('Gaussian tile reference is out of range');
+  }
+  return { tileSize: tiles.tileSize, columns: tiles.columns, rows: tiles.rows, packed: tiles.packed.slice() };
 }
 
 /**
@@ -158,4 +207,56 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
     };
   }
   return prepared;
+}
+
+/**
+ * Convert compact prepared arrays into one interleaved buffer for a Gaussian draw pass.
+ *
+ * The inverse screen covariance is computed from the f32 covariance returned by
+ * preparation. The function copies every output so later source edits cannot change an
+ * upload already queued for WebGL.
+ */
+export function packGaussianRasterUpload(prepared: PreparedGaussianRaster): PackedGaussianRasterUpload {
+  const count = prepared.originalIds.length;
+  if (prepared.screenCenters.length !== count * 2 || prepared.screenCovariances.length !== count * 3
+    || prepared.opacities.length !== count || prepared.depths.length !== count || prepared.halfExtents.length !== count * 2) {
+    throw new Error('Prepared Gaussian arrays have inconsistent lengths');
+  }
+  const clipCoefficients = prepared.clipCoefficients;
+  if (clipCoefficients && clipCoefficients.length !== count * 3) throw new Error('Prepared Gaussian clip coefficients have inconsistent length');
+  const result = new Float32Array(count * GAUSSIAN_RASTER_UPLOAD_STRIDE);
+  const seenOriginalIds = new Set<number>();
+  for (let index = 0; index < count; index++) {
+    const sourceId = prepared.originalIds[index];
+    if (seenOriginalIds.has(sourceId)) throw new Error('Prepared Gaussian original IDs must be unique');
+    seenOriginalIds.add(sourceId);
+    const centerOffset = index * 2, covarianceOffset = index * 3, record = index * GAUSSIAN_RASTER_UPLOAD_STRIDE;
+    const centerX = prepared.screenCenters[centerOffset], centerY = prepared.screenCenters[centerOffset + 1];
+    const halfWidth = prepared.halfExtents[centerOffset], halfHeight = prepared.halfExtents[centerOffset + 1];
+    const xx = prepared.screenCovariances[covarianceOffset], xy = prepared.screenCovariances[covarianceOffset + 1], yy = prepared.screenCovariances[covarianceOffset + 2];
+    const opacity = prepared.opacities[index], depth = prepared.depths[index];
+    checkFinite(centerX, 'screen center', index); checkFinite(centerY, 'screen center', index);
+    checkFinite(halfWidth, 'half extent', index); checkFinite(halfHeight, 'half extent', index);
+    checkFinite(opacity, 'opacity', index); checkFinite(depth, 'depth', index);
+    if (halfWidth < 0 || halfHeight < 0 || opacity < 0 || opacity > 1) throw new Error(`Invalid prepared Gaussian extent or opacity at index ${index}`);
+    const determinant = xx * yy - xy * xy;
+    if (!Number.isFinite(determinant) || xx <= 0 || yy <= 0 || determinant <= 0) {
+      throw new Error(`Prepared Gaussian covariance is not positive definite at index ${index}`);
+    }
+    const conicXX = finiteF32(yy / determinant, 'conic', index);
+    const conicXY = finiteF32(-xy / determinant, 'conic', index);
+    const conicYY = finiteF32(xx / determinant, 'conic', index);
+    result.set([centerX, centerY, halfWidth, halfHeight, conicXX, conicXY, conicYY, opacity], record);
+    if (clipCoefficients) {
+      const clipOffset = index * 3;
+      const clipX = clipCoefficients[clipOffset], clipY = clipCoefficients[clipOffset + 1], clipH = clipCoefficients[clipOffset + 2];
+      checkFinite(clipX, 'clip coefficient', index); checkFinite(clipY, 'clip coefficient', index); checkFinite(clipH, 'clip coefficient', index);
+      result.set([clipX, clipY, clipH, 1], record + 8);
+    }
+  }
+  return {
+    splatData: result,
+    originalIds: prepared.originalIds.slice(),
+    ...(prepared.tiles && { tiles: copyTiles(prepared.tiles, count) }),
+  };
 }

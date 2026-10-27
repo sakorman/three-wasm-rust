@@ -263,6 +263,29 @@ const prepared = prepareGaussianRaster({
 
 输入布局先在 TypeScript 检查，再交由各 WASM 阶段完整校验；无效批次不返回部分准备结果。`tileSize` 存在时，画布宽高和瓦片大小必须是正整数。此接口未加载 PLY/SOG、未实现 SH、未上传 GPU 缓冲，也不在主渲染器执行 CDF；浏览器回归只证明准备数据可供片元裁切使用，不代表真实模型性能或画质。
 
+### 上传数据打包
+
+`packGaussianRasterUpload()` 将 `prepareGaussianRaster()` 的紧凑结果复制为固定的交错 f32 记录，供一个实例化顶点缓冲直接读取。每项为 12 个 f32（48 字节）：
+
+```text
+[centerX, centerY, halfWidth, halfHeight,
+ conicXX, conicXY, conicYY, opacity,
+ clipX, clipY, clipH, clipEnabled]
+```
+
+`conic` 是返回的二维协方差的逆矩阵独立分量，片元可计算 `q = conicXX·dx² + 2·conicXY·dx·dy + conicYY·dy²`。`clipEnabled = 0` 时片元应跳过 CDF；启用后使用三个裁切系数。函数再次校验数组长度、唯一源 ID、有限值、正定协方差和可表示的 f32 逆矩阵，并深拷贝源 ID 与瓦片数据，避免 CPU 数组在排队上传后被改写。
+
+```ts
+import { GAUSSIAN_RASTER_UPLOAD_STRIDE, packGaussianRasterUpload } from './web/engine/index.ts';
+
+const upload = packGaussianRasterUpload(prepared);
+gl.bindBuffer(gl.ARRAY_BUFFER, splatBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, upload.splatData, gl.DYNAMIC_DRAW);
+// stride = GAUSSIAN_RASTER_UPLOAD_STRIDE * Float32Array.BYTES_PER_ELEMENT
+```
+
+瓦片偏移—引用缓冲保留在 `upload.tiles`，引用的是交错记录的局部索引；`originalIds` 仅用于回查源属性。该函数不拥有或释放 WebGL 缓冲，不处理上下文丢失，也不声明带宽、GPU 时间或帧率收益；资源复用与实际绘制器仍需单独接入。
+
 ## 可复现结果
 
 256×192 WebGL2 合成测试包含 28 个圆形、旋转椭圆及重叠高斯，不透明度覆盖 0–1。参考四边形按最坏峰值 1 计算范围，两边片元使用相同的真实不透明度、协方差、阈值、颜色、混合和绘制顺序。
@@ -287,6 +310,8 @@ const prepared = prepareGaussianRaster({
 
 视图准备回归使用四个相机空间高斯：支持范围阶段保留四项，视口阶段移除一项离屏候选，输出源 ID 为远到近的 `[2, 1, 0]`。16 像素瓦片产生 52 条局部引用。把输出裁切系数用于片元 CDF 后，相对未裁切路径有 23,264 个不同 RGBA 通道和 1,976 个可见像素；报告保存为 `test-results/**/gaussian-prepare.json`。该数据只用于检查映射、顺序与裁切衔接，不作为绘制次数、GPU 时间或画质比较。
 
+上传打包回归将同一份准备数据以 12-f32 交错属性上传到真实 WebGL2 VBO，并以一次 3 实例绘制执行 CDF 片元路径。记录步长为 48 字节，VBO 实际容量为 144 字节；包含 52 条引用的瓦片缓冲容量为 980 字节。裁切相对未裁切有 23,264 个不同通道、1,976 个可见像素，`gl.getError()` 为零；报告保存为 `test-results/**/gaussian-upload.json`。容量是该合成输入的缓冲大小，不是带宽、帧率或显存收益。
+
 深度筛选以 65,537 项输入对照 JavaScript 的不透明度筛选、深度条件和稳定排序。浏览器用例的 8 个高斯中，7 个通过不透明度筛选，3 个通过 `[2, 10]` 深度范围；未经筛选的整批投影会因相机后方中心报错，筛选后正确保留近远边界项及其不透明度，绘制 2,074 个可见像素，与 f32 范围参考 RGBA 一致。报告保存为 `test-results/**/gaussian-clip.json`；这验证的是筛选规则和管线衔接，不代表裁剪前后的画面应当相同。
 
 支持范围回归以 4,097 组有限 f32 三维协方差和 f64 公式参考核对，不丢失与深度区间相交的候选。浏览器用例中，4 个不透明候选以中心筛选只会留下 1 个；支持范围筛选保留 3 个，其中两个中心分别在近平面前与远平面后。3 个支持候选的绘制有 4,303 个可见像素，与同候选参考 RGBA 完全一致；错误地只保留中心项会产生 14,627 个不同通道。报告保存为 `test-results/**/gaussian-depth-support.json`。此用例尚未实现真实近平面裁切，不把像素差异解释为真实模型质量或性能结论。
@@ -309,6 +334,7 @@ npx tsx --test tests/gaussian-prepare.test.ts
 npm run test:e2e -- tests/browser/gaussian-projection.spec.ts
 npm run test:e2e -- tests/browser/gaussian-halfspace.spec.ts
 npm run test:e2e -- tests/browser/gaussian-prepare.spec.ts
+npm run test:e2e -- tests/browser/gaussian-upload.spec.ts
 npm run test:e2e -- tests/browser/gaussian-filter.spec.ts
 npm run test:e2e -- tests/browser/gaussian-tiles.spec.ts
 npm run test:e2e -- tests/browser/gaussian.spec.ts
