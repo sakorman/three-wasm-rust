@@ -186,9 +186,25 @@ const ids = packed.subarray(tileCount + 1);
 // 第 tile 项：ids.subarray(offsets[tile], offsets[tile + 1])
 ```
 
-分箱以 f64 向外计算范围端点；与视口或瓦片边界相切的高斯保留，半宽或半高为零以及完全离屏的项不产生引用。每个瓦片中的 ID 严格沿用输入候选顺序，不进行深度重排。因此透明光栅应先传入稳定深度排序结果；全局中心深度排序仍不是逐瓦片或逐像素精确排序。
+分箱以 f64 向外计算范围端点；与视口或瓦片边界相切的高斯保留，半宽或半高为零以及完全离屏的项不产生引用。每个瓦片中的 ID 严格沿用输入候选顺序。若输入已经按全局中心深度稳定排序，这个顺序在每个瓦片中仍然成立；也可在分箱后调用下述接口独立建立瓦片内顺序。两者都只是中心深度规则，不是逐像素精确排序。
 
-为约束 WASM 和 JS 侧分配，单次最多支持 1,000,000 个瓦片与 4,000,000 个高斯—瓦片引用；超出时整批报错，不返回部分缓冲。该接口只生成 CPU/WASM 的分箱描述，不提交 GPU 命令、不改变高斯数据，也不保证相邻瓦片之间的复用、带宽或帧率收益。设计参考 [`gsplat` 的 tile_size](https://docs.gsplat.studio/main/apis/rasterization.html) 与 [TileGS](https://arxiv.org/abs/2609.03613) 对 tile-local 列表开销的讨论；当前实现不采用其 GPU 分桶、局部重排或性能数据。
+为约束 WASM 和 JS 侧分配，单次最多支持 1,000,000 个瓦片与 4,000,000 个高斯—瓦片引用；超出时整批报错，不返回部分缓冲。该接口只生成 CPU/WASM 的分箱描述，不提交 GPU 命令、不改变高斯数据，也不保证相邻瓦片之间的复用、带宽或帧率收益。
+
+### 瓦片内深度顺序
+
+`gaussian_tile_depth_order(depths, packed, tileCount)` 复制 `gaussian_tile_bins()` 的偏移—ID 缓冲，并对每个瓦片的 ID 按中心深度从远到近稳定排序。偏移表保持不变；同深度（含正负零）保持该瓦片内原始顺序。由于打包缓冲不带元数据，调用方必须传入原网格的 `tileCount`。
+
+```ts
+import { gaussian_tile_bins, gaussian_tile_depth_order } from './web/engine/index.ts';
+
+const packed = gaussian_tile_bins(screenCenters, halfExtents, visibleCandidates, width, height, 16);
+const tileCount = Math.ceil(width / 16) * Math.ceil(height / 16);
+const orderedPacked = gaussian_tile_depth_order(cameraDepths, packed, tileCount);
+const offsets = orderedPacked.subarray(0, tileCount + 1);
+const ids = orderedPacked.subarray(tileCount + 1);
+```
+
+`depths` 必须全部是有限 f32；偏移必须从零开始、单调且末项等于 ID 数。同一 ID 可以出现在不同瓦片，但不能在同一瓦片重复。接口逐批校验这些约束以及深度、瓦片和引用上限，失败不返回部分结果。实现使用 CPU/WASM 稳定基数排序和一块按最大瓦片复用的临时缓冲；不执行 GPU 键值排序，也不代表帧率收益。
 
 ## 可复现结果
 
@@ -218,7 +234,7 @@ const ids = packed.subarray(tileCount + 1);
 
 屏幕滤波回归以 4,097 组正定 f32 协方差与 f64 行列式公式对照，检查滤波后的 f32 输出、补偿不透明度及连续积分。512×512 的单高斯 WebGL2 用例将 `[16, 5, 9]` 与 `α=0.7` 加入 `ε=0.6`：像素 alpha 字节和从 12,166 变为 12,152，且解析积分相对差小于 `2e-6`。该结果只验证本滤波公式在合成单高斯上的数值和像素管线，不是模型级抗锯齿或画质结论。报告保存为 `test-results/**/gaussian-filter.json`。
 
-瓦片分箱回归以 4,097 个屏幕范围对照独立的行优先 JavaScript 参考，检查离屏、边界相切、候选顺序和偏移格式。256×192 的 WebGL2 用例先滤波再分箱，8 个候选产生 25 个瓦片引用；每个瓦片仅绘制自己的有序候选，画面与逐项全屏绘制逐通道一致，得到 4,387 个可见像素。该用例的分箱路径提交了更多四边形，用于验证覆盖而不是衡量性能；结果保存为 `test-results/**/gaussian-tiles.json`。
+瓦片分箱与局部排序回归以 4,097 个屏幕范围和深度对照独立的行优先 JavaScript 参考，检查离屏、边界相切、偏移格式、同深度稳定性和跨瓦片 ID 复用。256×192 WebGL2 用例中，8 个重叠候选生成 23 条瓦片引用；逐瓦片稳定排序后的合成与全局远到近参考逐通道一致，有 1,124 个可见像素。故意跳过局部排序会产生 1,651 个不同通道。瓦片路径提交 23 个四边形、全屏参考提交 8 个，结果只用于验证覆盖和混合顺序，不衡量性能；报告保存为 `test-results/**/gaussian-tiles.json`。
 
 ```bash
 cargo test --locked gaussian::tests
@@ -257,7 +273,7 @@ npm run test:e2e -- tests/browser/gaussian-viewport.spec.ts
 | [3DGEER，ICLR 2026](https://arxiv.org/abs/2505.24053v3) · [代码](https://github.com/boschresearch/3dgeer) | 关注通用相机下的射线高斯积分与关联。它提醒投影近似误差和光栅开销是不同问题；当前屏幕范围优化不解决宽视场投影误差。 |
 | [`gsplat` 投影 API](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) | 说明用透视投影 Jacobian 将三维协方差近似为二维协方差；本接口采用相同数学关系，使用独立 Rust/WASM 实现。 |
 | [gsplat 滤波参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [Mip-Splatting 论文](https://openaccess.thecvf.com/content/CVPR2024/html/Yu_Mip-Splatting_Alias-free_3D_Gaussian_Splatting_CVPR_2024_paper.html) · [项目](https://github.com/autonomousvision/mip-splatting) | `eps2d` 调整投影协方差，抗锯齿模式以行列式比补偿不透明度。当前接口独立实现同一二维公式，输出供后续范围/筛选阶段使用；没有移用 CUDA 代码、三维平滑或论文的质量和性能结果。 |
-| [gsplat tile_size](https://docs.gsplat.studio/main/apis/rasterization.html) · [TileGS](https://arxiv.org/abs/2609.03613) | 前者公开屏幕瓦片粒度参数，后者讨论 tile-local 列表与属性访问成本。当前内核只生成稳定的保守引用和偏移；没有采用 GPU 分桶、局部深度重排或其性能数字。 |
+| [`gsplat` 瓦片与深度排序](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) · [WebGPU Gaussian Splatting](https://github.com/lu-m-dev/WebGPU-gaussian-splatting) | `gsplat` 文档将高斯按瓦片分组并按深度排序；后者公开了瓦片交集、键值排序和范围构建的实现取舍。当前内核独立实现 CPU/WASM 的保守分箱与稳定瓦片内排序，不采用其 GPU 代码、性能数字或模型数据。 |
 | [gsplat 近远平面参数](https://docs.gsplat.studio/main/apis/rasterization.html) · [WebSplatter 预处理](https://arxiv.org/html/2602.03207v1#S3.SS2) | 参考在投影/绘制前限制候选的设计。深度筛选采用中心深度闭区间，视口相交由单独接口负责；不移用其他实现的性能结论。 |
 | [Gaussian Point Splatting](https://doi.org/10.1145/3811272) · [项目](https://github.com/JorisAR/gaussian-point-splatting) | 该项目公开近远平面和分层筛选的使用边界。这里补充的是独立的协方差支持范围候选规则，不采用其随机采样、层级结构或性能数据。 |
 | [WebSplatter 屏幕 AABB 筛选](https://arxiv.org/html/2602.03207v1#S3.SS2) | 参考用投影范围与视口相交筛选候选。这里实现独立 Rust/WASM 二维范围接口，保留相切项和候选顺序；没有沿用其 WebGPU 实现或性能数字。 |

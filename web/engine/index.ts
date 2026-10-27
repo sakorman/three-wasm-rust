@@ -9,6 +9,7 @@ export { gaussian_clip_depth_indices } from '../../pkg/three_wasm_rust.js';
 export { gaussian_clip_depth_support_indices } from '../../pkg/three_wasm_rust.js';
 export { gaussian_viewport_indices } from '../../pkg/three_wasm_rust.js';
 export { gaussian_tile_bins } from '../../pkg/three_wasm_rust.js';
+export { gaussian_tile_depth_order } from '../../pkg/three_wasm_rust.js';
 export { gaussian_depth_order } from '../../pkg/three_wasm_rust.js';
 export { gaussian_pack_half_extents } from '../../pkg/three_wasm_rust.js';
 export { Engine } from './Engine.ts';

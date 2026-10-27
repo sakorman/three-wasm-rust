@@ -1,16 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
-test('tile bins preserve filtered Gaussian raster output with per-tile candidate order', async ({ page }, info) => {
+test('tile bins preserve filtered Gaussian raster output with per-tile depth order', async ({ page }, info) => {
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('引擎已就绪');
   await page.getByRole('button', { name: '暂停动画' }).click();
   const result = await page.evaluate(async () => {
-    const { gaussian_filter_screen_covariances, gaussian_screen_bounds, gaussian_tile_bins, gaussian_visible_indices } =
+    const { gaussian_depth_order, gaussian_filter_screen_covariances, gaussian_screen_bounds, gaussian_tile_bins, gaussian_tile_depth_order, gaussian_visible_indices } =
       await import('../../web/engine/index.ts');
     const width = 256, height = 192, tileSize = 32, cutoff = Math.fround(1 / 255);
     const centers = new Float32Array([
-      16, 20, 39, 30, 72, 46, 105, 75, 137, 104, 169, 34, 202, 146, 238, 172,
+      80, 80, 84, 80, 80, 84, 84, 84, 88, 80, 80, 88, 88, 88, 84, 88,
     ]);
     const originalCovariance = new Float32Array([
       20, 5, 11, 16, -3, 9, 28, 8, 18, 12, -4, 24,
@@ -25,10 +25,13 @@ test('tile bins preserve filtered Gaussian raster output with per-tile candidate
     }
     const bounds = gaussian_screen_bounds(covariance, opacity, cutoff);
     const candidates = gaussian_visible_indices(opacity, cutoff);
+    const depths = new Float32Array([1, 8, 2, 7, 3, 6, 4, 5]);
+    const globallyOrdered = gaussian_depth_order(depths, candidates);
     const packed = gaussian_tile_bins(centers, bounds, candidates, width, height, tileSize);
     const columns = Math.ceil(width / tileSize), rows = Math.ceil(height / tileSize), offsetCount = columns * rows + 1;
-    const offsets = packed.slice(0, offsetCount), entries = packed.slice(offsetCount);
-    const raster = (tiled: boolean) => {
+    const sortedPacked = gaussian_tile_depth_order(depths, packed, columns * rows);
+    const offsets = sortedPacked.slice(0, offsetCount), entries = sortedPacked.slice(offsetCount), unsortedEntries = packed.slice(offsetCount);
+    const raster = (tiled: boolean, tileEntries = entries) => {
       const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
       const gl = canvas.getContext('webgl2', { antialias: false, alpha: true });
       if (!gl) throw new Error('WebGL2 unavailable');
@@ -77,30 +80,34 @@ void main() { vec2 d = gl_FragCoord.xy - center; float q = conic.x*d.x*d.x + 2.0
           for (let tileY = 0; tileY < rows; tileY++) for (let tileX = 0; tileX < columns; tileX++) {
             const tile = tileY * columns + tileX;
             gl.scissor(tileX * tileSize, tileY * tileSize, Math.min(tileSize, width - tileX * tileSize), Math.min(tileSize, height - tileY * tileSize));
-            for (let cursor = offsets[tile]; cursor < offsets[tile + 1]; cursor++) { draw(entries[cursor]); draws++; }
+            for (let cursor = offsets[tile]; cursor < offsets[tile + 1]; cursor++) { draw(tileEntries[cursor]); draws++; }
           }
           gl.disable(gl.SCISSOR_TEST);
         } else {
-          for (const id of candidates) { draw(id); draws++; }
+          for (const id of globallyOrdered) { draw(id); draws++; }
         }
         const pixels = new Uint8Array(width * height * 4); gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
         return { pixels: Array.from(pixels), draws, error: gl.getError() };
       } finally { gl.deleteProgram(program); }
     };
-    const full = raster(false), tiled = raster(true);
-    let differentChannels = 0, visiblePixels = 0, largestTile = 0;
+    const full = raster(false), tiled = raster(true), unsorted = raster(true, unsortedEntries);
+    let differentChannels = 0, unorderedDifferentChannels = 0, visiblePixels = 0, largestTile = 0;
     for (let index = 0; index < full.pixels.length; index++) if (full.pixels[index] !== tiled.pixels[index]) differentChannels++;
+    for (let index = 0; index < full.pixels.length; index++) if (full.pixels[index] !== unsorted.pixels[index]) unorderedDifferentChannels++;
     for (let index = 3; index < tiled.pixels.length; index += 4) if (tiled.pixels[index]) visiblePixels++;
     for (let tile = 0; tile < offsets.length - 1; tile++) largestTile = Math.max(largestTile, offsets[tile + 1] - offsets[tile]);
-    return { candidates: Array.from(candidates), offsets: Array.from(offsets), referenceCount: entries.length, largestTile,
-      full: { draws: full.draws, error: full.error }, tiled: { draws: tiled.draws, error: tiled.error }, differentChannels, visiblePixels };
+    return { candidates: Array.from(candidates), globallyOrdered: Array.from(globallyOrdered), offsets: Array.from(offsets), referenceCount: entries.length, largestTile,
+      full: { draws: full.draws, error: full.error }, tiled: { draws: tiled.draws, error: tiled.error }, unsorted: { draws: unsorted.draws, error: unsorted.error },
+      differentChannels, unorderedDifferentChannels, visiblePixels };
   });
   expect(result.full.error).toBe(0);
   expect(result.tiled.error).toBe(0);
+  expect(result.unsorted.error).toBe(0);
   expect(result.referenceCount).toBeGreaterThan(result.candidates.length);
   expect(result.largestTile).toBeGreaterThan(1);
   expect(result.tiled.draws).toBe(result.referenceCount);
   expect(result.differentChannels).toBe(0);
+  expect(result.unorderedDifferentChannels).toBeGreaterThan(0);
   expect(result.visiblePixels).toBeGreaterThan(1000);
   await writeFile(info.outputPath('gaussian-tiles.json'), JSON.stringify(result, null, 2));
 });

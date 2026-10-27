@@ -2,6 +2,14 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-27 · 高斯瓦片内稳定深度排序
+
+- 新增 `gaussian_tile_depth_order()`：保留分箱偏移表，对每个瓦片内的高斯 ID 按中心深度远到近稳定排序。此前分箱只保留调用方顺序；现在可直接为透明混合生成独立的瓦片内顺序，同深度及正负零保持输入相对顺序。
+- 接口完整校验有限深度、偏移从零开始且单调、末项与 ID 数一致、索引范围及同一瓦片内重复 ID；同一 ID 在不同瓦片仍可复用。失败时不返回部分结果。
+- 4,097 项的独立 JavaScript 稳定排序参考与 WASM 输出一致。256×192 WebGL2 用例中，8 个重叠候选生成 23 条瓦片引用；瓦片内排序与全局远到近参考逐通道一致，故意跳过局部排序有 1,651 个不同通道。
+- 限制：排序仅使用中心深度，在 CPU/WASM 完成；未实现 GPU 键值排序、逐像素遮挡或真实模型帧率测量。参考 [`gsplat` 瓦片排序说明](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) 与 [WebGPU Gaussian Splatting](https://github.com/lu-m-dev/WebGPU-gaussian-splatting)，未使用其代码、模型或性能数据。
+- 验证：262 项测试通过（80 Rust、88 Node、94 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+
 ## 2026-10-27 · 高斯屏幕瓦片分箱
 
 - 新增 `gaussian_tile_bins()`：将筛选后的二维高斯范围编入行优先瓦片，返回偏移表和原始高斯 ID，保留候选顺序及与瓦片边界相交的项；此前调用方只能逐项全屏遍历候选。

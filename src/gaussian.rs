@@ -488,6 +488,125 @@ pub fn gaussian_tile_bins(
     Ok(result)
 }
 
+fn validate_tile_bin_ranges(
+    depths: &[f32],
+    tile_bins: &[u32],
+    tile_count: u32,
+) -> Result<usize, String> {
+    if depths.len() > MAX_SPLATS {
+        return Err("at most 1000000 Gaussian depths are supported".into());
+    }
+    if depths.iter().any(|value| !value.is_finite()) {
+        return Err("Gaussian depths must be finite".into());
+    }
+    let tile_count = tile_count as usize;
+    if tile_count == 0 || tile_count > MAX_TILES {
+        return Err("Gaussian tile count must be in 1..=1000000".into());
+    }
+    let offset_count = tile_count + 1;
+    if tile_bins.len() < offset_count {
+        return Err(
+            "Gaussian tile bins must begin with one offset per tile plus a sentinel".into(),
+        );
+    }
+    let entry_count = tile_bins.len() - offset_count;
+    if entry_count > MAX_TILE_REFERENCES {
+        return Err("at most 4000000 Gaussian tile references are supported".into());
+    }
+    let offsets = &tile_bins[..offset_count];
+    if offsets[0] != 0 {
+        return Err("Gaussian tile bin offsets must begin at zero".into());
+    }
+    let mut previous = 0_usize;
+    for (tile, &offset) in offsets.iter().enumerate() {
+        let offset = offset as usize;
+        if offset < previous || offset > entry_count {
+            return Err(format!("invalid Gaussian tile bin offset at tile {tile}"));
+        }
+        previous = offset;
+    }
+    if previous != entry_count {
+        return Err("Gaussian tile bin sentinel must equal the entry count".into());
+    }
+    let entries = &tile_bins[offset_count..];
+    let mut seen_in_tile = vec![0_u32; depths.len()];
+    for tile in 0..tile_count {
+        let marker = tile as u32 + 1;
+        let start = offsets[tile] as usize;
+        let end = offsets[tile + 1] as usize;
+        for (entry, &id) in entries[start..end].iter().enumerate() {
+            let id = id as usize;
+            if id >= depths.len() {
+                return Err(format!(
+                    "Gaussian tile bin index out of range at tile {tile} entry {entry}"
+                ));
+            }
+            if seen_in_tile[id] == marker {
+                return Err(format!(
+                    "duplicate Gaussian tile bin index at tile {tile} entry {entry}"
+                ));
+            }
+            seen_in_tile[id] = marker;
+        }
+    }
+    Ok(offset_count)
+}
+
+fn stable_descending_depth_order(depths: &[f32], order: &mut [u32], scratch: &mut [u32]) {
+    if order.len() < 2 {
+        return;
+    }
+    debug_assert!(scratch.len() >= order.len());
+    for shift in [0, 8, 16, 24] {
+        let mut offsets = [0_usize; 256];
+        for &id in order.iter() {
+            offsets[((descending_depth_key(depths[id as usize]) >> shift) & 255) as usize] += 1;
+        }
+        let mut prefix = 0;
+        for count in &mut offsets {
+            let length = *count;
+            *count = prefix;
+            prefix += length;
+        }
+        for &id in order.iter() {
+            let digit = ((descending_depth_key(depths[id as usize]) >> shift) & 255) as usize;
+            scratch[offsets[digit]] = id;
+            offsets[digit] += 1;
+        }
+        order.copy_from_slice(&scratch[..order.len()]);
+    }
+}
+
+/// Sort every tile's unique Gaussian IDs by decreasing finite f32 depth.
+///
+/// `tile_bins` uses the offsets-and-entries layout returned by
+/// [`gaussian_tile_bins`]. IDs may repeat in different tiles, but not in the
+/// same tile. Offsets are preserved and equal depths retain their input order
+/// within that tile.
+#[wasm_bindgen]
+pub fn gaussian_tile_depth_order(
+    depths: &[f32],
+    tile_bins: &[u32],
+    tile_count: u32,
+) -> Result<Vec<u32>, String> {
+    let offset_count = validate_tile_bin_ranges(depths, tile_bins, tile_count)?;
+    let offsets = &tile_bins[..offset_count];
+    let largest_tile = offsets
+        .windows(2)
+        .map(|window| (window[1] - window[0]) as usize)
+        .max()
+        .unwrap_or(0);
+    let mut result = tile_bins.to_vec();
+    let entries = &mut result[offset_count..];
+    let mut scratch = vec![0_u32; largest_tile];
+    for tile in 0..tile_count as usize {
+        let start = offsets[tile] as usize;
+        let end = offsets[tile + 1] as usize;
+        stable_descending_depth_order(depths, &mut entries[start..end], &mut scratch);
+    }
+    Ok(result)
+}
+
 /// Keep candidate centers with near <= depth <= far, preserving candidate order.
 /// Depth is positive forward; near must be finite and positive. Far may be +infinity.
 /// This filters centers only, not the full Gaussian support volume.
@@ -1002,6 +1121,33 @@ mod tests {
                 .unwrap_err()
                 .contains("4000000")
         );
+    }
+
+    #[test]
+    fn tile_depth_order_sorts_each_tile_stably_and_reuses_ids_across_tiles() {
+        let depths = [2., 5., 5., 9.];
+        // Three tiles: [0, 2, 1], [3, 0], then an empty tile.
+        let bins = [0, 3, 5, 5, 0, 2, 1, 3, 0];
+        assert_eq!(
+            gaussian_tile_depth_order(&depths, &bins, 3).unwrap(),
+            [0, 3, 5, 5, 2, 1, 0, 3, 0]
+        );
+        assert_eq!(
+            gaussian_tile_depth_order(&[1., 2.], &[0, 1, 2, 0, 0], 2).unwrap(),
+            [0, 1, 2, 0, 0]
+        );
+    }
+
+    #[test]
+    fn tile_depth_order_rejects_malformed_offsets_and_tile_entries() {
+        assert!(gaussian_tile_depth_order(&[1.], &[0], 0).is_err());
+        assert!(gaussian_tile_depth_order(&[1.], &[1, 1], 1).is_err());
+        assert!(gaussian_tile_depth_order(&[1.], &[0, 2], 1).is_err());
+        assert!(gaussian_tile_depth_order(&[1.], &[0, 1, 0], 2).is_err());
+        assert!(gaussian_tile_depth_order(&[1.], &[0, 1, 2], 1).is_err());
+        assert!(gaussian_tile_depth_order(&[1., 2.], &[0, 2, 0, 0], 1).is_err());
+        assert!(gaussian_tile_depth_order(&[f32::NAN], &[0, 0], 1).is_err());
+        assert!(gaussian_tile_depth_order(&[], &[0], 1_000_001).is_err());
     }
 
     #[test]
