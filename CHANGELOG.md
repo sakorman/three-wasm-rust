@@ -2,6 +2,14 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-28 · 独立高斯光栅 pass
+
+- 新增 `GaussianRasterRenderer`：固定交错上传记录现在可由独立 WebGL2 pass 直接绘制。此前只有 VBO 数据准备和手写测试着色器，没有可复用的绘制器。
+- 绘制器读取中心、范围、逆协方差、不透明度和裁切系数，以预乘 alpha 执行 CDF 裁切与源顺序合成；上下文恢复时先重传上传缓冲，再新建 shader/VAO。调用结束后恢复 program、VAO、数组缓冲、viewport 和混合状态。
+- 真实 WebGL2 回归中，裁切相对未裁切有 23,264 个不同 RGBA 通道；恢复前后裁切图逐字节一致，并覆盖调用方混合状态恢复。
+- 验证：277 项测试通过（82 Rust、96 Node、99 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：当前 pass 不读取瓦片引用、颜色、球谐、纹理或深度/透明度策略，未接入首页 Mesh 场景；该合成回归不代表 GPU 时间、帧率、显存、真实模型画质或完整 3DGS。参考 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) 与 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)，未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-28 · 高斯上传缓冲恢复
 
 - 新增 `GaussianUploadBuffers`：高斯上传记录现在会由资源层保存独立 CPU 副本，并维护交错数据和瓦片两类 WebGL2 缓冲。此前调用方需直接创建缓冲，且上下文恢复后没有可重传的资源状态。

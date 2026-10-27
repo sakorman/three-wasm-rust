@@ -301,6 +301,20 @@ const gpu = buffers.snapshot(); // ready 时返回 VBO、可用字节数和容�
 
 上下文丢失时 `snapshot()` 返回 `undefined`，旧 WebGL 句柄不会再暴露；恢复后自动以内部副本新建缓冲并重传。调用方在恢复后的 `snapshot()` 中重新绑定 VAO 和属性即可。传入数组在 `update()` 后可以修改，不会影响恢复内容。该类尚未接入首页 Mesh 场景或完整高斯主渲染器；缓冲容量、上传次数和本节 WebGL 测试均不是 GPU 时间、帧率或显存收益结论。
 
+### 独立光栅 pass
+
+`GaussianRasterRenderer` 消费 `PackedGaussianRasterUpload`，创建自己的 program 与 VAO，并以记录中的中心、范围、逆协方差、不透明度和可选 CDF 系数执行一次 `drawArraysInstanced`。它使用预乘灰度 alpha、源列表的远到近顺序和 `ONE / ONE_MINUS_SRC_ALPHA` 混合；调用前的 program、VAO、数组缓冲、viewport 与混合状态会在返回前恢复。
+
+```ts
+import { GaussianRasterRenderer } from './web/engine/index.ts';
+
+const renderer = new GaussianRasterRenderer(gl, lifecycle);
+renderer.update(upload);
+renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
+```
+
+绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。它目前按全局紧凑顺序绘制，不读取瓦片引用；也不提供颜色、球谐、纹理、深度/透明度策略或主页面接入。因此该 pass 只验证已有几何与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
+
 ## 可复现结果
 
 256×192 WebGL2 合成测试包含 28 个圆形、旋转椭圆及重叠高斯，不透明度覆盖 0–1。参考四边形按最坏峰值 1 计算范围，两边片元使用相同的真实不透明度、协方差、阈值、颜色、混合和绘制顺序。
@@ -328,6 +342,8 @@ const gpu = buffers.snapshot(); // ready 时返回 VBO、可用字节数和容�
 上传打包回归将同一份准备数据以 12-f32 交错属性上传到真实 WebGL2 VBO，并以一次 3 实例绘制执行 CDF 片元路径。记录步长为 48 字节，VBO 实际容量为 144 字节；包含 52 条引用的瓦片缓冲容量为 980 字节。裁切相对未裁切有 23,264 个不同通道、1,976 个可见像素，`gl.getError()` 为零；报告保存为 `test-results/**/gaussian-upload.json`。容量是该合成输入的缓冲大小，不是带宽、帧率或显存收益。
 
 上传缓冲恢复回归先上传 3 条记录和瓦片数据，再更新为 2 条记录，数据缓冲容量维持 144 字节并只进行子更新。触发真实 `WEBGL_lose_context` 后资源快照为空；在恢复前写入的新上传数据由内部副本重传，新的 VBO 中首项中心与写入时一致。该结果只验证所有权、容量和恢复语义，不代表完整场景的资源占用或恢复时间。
+
+独立光栅 pass 回归以同一份 3 条上传记录分别执行裁切和未裁切绘制，二者产生 23,264 个不同 RGBA 通道；恢复前后裁切图像逐字节一致。回归还设置非默认混合因子并确认 draw 返回后恢复。该结果只检查着色器、属性布局、透明混合和恢复顺序，不比较瓦片调度、GPU 时间、帧率或真实模型质量。
 
 深度筛选以 65,537 项输入对照 JavaScript 的不透明度筛选、深度条件和稳定排序。浏览器用例的 8 个高斯中，7 个通过不透明度筛选，3 个通过 `[2, 10]` 深度范围；未经筛选的整批投影会因相机后方中心报错，筛选后正确保留近远边界项及其不透明度，绘制 2,074 个可见像素，与 f32 范围参考 RGBA 一致。报告保存为 `test-results/**/gaussian-clip.json`；这验证的是筛选规则和管线衔接，不代表裁剪前后的画面应当相同。
 

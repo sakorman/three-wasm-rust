@@ -177,3 +177,73 @@ test('Gaussian upload buffers reuse capacity and restore copied data after WebGL
   expect(result.error).toBe(0);
   expect(result.calls).toEqual({ create: 4, delete: 3, data: 4, subData: 1 });
 });
+
+test('Gaussian raster renderer composites packed records and restores its independent draw path', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('引擎已就绪');
+  const result = await page.evaluate(async () => {
+    const { ContextLifecycle, GaussianRasterRenderer, packGaussianRasterUpload, prepareGaussianRaster } = await import('../../web/engine/index.ts');
+    const width = 256, height = 192, cutoff = .1;
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: true });
+    if (!gl) throw new Error('WebGL2 unavailable');
+    const extension = gl.getExtension('WEBGL_lose_context'); if (!extension) throw new Error('Context-loss extension unavailable');
+    let draws = 0;
+    Object.defineProperty(gl, 'drawArraysInstanced', { value: new Proxy(gl.drawArraysInstanced, {
+      apply(target, context, args: unknown[]) { draws++; return Reflect.apply(target, context, args); },
+    }) });
+    const lifecycle = new ContextLifecycle(gl), renderer = new GaussianRasterRenderer(gl, lifecycle);
+    const makeUpload = () => packGaussianRasterUpload(prepareGaussianRaster({
+      centers: new Float32Array([0, 0, .8, .1, 0, 2, 0, 0, 4.5, 10, 0, 2]),
+      covariances: new Float32Array([
+        .04, 0, 0, .04, 0, .25, .04, 0, 0, .04, 0, .25,
+        .04, 0, 0, .04, 0, .25, .04, 0, 0, .04, 0, .25,
+      ]),
+      opacities: new Float32Array([.5, .8, .7, .9]), cutoff, filterVariance: .25, tileSize: 16,
+      camera: { focalX: 96, focalY: 96, principalX: 128, principalY: 96, near: 1, far: 4, width, height },
+      clipPlane: { normal: new Float32Array([0, 0, -1]), offset: -1 },
+    }));
+    const event = (name: string, action: () => void) => new Promise<void>((resolve) => {
+      canvas.addEventListener(name, () => setTimeout(resolve, 0), { once: true }); action();
+    });
+    const render = (applyClip: boolean) => {
+      gl.viewport(0, 0, width, height); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      renderer.draw({ width, height, cutoff, applyClip });
+      const pixels = new Uint8Array(width * height * 4); gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return pixels;
+    };
+    try {
+      gl.disable(gl.BLEND);
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_DST_ALPHA, gl.ZERO, gl.ONE);
+      const initialUpload = makeUpload(); renderer.update(initialUpload);
+      const initial = render(true), unclipped = render(false);
+      const blendRestored = !gl.isEnabled(gl.BLEND)
+        && gl.getParameter(gl.BLEND_SRC_RGB) === gl.SRC_ALPHA
+        && gl.getParameter(gl.BLEND_DST_RGB) === gl.ONE_MINUS_DST_ALPHA
+        && gl.getParameter(gl.BLEND_SRC_ALPHA) === gl.ZERO
+        && gl.getParameter(gl.BLEND_DST_ALPHA) === gl.ONE;
+      let changedChannels = 0, visiblePixels = 0;
+      for (let index = 0; index < initial.length; index++) if (initial[index] !== unclipped[index]) changedChannels++;
+      for (let index = 3; index < initial.length; index += 4) if (initial[index]) visiblePixels++;
+      await event('webglcontextlost', () => extension.loseContext());
+      const readyWhileLost = renderer.ready, snapshotWhileLost = renderer.snapshot();
+      const recoveryUpload = makeUpload(); renderer.update(recoveryUpload);
+      recoveryUpload.splatData[0] = -999;
+      await event('webglcontextrestored', () => extension.restoreContext());
+      const restored = render(true);
+      let restoredEqual = true;
+      for (let index = 0; index < initial.length; index++) {
+        if (initial[index] !== restored[index]) { restoredEqual = false; break; }
+      }
+      return { changedChannels, visiblePixels, blendRestored, readyWhileLost, snapshotWhileLost, restoredEqual, draws, error: gl.getError() };
+    } finally { renderer.dispose(); lifecycle.dispose(); }
+  });
+  expect(result.changedChannels).toBeGreaterThan(500);
+  expect(result.visiblePixels).toBeGreaterThan(100);
+  expect(result.blendRestored).toBe(true);
+  expect(result.readyWhileLost).toBe(false);
+  expect(result.snapshotWhileLost).toBeUndefined();
+  expect(result.restoredEqual).toBe(true);
+  expect(result.draws).toBe(3);
+  expect(result.error).toBe(0);
+});

@@ -17,6 +17,8 @@ export { GAUSSIAN_RASTER_UPLOAD_STRIDE, packGaussianRasterUpload, prepareGaussia
 export type { GaussianClipPlane, GaussianRasterCamera, GaussianRasterPreparationOptions, GaussianRasterTiles, PackedGaussianRasterUpload, PreparedGaussianRaster } from './gaussian.ts';
 export { GaussianUploadBuffers } from './GaussianUploadBuffers.ts';
 export type { GaussianUploadBufferSnapshot } from './GaussianUploadBuffers.ts';
+export { GaussianRasterRenderer } from './GaussianRasterRenderer.ts';
+export type { GaussianRasterDrawOptions } from './GaussianRasterRenderer.ts';
 export { Engine } from './Engine.ts';
 export { ContextLifecycle } from './ContextLifecycle.ts';
 export { OrbitCamera } from './camera.ts';
