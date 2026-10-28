@@ -23,9 +23,10 @@ function repeatedCovariance(): Float32Array {
 test('Gaussian preparation keeps source IDs while compacting, clipping and tiling a camera view', () => {
   const centers = new Float32Array([0, 0, .8, .1, 0, 2, 0, 0, 4.5, 10, 0, 2]);
   const covariances = repeatedCovariance(), opacities = new Float32Array([.5, .8, .7, .9]);
-  const savedCenters = centers.slice(), savedCovariances = covariances.slice(), savedOpacities = opacities.slice();
+  const colors = new Float32Array([.1, .2, .3, .4, .5, .6, .7, .8, .9, .9, .8, .7]);
+  const savedCenters = centers.slice(), savedCovariances = covariances.slice(), savedOpacities = opacities.slice(), savedColors = colors.slice();
   const prepared = prepareGaussianRaster({
-    centers, covariances, opacities, cutoff: .1, camera, filterVariance: .25, tileSize: 16,
+    centers, covariances, opacities, colors, cutoff: .1, camera, filterVariance: .25, tileSize: 16,
     clipPlane: { normal: new Float32Array([0, 0, -1]), offset: -1 },
   });
 
@@ -34,6 +35,7 @@ test('Gaussian preparation keeps source IDs while compacting, clipping and tilin
   assert.equal(prepared.screenCenters.length, 6);
   assert.equal(prepared.screenCovariances.length, 9);
   assert.equal(prepared.opacities.length, 3);
+  assert.deepEqual(prepared.colors, new Float32Array([.7, .8, .9, .4, .5, .6, .1, .2, .3]));
   assert.equal(prepared.halfExtents.length, 6);
   assert.ok(prepared.clipCoefficients);
   assert.ok(prepared.clipCoefficients[2] > 0 && prepared.clipCoefficients[5] > 0 && prepared.clipCoefficients[8] < 0);
@@ -46,6 +48,7 @@ test('Gaussian preparation keeps source IDs while compacting, clipping and tilin
   assert.deepEqual(centers, savedCenters);
   assert.deepEqual(covariances, savedCovariances);
   assert.deepEqual(opacities, savedOpacities);
+  assert.deepEqual(colors, savedColors);
 });
 
 test('Gaussian preparation rejects mismatched source buffers and unsafe tile settings', () => {
@@ -75,6 +78,7 @@ test('Gaussian upload records keep compact attributes, clip state and tile refer
     assert.equal(upload.splatData[record + 7], prepared.opacities[index]);
     assert.deepEqual(Array.from(upload.splatData.slice(record + 8, record + 11)), Array.from(prepared.clipCoefficients!.slice(index * 3, index * 3 + 3)));
     assert.equal(upload.splatData[record + 11], 1);
+    assert.deepEqual(Array.from(upload.splatData.slice(record + 12, record + 15)), Array.from(prepared.colors.slice(index * 3, index * 3 + 3)));
   }
   assert.ok(upload.tiles);
   assert.notEqual(upload.tiles.packed, prepared.tiles!.packed);
@@ -90,9 +94,20 @@ test('Gaussian upload rejects invalid prepared covariances, tile offsets and f32
   const valid = {
     originalIds: new Uint32Array([3]), screenCenters: new Float32Array([0, 0]),
     screenCovariances: new Float32Array([1, 0, 1]), opacities: new Float32Array([.5]),
-    depths: new Float32Array([2]), halfExtents: new Float32Array([1, 1]),
+    colors: new Float32Array([1, 1, 1]), depths: new Float32Array([2]), halfExtents: new Float32Array([1, 1]),
   };
   assert.throws(() => packGaussianRasterUpload({ ...valid, screenCovariances: new Float32Array([1, 1, 1]) }), /positive definite/);
   assert.throws(() => packGaussianRasterUpload({ ...valid, tiles: { tileSize: 16, columns: 1, rows: 1, packed: new Uint32Array([0, 2, 0]) } }), /offsets/);
   assert.throws(() => packGaussianRasterUpload({ ...valid, screenCovariances: new Float32Array([1e-45, 0, 1e-45]) }), /f32 range/);
+  assert.throws(() => packGaussianRasterUpload({ ...valid, colors: new Float32Array([1, -1, 1]) }), /color/);
+});
+
+test('Gaussian preparation defaults colors to white and rejects malformed RGB input', () => {
+  const input = {
+    centers: new Float32Array([0, 0, 2]), covariances: new Float32Array([.04, 0, 0, .04, 0, .25]),
+    opacities: new Float32Array([.8]), cutoff: .1, camera,
+  };
+  assert.deepEqual(Array.from(prepareGaussianRaster(input).colors), [1, 1, 1]);
+  assert.throws(() => prepareGaussianRaster({ ...input, colors: new Float32Array([1, 0]) }), /colors/);
+  assert.throws(() => prepareGaussianRaster({ ...input, colors: new Float32Array([1, -1, 0]) }), /color/);
 });

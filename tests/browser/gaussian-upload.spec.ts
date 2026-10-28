@@ -94,8 +94,8 @@ void main() { vec2 d = gl_FragCoord.xy - vCenter;
   });
   expect(result.error).toBe(0);
   expect(result.originalIds).toEqual([2, 1, 0]);
-  expect(result.stride).toBe(48);
-  expect(result.splatBufferSize).toBe(3 * 48);
+  expect(result.stride).toBe(60);
+  expect(result.splatBufferSize).toBe(3 * 60);
   expect(result.tileBufferSize).toBeGreaterThan(0);
   expect(result.tileReferences).toBe(52);
   expect(result.changedChannels).toBeGreaterThan(500);
@@ -142,7 +142,7 @@ test('Gaussian upload buffers reuse capacity and restore copied data after WebGL
     try {
       const initialUpload = makeUpload(); buffers.update(initialUpload);
       const initial = buffers.snapshot(); if (!initial) throw new Error('Missing initial Gaussian buffers');
-      const smaller = { splatData: initialUpload.splatData.slice(0, 24), originalIds: initialUpload.originalIds.slice(0, 2) };
+      const smaller = { splatData: initialUpload.splatData.slice(0, 30), originalIds: initialUpload.originalIds.slice(0, 2) };
       buffers.update(smaller);
       const reused = buffers.snapshot(); if (!reused) throw new Error('Missing reused Gaussian buffer');
       await event('webglcontextlost', () => extension.loseContext());
@@ -163,14 +163,14 @@ test('Gaussian upload buffers reuse capacity and restore copied data after WebGL
       };
     } finally { buffers.dispose(); lifecycle.dispose(); }
   });
-  expect(result.initialBytes).toBe(144);
-  expect(result.initialCapacity).toBe(144);
+  expect(result.initialBytes).toBe(180);
+  expect(result.initialCapacity).toBe(180);
   expect(result.initialTileBytes).toBe(980);
-  expect(result.reusedBytes).toBe(96);
-  expect(result.reusedCapacity).toBe(144);
+  expect(result.reusedBytes).toBe(120);
+  expect(result.reusedCapacity).toBe(180);
   expect(result.reusedHasTile).toBe(false);
   expect(result.duringLoss).toBeUndefined();
-  expect(result.restoredBytes).toBe(144);
+  expect(result.restoredBytes).toBe(180);
   expect(result.restoredTileBytes).toBe(980);
   expect(result.sameHandle).toBe(false);
   expect(result.restoredCenter).toBe(result.expectedCenter);
@@ -301,5 +301,40 @@ test('Gaussian raster renderer preserves the compact blend result when dispatchi
   expect(result.visiblePixels).toBeGreaterThan(100);
   expect(result.scissorEnabled).toBe(false);
   expect(result.scissorBox).toEqual([2, 3, 4, 5]);
+  expect(result.error).toBe(0);
+});
+
+test('Gaussian raster renderer composites per-record linear RGB with premultiplied alpha', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('引擎已就绪');
+  const result = await page.evaluate(async () => {
+    const { ContextLifecycle, GaussianRasterRenderer } = await import('../../web/engine/index.ts');
+    const width = 64, height = 64;
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: true });
+    if (!gl) throw new Error('WebGL2 unavailable');
+    const lifecycle = new ContextLifecycle(gl), renderer = new GaussianRasterRenderer(gl, lifecycle);
+    const record = (x: number, color: [number, number, number]) => [
+      x, 32.5, 16, 16, .08, 0, .08, .9, 0, 0, 0, 0, ...color,
+    ];
+    const upload = {
+      splatData: new Float32Array([...record(16.5, [1, 0, 0]), ...record(47.5, [0, .5, 1])]),
+      originalIds: new Uint32Array([0, 1]),
+    };
+    const pixelAt = (pixels: Uint8Array, x: number, y: number) => Array.from(pixels.slice((y * width + x) * 4, (y * width + x) * 4 + 4));
+    try {
+      renderer.update(upload);
+      gl.viewport(0, 0, width, height); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      renderer.draw({ width, height, cutoff: .01, applyClip: false });
+      const pixels = new Uint8Array(width * height * 4); gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return { left: pixelAt(pixels, 16, 32), right: pixelAt(pixels, 47, 32), error: gl.getError() };
+    } finally { renderer.dispose(); lifecycle.dispose(); }
+  });
+  expect(result.left[0]).toBeGreaterThan(200);
+  expect(result.left[1]).toBeLessThan(4);
+  expect(result.left[2]).toBeLessThan(4);
+  expect(result.right[0]).toBeLessThan(4);
+  expect(result.right[1]).toBeGreaterThan(100);
+  expect(result.right[2]).toBeGreaterThan(200);
   expect(result.error).toBe(0);
 });

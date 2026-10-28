@@ -2,6 +2,14 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-28 · 高斯线性 RGB 合成
+
+- `prepareGaussianRaster()` 现在接收可选的非负线性 RGB 并随紧凑深度顺序重排；缺省输入写入白色。此前独立 pass 只输出灰度 alpha，颜色无法进入高斯记录。
+- 上传记录扩展为 15-f32（60 字节），`GaussianRasterRenderer` 读取 RGB 属性并以预乘 alpha 合成。颜色、上传缓冲缩容和上下文恢复均按新布局校验。
+- Node 回归覆盖深度重排、白色缺省、畸形与负色拒绝；WebGL2 回归确认红色和青色记录在各自中心保留正确颜色分量。
+- 验证：282 项测试通过（82 Rust、99 Node、101 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：当前只支持调用方提供的线性 RGB，不加载高斯资产，不计算视角相关 SH、色彩空间转换、曝光或色调映射；该功能不代表真实模型的画质、GPU 时间或帧率。参考 [`gsplat` rendering`](https://github.com/nerfstudio-project/gsplat/blob/main/gsplat/rendering.py) 与 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)，未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-28 · 高斯瓦片连续记录分批
 
 - `GaussianUploadBuffers` 新增连续局部 ID 段迭代，`drawTiles()` 对每段执行一次实例化提交。此前每条瓦片引用都会单独提交；现在仅合并相邻记录，跳号或逆序会保留独立段和原有混合顺序。

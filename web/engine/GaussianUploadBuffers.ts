@@ -60,6 +60,7 @@ function cloneUpload(upload: PackedGaussianRasterUpload): PackedGaussianRasterUp
     const halfWidth = upload.splatData[record + 2], halfHeight = upload.splatData[record + 3];
     const conicXX = upload.splatData[record + 4], conicXY = upload.splatData[record + 5], conicYY = upload.splatData[record + 6];
     const opacity = upload.splatData[record + 7], clipEnabled = upload.splatData[record + 11];
+    const red = upload.splatData[record + 12], green = upload.splatData[record + 13], blue = upload.splatData[record + 14];
     if (halfWidth < 0 || halfHeight < 0 || opacity < 0 || opacity > 1) {
       throw new Error(`Gaussian upload extent or opacity is invalid at record ${index}`);
     }
@@ -67,6 +68,7 @@ function cloneUpload(upload: PackedGaussianRasterUpload): PackedGaussianRasterUp
       throw new Error(`Gaussian upload conic is not positive definite at record ${index}`);
     }
     if (clipEnabled !== 0 && clipEnabled !== 1) throw new Error(`Gaussian upload clip flag is invalid at record ${index}`);
+    if (red < 0 || green < 0 || blue < 0) throw new Error(`Gaussian upload color is invalid at record ${index}`);
   }
   return {
     splatData: upload.splatData.slice(),

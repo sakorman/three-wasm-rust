@@ -20,12 +20,14 @@ layout(location=2) in vec3 conic;
 layout(location=3) in float opacity;
 layout(location=4) in vec3 clip;
 layout(location=5) in float clipEnabled;
+layout(location=6) in vec3 color;
 uniform vec2 viewport;
 out vec2 vCenter;
 out vec3 vConic;
 out float vOpacity;
 out vec3 vClip;
 out float vClipEnabled;
+out vec3 vColor;
 const vec2 corners[6] = vec2[6](
   vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0),
   vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0)
@@ -38,6 +40,7 @@ void main() {
   vOpacity = opacity;
   vClip = clip;
   vClipEnabled = clipEnabled;
+  vColor = color;
 }`;
 
 const fragmentSource = `#version 300 es
@@ -47,6 +50,7 @@ in vec3 vConic;
 in float vOpacity;
 in vec3 vClip;
 in float vClipEnabled;
+in vec3 vColor;
 uniform float cutoff;
 uniform bool applyClip;
 out vec4 outputColor;
@@ -62,7 +66,7 @@ void main() {
   float clipFactor = applyClip && vClipEnabled > 0.5 ? normalCdf(dot(vClip.xy, -delta) + vClip.z) : 1.0;
   float alpha = vOpacity * exp(-0.5 * quadratic) * clipFactor;
   if (alpha < cutoff) discard;
-  outputColor = vec4(alpha, alpha, alpha, alpha);
+  outputColor = vec4(vColor * alpha, alpha);
 }`;
 
 interface ProgramState {
@@ -84,7 +88,7 @@ function assertDrawOptions({ width, height, cutoff }: GaussianRasterDrawOptions)
  * Draws packed Gaussian records through an independent WebGL2 point-splat pass.
  *
  * This renderer uses the same compact order as `prepareGaussianRaster()`: callers retain
- * responsibility for camera preparation, tile dispatch, color/SH evaluation and targets.
+ * responsibility for camera preparation, tile dispatch, SH evaluation and targets.
  */
 export class GaussianRasterRenderer {
   readonly uploads: GaussianUploadBuffers;
@@ -212,6 +216,7 @@ export class GaussianRasterRenderer {
     attribute(3, 1, 7);
     attribute(4, 3, 8);
     attribute(5, 1, 11);
+    attribute(6, 3, 12);
   }
 
   private readonly onContextStateChange = (): void => {

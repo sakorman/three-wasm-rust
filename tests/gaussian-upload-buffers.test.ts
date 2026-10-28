@@ -5,7 +5,7 @@ import { GaussianUploadBuffers } from '../web/engine/GaussianUploadBuffers.ts';
 import type { PackedGaussianRasterUpload } from '../web/engine/gaussian.ts';
 
 function upload(): PackedGaussianRasterUpload {
-  const record = (centerX: number, opacity: number) => [centerX, 12, 4, 5, 2, 0, 2, opacity, 0, 0, 0, 0];
+  const record = (centerX: number, opacity: number) => [centerX, 12, 4, 5, 2, 0, 2, opacity, 0, 0, 0, 0, 1, 1, 1];
   return {
     splatData: new Float32Array([...record(10, .8), ...record(20, .6), ...record(30, .4)]),
     originalIds: new Uint32Array([7, 8, 9]),
@@ -72,20 +72,20 @@ test('Gaussian upload buffers reuse capacity and recreate copied data after a co
   const first = buffers.snapshot();
   assert.ok(first);
   assert.equal(first.recordCount, 3);
-  assert.equal(first.splatBytes, 144);
-  assert.equal(first.splatCapacityBytes, 144);
+  assert.equal(first.splatBytes, 180);
+  assert.equal(first.splatCapacityBytes, 180);
   assert.equal(first.tileBytes, 24);
   assert.equal(first.tileCapacityBytes, 24);
   assert.equal(fake.stats().creates, 2);
 
   const reduced: PackedGaussianRasterUpload = {
-    splatData: initial.splatData.slice(0, 24), originalIds: initial.originalIds.slice(0, 2),
+    splatData: initial.splatData.slice(0, 30), originalIds: initial.originalIds.slice(0, 2),
   };
   buffers.update(reduced);
   const reused = buffers.snapshot();
   assert.ok(reused);
-  assert.equal(reused.splatBytes, 96);
-  assert.equal(reused.splatCapacityBytes, 144);
+  assert.equal(reused.splatBytes, 120);
+  assert.equal(reused.splatCapacityBytes, 180);
   assert.equal(reused.tileBuffer, undefined);
   assert.equal(reused.tileCapacityBytes, 0);
   assert.deepEqual(fake.stats(), { creates: 2, deletes: 1, dataCalls: 2, subDataCalls: 1 });

@@ -250,30 +250,32 @@ const prepared = prepareGaussianRaster({
   centers: cameraCenters,
   covariances: cameraCovariances,
   opacities,
+  colors: linearRgb,
   cutoff: 1 / 255,
   camera: { focalX, focalY, principalX, principalY, near, far, width: canvas.width, height: canvas.height },
   filterVariance: 0.3,
   clipPlane: { normal: new Float32Array([0, 0, -1]), offset: -near },
   tileSize: 16,
 });
-// originalIds、屏幕属性与 clipCoefficients 都按远到近的紧凑局部顺序排列。
+// originalIds、屏幕属性、colors 与 clipCoefficients 都按远到近的紧凑局部顺序排列。
 ```
 
-`originalIds` 将紧凑顺序映射回源属性；`tiles.packed` 的 ID 则索引紧凑输出数组，不是源 ID。这样顶点/片元上传不必再间接索引原始数组，也避免将视口筛选后的局部 ID 当成源 ID。滤波后的不透明度、协方差和范围在同一条链路内保持对齐；相机、画布、阈值、滤波或平面改变后应重新准备。
+`colors` 可选传入每项非负线性 RGB 三元组；省略时准备阶段写入白色，保持旧调用的灰度结果。`originalIds` 将紧凑顺序映射回源属性；`tiles.packed` 的 ID 则索引紧凑输出数组，不是源 ID。这样顶点/片元上传不必再间接索引原始数组，也避免将视口筛选后的局部 ID 当成源 ID。滤波后的不透明度、协方差、颜色和范围在同一条链路内保持对齐；相机、画布、阈值、滤波或平面改变后应重新准备。
 
 输入布局先在 TypeScript 检查，再交由各 WASM 阶段完整校验；无效批次不返回部分准备结果。`tileSize` 存在时，画布宽高和瓦片大小必须是正整数。此接口未加载 PLY/SOG、未实现 SH、未上传 GPU 缓冲，也不在主渲染器执行 CDF；浏览器回归只证明准备数据可供片元裁切使用，不代表真实模型性能或画质。
 
 ### 上传数据打包
 
-`packGaussianRasterUpload()` 将 `prepareGaussianRaster()` 的紧凑结果复制为固定的交错 f32 记录，供一个实例化顶点缓冲直接读取。每项为 12 个 f32（48 字节）：
+`packGaussianRasterUpload()` 将 `prepareGaussianRaster()` 的紧凑结果复制为固定的交错 f32 记录，供一个实例化顶点缓冲直接读取。每项为 15 个 f32（60 字节）：
 
 ```text
 [centerX, centerY, halfWidth, halfHeight,
  conicXX, conicXY, conicYY, opacity,
- clipX, clipY, clipH, clipEnabled]
+ clipX, clipY, clipH, clipEnabled,
+ red, green, blue]
 ```
 
-`conic` 是返回的二维协方差的逆矩阵独立分量，片元可计算 `q = conicXX·dx² + 2·conicXY·dx·dy + conicYY·dy²`。`clipEnabled = 0` 时片元应跳过 CDF；启用后使用三个裁切系数。函数再次校验数组长度、唯一源 ID、有限值、正定协方差和可表示的 f32 逆矩阵，并深拷贝源 ID 与瓦片数据，避免 CPU 数组在排队上传后被改写。
+`conic` 是返回的二维协方差的逆矩阵独立分量，片元可计算 `q = conicXX·dx² + 2·conicXY·dx·dy + conicYY·dy²`。`clipEnabled = 0` 时片元应跳过 CDF；启用后使用三个裁切系数。RGB 保持非预乘线性值，片元合成时与 alpha 相乘。函数再次校验数组长度、唯一源 ID、有限值、正定协方差、非负颜色和可表示的 f32 逆矩阵，并深拷贝源 ID 与瓦片数据，避免 CPU 数组在排队上传后被改写。
 
 ```ts
 import { GAUSSIAN_RASTER_UPLOAD_STRIDE, packGaussianRasterUpload } from './web/engine/index.ts';
@@ -303,7 +305,7 @@ const gpu = buffers.snapshot(); // ready 时返回 VBO、可用字节数和容�
 
 ### 独立光栅 pass
 
-`GaussianRasterRenderer` 消费 `PackedGaussianRasterUpload`，创建自己的 program 与 VAO，并以记录中的中心、范围、逆协方差、不透明度和可选 CDF 系数执行一次 `drawArraysInstanced`。它使用预乘灰度 alpha、源列表的远到近顺序和 `ONE / ONE_MINUS_SRC_ALPHA` 混合；调用前的 program、VAO、数组缓冲、viewport 与混合状态会在返回前恢复。
+`GaussianRasterRenderer` 消费 `PackedGaussianRasterUpload`，创建自己的 program 与 VAO，并以记录中的中心、范围、逆协方差、不透明度、线性 RGB 和可选 CDF 系数执行一次 `drawArraysInstanced`。它使用预乘线性 RGB alpha、源列表的远到近顺序和 `ONE / ONE_MINUS_SRC_ALPHA` 混合；调用前的 program、VAO、数组缓冲、viewport 与混合状态会在返回前恢复。
 
 ```ts
 import { GaussianRasterRenderer } from './web/engine/index.ts';
@@ -317,7 +319,7 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 同一瓦片中连续递增的局部 ID 指向连续的交错 VBO 记录，可作为一条 `drawArraysInstanced` 提交；`forEachTileBatch()` 只合并这种最大连续段。遇到跳号或逆序 ID 会立即结束当前段，保持原有混合顺序。`drawTiles()` 的返回值仍是引用数量而非 draw call 数。该实现没有 GPU 级间接索引，不能合并任意稀疏 ID，也不把合并次数推断为 GPU 时间、帧率或端到端性能收益。瓦片内按深度排序、再 alpha 合成的流程可参照 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。
 
-绘制器不提供颜色、球谐、纹理、深度/透明度策略或主页面接入。因此该 pass 只验证已有几何与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
+绘制器不提供球谐、纹理、深度/透明度策略或主页面接入。因此该 pass 只验证已有几何、颜色与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
 
 ## 可复现结果
 
@@ -343,11 +345,11 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 视图准备回归使用四个相机空间高斯：支持范围阶段保留四项，视口阶段移除一项离屏候选，输出源 ID 为远到近的 `[2, 1, 0]`。16 像素瓦片产生 52 条局部引用。把输出裁切系数用于片元 CDF 后，相对未裁切路径有 23,264 个不同 RGBA 通道和 1,976 个可见像素；报告保存为 `test-results/**/gaussian-prepare.json`。该数据只用于检查映射、顺序与裁切衔接，不作为绘制次数、GPU 时间或画质比较。
 
-上传打包回归将同一份准备数据以 12-f32 交错属性上传到真实 WebGL2 VBO，并以一次 3 实例绘制执行 CDF 片元路径。记录步长为 48 字节，VBO 实际容量为 144 字节；包含 52 条引用的瓦片缓冲容量为 980 字节。裁切相对未裁切有 23,264 个不同通道、1,976 个可见像素，`gl.getError()` 为零；报告保存为 `test-results/**/gaussian-upload.json`。容量是该合成输入的缓冲大小，不是带宽、帧率或显存收益。
+上传打包回归将同一份准备数据以 15-f32 交错属性上传到真实 WebGL2 VBO，并以一次 3 实例绘制执行 CDF 片元路径。记录步长为 60 字节，VBO 实际容量为 180 字节；包含 52 条引用的瓦片缓冲容量为 980 字节。裁切相对未裁切有 23,264 个不同通道、1,976 个可见像素，`gl.getError()` 为零；报告保存为 `test-results/**/gaussian-upload.json`。容量是该合成输入的缓冲大小，不是带宽、帧率或显存收益。
 
-上传缓冲恢复回归先上传 3 条记录和瓦片数据，再更新为 2 条记录，数据缓冲容量维持 144 字节并只进行子更新。触发真实 `WEBGL_lose_context` 后资源快照为空；在恢复前写入的新上传数据由内部副本重传，新的 VBO 中首项中心与写入时一致。该结果只验证所有权、容量和恢复语义，不代表完整场景的资源占用或恢复时间。
+上传缓冲恢复回归先上传 3 条记录和瓦片数据，再更新为 2 条记录，数据缓冲容量维持 180 字节并只进行子更新。触发真实 `WEBGL_lose_context` 后资源快照为空；在恢复前写入的新上传数据由内部副本重传，新的 VBO 中首项中心与写入时一致。该结果只验证所有权、容量和恢复语义，不代表完整场景的资源占用或恢复时间。
 
-独立光栅 pass 回归以同一份 3 条上传记录分别执行裁切和未裁切绘制，二者产生 23,264 个不同 RGBA 通道；恢复前后裁切图像逐字节一致。回归还设置非默认混合因子并确认 draw 返回后恢复。该结果只检查着色器、属性布局、透明混合和恢复顺序，不比较瓦片调度、GPU 时间、帧率或真实模型质量。
+独立光栅 pass 回归以同一份 3 条上传记录分别执行裁切和未裁切绘制，二者产生 23,264 个不同 RGBA 通道；恢复前后裁切图像逐字节一致。回归还设置非默认混合因子并确认 draw 返回后恢复。另有两个非重叠记录的 RGB 回归：红色与青色记录在对应中心保持预乘颜色分量。该结果只检查着色器、属性布局、透明混合和恢复顺序，不比较瓦片调度、GPU 时间、帧率或真实模型质量。
 
 瓦片绘制回归将同一份 16 像素网格的 52 条局部引用送入 `drawTiles()`；每个 tile 以 scissor 限制像素区域，输出与一次全屏紧凑绘制逐字节一致。调用前关闭 scissor 并设为 `[2, 3, 4, 5]`，返回后状态和盒子保持不变。连续局部 ID 会以一条实例化调用提交，浏览器回归确认调用数小于引用数；逆序 ID 的单元测试确认会拆段并保持原顺序。该结果只检查提交语义，不代表 GPU 时间、帧率或端到端性能。
 

@@ -30,6 +30,8 @@ export interface GaussianRasterPreparationOptions {
   centers: Float32Array;
   covariances: Float32Array;
   opacities: Float32Array;
+  /** Optional non-negative linear RGB triples aligned with `centers`. Defaults to white. */
+  colors?: Float32Array;
   cutoff: number;
   camera: GaussianRasterCamera;
   filterVariance?: number;
@@ -51,6 +53,8 @@ export interface PreparedGaussianRaster {
   screenCenters: Float32Array;
   screenCovariances: Float32Array;
   opacities: Float32Array;
+  /** Non-negative linear RGB triples aligned with `originalIds`. */
+  colors: Float32Array;
   depths: Float32Array;
   halfExtents: Float32Array;
   /** Optional `[kx, ky, h]` clip coefficients aligned with `originalIds`. */
@@ -59,13 +63,13 @@ export interface PreparedGaussianRaster {
 }
 
 /** Number of f32 values in one GPU-ready Gaussian vertex record. */
-export const GAUSSIAN_RASTER_UPLOAD_STRIDE = 12;
+export const GAUSSIAN_RASTER_UPLOAD_STRIDE = 15;
 
 export interface PackedGaussianRasterUpload {
   /**
    * Per-Gaussian f32 records:
    * `[centerX, centerY, halfWidth, halfHeight, conicXX, conicXY, conicYY,
-   *   opacity, clipX, clipY, clipH, clipEnabled]`.
+   *   opacity, clipX, clipY, clipH, clipEnabled, red, green, blue]`.
    */
   splatData: Float32Array;
   /** Source IDs aligned with `splatData` records. */
@@ -87,10 +91,21 @@ function localIndices(length: number): Uint32Array {
   return Uint32Array.from({ length }, (_, index) => index);
 }
 
-function checkInputShape({ centers, covariances, opacities }: GaussianRasterPreparationOptions): void {
+function checkInputShape({ centers, covariances, opacities, colors }: GaussianRasterPreparationOptions): void {
   if (centers.length % 3 !== 0 || covariances.length !== centers.length * 2 || opacities.length !== centers.length / 3) {
     throw new Error('Gaussian centers, covariances and opacities must have matching xyz, six-value and scalar lengths');
   }
+  if (colors && colors.length !== centers.length) throw new Error('Gaussian colors must use one RGB triple per center');
+}
+
+function checkedColors(colors: Float32Array | undefined, length: number): Float32Array {
+  if (!colors) return new Float32Array(length).fill(1);
+  for (let index = 0; index < colors.length; index++) {
+    if (!Number.isFinite(colors[index]) || colors[index] < 0) {
+      throw new Error(`Gaussian color must be finite and non-negative at component ${index}`);
+    }
+  }
+  return colors;
 }
 
 function checkTileSize(tileSize: number | undefined, camera: GaussianRasterCamera): void {
@@ -145,6 +160,7 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
   checkInputShape(options);
   checkTileSize(options.tileSize, options.camera);
   const { centers, covariances, opacities, cutoff, camera, clipPlane } = options;
+  const colors = checkedColors(options.colors, centers.length);
   const filterVariance = options.filterVariance ?? 0;
   const visible = gaussian_visible_indices(opacities, cutoff);
   const supported = gaussian_clip_depth_support_indices(
@@ -189,6 +205,7 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
     screenCenters: gather(screenCenters, 2, order),
     screenCovariances: gather(filteredCovariances, 3, order),
     opacities: gather(filteredOpacities, 1, order),
+    colors: gather(colors, 3, order),
     depths: gather(depths, 1, order),
     halfExtents: gather(halfExtents, 2, order),
     ...(clipCoefficients && { clipCoefficients: gather(clipCoefficients, 3, order) }),
@@ -219,7 +236,8 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
 export function packGaussianRasterUpload(prepared: PreparedGaussianRaster): PackedGaussianRasterUpload {
   const count = prepared.originalIds.length;
   if (prepared.screenCenters.length !== count * 2 || prepared.screenCovariances.length !== count * 3
-    || prepared.opacities.length !== count || prepared.depths.length !== count || prepared.halfExtents.length !== count * 2) {
+    || prepared.opacities.length !== count || prepared.colors.length !== count * 3
+    || prepared.depths.length !== count || prepared.halfExtents.length !== count * 2) {
     throw new Error('Prepared Gaussian arrays have inconsistent lengths');
   }
   const clipCoefficients = prepared.clipCoefficients;
@@ -253,6 +271,12 @@ export function packGaussianRasterUpload(prepared: PreparedGaussianRaster): Pack
       checkFinite(clipX, 'clip coefficient', index); checkFinite(clipY, 'clip coefficient', index); checkFinite(clipH, 'clip coefficient', index);
       result.set([clipX, clipY, clipH, 1], record + 8);
     }
+    const colorOffset = index * 3;
+    const red = finiteF32(prepared.colors[colorOffset], 'color', index);
+    const green = finiteF32(prepared.colors[colorOffset + 1], 'color', index);
+    const blue = finiteF32(prepared.colors[colorOffset + 2], 'color', index);
+    if (red < 0 || green < 0 || blue < 0) throw new Error(`Gaussian color must be non-negative at index ${index}`);
+    result.set([red, green, blue], record + 12);
   }
   return {
     splatData: result,
