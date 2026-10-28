@@ -1,6 +1,32 @@
 # 高斯光栅化准备
 
-Rust/WASM 高斯准备接口包含三维协方差投影、仿射半空间裁切系数、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先按不透明度与相机深度筛选，投影、滤波并重算范围后再按视口范围筛选、排序和分箱。完整 3DGS 的加载、SH 着色和实际光栅接入仍需继续。
+Rust/WASM 高斯准备接口包含原始训练 PLY 的受限解码、三维协方差投影、仿射半空间裁切系数、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先按不透明度与相机深度筛选，投影、滤波并重算范围后再按视口范围筛选、排序和分箱。完整的高阶 SH 着色、坐标变换和主场景接入仍需继续。
+
+## 训练 PLY 输入
+
+`parseGaussianSplatPly(buffer)` 解码原始 3D Gaussian Splatting 训练代码写出的 `binary_little_endian 1.0` PLY 顶点记录。调用前需完成 `init()`；函数返回独立的 `centers`、`covariances`、`opacities` 与 `colors`，不创建 GPU 资源。它要求顶点元素排在其他元素之前，并要求下列字段都是 f32：
+
+```text
+x y z
+f_dc_0 f_dc_1 f_dc_2
+opacity
+scale_0 scale_1 scale_2
+rot_0 rot_1 rot_2 rot_3
+```
+
+解析器允许其间存在未知的标量字段（包括 `f_rest_*` 和法线），但拒绝顶点列表属性、ASCII/大端格式、重复或缺失字段、截断数据、超过一百万项的数据，以及非有限值。它不会猜测其他 PLY 变体的字段语义。
+
+`scale_*` 按自然指数激活；`opacity` 使用数值稳定的 sigmoid；`rot_*` 按 `[w, x, y, z]` 归一化。Rust/WASM 在 f64 中构造 `R × diag(exp(scale)^2) × Rᵀ`，写回 f32 后再次检查三维协方差正定性，输出布局为 `[xx, xy, xz, yy, yz, zz]`。DC 颜色按 `0.28209479177387814 × f_dc + 0.5` 还原为线性 RGB，负值截为零以满足当前上传记录的非负颜色约束。
+
+```ts
+import { init, parseGaussianSplatPly } from './web/engine/index.ts';
+
+await init();
+const source = parseGaussianSplatPly(await response.arrayBuffer());
+// source 使用模型坐标；先把中心和协方差变换到相机空间，再传给 prepareGaussianRaster()。
+```
+
+当前只读取 0 阶 SH，`f_rest_*` 不参与颜色计算；没有实现高阶、视角相关 SH、色彩管理、曝光、色调映射、PLY 流式加载或模型到相机的坐标变换。此处的格式和激活约定参照原始实现的 [PLY 属性顺序与激活](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/gaussian_model.py) 及 [SH 常数](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/utils/sh_utils.py)；未使用其代码、模型或实验数据。
 
 ## 公式与接口
 

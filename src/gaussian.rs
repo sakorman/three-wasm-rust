@@ -29,6 +29,132 @@ fn finite_f32(value: f64, message: &str) -> Result<f32, String> {
     }
 }
 
+/// Decode the scale and rotation parameterization used by trained 3D Gaussian PLY files.
+///
+/// Each input scale is a natural logarithm and each rotation is a `[w, x, y, z]`
+/// quaternion. The returned covariance uses `[xx, xy, xz, yy, yz, zz]` per splat.
+/// Every output is rounded to f32 before its positive-definiteness check so callers can
+/// pass it directly to the projection routines.
+#[wasm_bindgen]
+pub fn gaussian_covariances_from_log_scales_rotations(
+    log_scales: &[f32],
+    rotations: &[f32],
+) -> Result<Vec<f32>, String> {
+    if !log_scales.len().is_multiple_of(3)
+        || rotations.len() != log_scales.len() / 3 * 4
+        || log_scales.len() / 3 > MAX_SPLATS
+    {
+        return Err(
+            "expected three log scales and four quaternion values per splat, at most 1000000 splats"
+                .into(),
+        );
+    }
+    let mut result = Vec::with_capacity(log_scales.len() / 3 * 6);
+    for (index, (log_scale, rotation)) in log_scales
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(rotations.as_chunks::<4>().0)
+        .enumerate()
+    {
+        if !log_scale.iter().all(|value| value.is_finite())
+            || !rotation.iter().all(|value| value.is_finite())
+        {
+            return Err(format!(
+                "Gaussian scale or rotation is non-finite at splat {index}"
+            ));
+        }
+        let scale = log_scale.map(|value| f64::from(value).exp());
+        if !scale.iter().all(|value| value.is_finite() && *value > 0.) {
+            return Err(format!(
+                "Gaussian scale is outside the finite positive range at splat {index}"
+            ));
+        }
+        let rotation = rotation.map(f64::from);
+        let maximum = rotation
+            .iter()
+            .fold(0_f64, |maximum, value| maximum.max(value.abs()));
+        if maximum == 0. {
+            return Err(format!(
+                "Gaussian rotation must be non-zero at splat {index}"
+            ));
+        }
+        let normalized = rotation.map(|value| value / maximum);
+        let length = normalized
+            .iter()
+            .map(|value| value * value)
+            .sum::<f64>()
+            .sqrt();
+        if !length.is_finite() || length == 0. {
+            return Err(format!(
+                "Gaussian rotation cannot be normalized at splat {index}"
+            ));
+        }
+        let [w, x, y, z] = normalized.map(|value| value / length);
+        let rotation_matrix = [
+            [
+                1. - 2. * (y * y + z * z),
+                2. * (x * y - w * z),
+                2. * (x * z + w * y),
+            ],
+            [
+                2. * (x * y + w * z),
+                1. - 2. * (x * x + z * z),
+                2. * (y * z - w * x),
+            ],
+            [
+                2. * (x * z - w * y),
+                2. * (y * z + w * x),
+                1. - 2. * (x * x + y * y),
+            ],
+        ];
+        let squared_scale = scale.map(|value| value * value);
+        let covariance = [
+            (0..3)
+                .map(|axis| {
+                    rotation_matrix[0][axis] * rotation_matrix[0][axis] * squared_scale[axis]
+                })
+                .sum(),
+            (0..3)
+                .map(|axis| {
+                    rotation_matrix[0][axis] * rotation_matrix[1][axis] * squared_scale[axis]
+                })
+                .sum(),
+            (0..3)
+                .map(|axis| {
+                    rotation_matrix[0][axis] * rotation_matrix[2][axis] * squared_scale[axis]
+                })
+                .sum(),
+            (0..3)
+                .map(|axis| {
+                    rotation_matrix[1][axis] * rotation_matrix[1][axis] * squared_scale[axis]
+                })
+                .sum(),
+            (0..3)
+                .map(|axis| {
+                    rotation_matrix[1][axis] * rotation_matrix[2][axis] * squared_scale[axis]
+                })
+                .sum(),
+            (0..3)
+                .map(|axis| {
+                    rotation_matrix[2][axis] * rotation_matrix[2][axis] * squared_scale[axis]
+                })
+                .sum(),
+        ];
+        let covariance =
+            covariance.map(|value| finite_f32(value, "Gaussian covariance exceeds f32 range"));
+        let [xx, xy, xz, yy, yz, zz] = covariance;
+        let covariance = [xx?, xy?, xz?, yy?, yz?, zz?];
+        if !valid_camera_covariance(&covariance) {
+            return Err(format!(
+                "Gaussian covariance from scale and rotation is not positive definite in f32 at splat {index}"
+            ));
+        }
+        result.extend_from_slice(&covariance);
+    }
+    Ok(result)
+}
+
 /// Project camera-space 3D Gaussian covariances into pixel-space ellipses.
 /// Inputs use `[xx, xy, xz, yy, yz, zz]`; output is
 /// `[pixelX, pixelY, depth, screenXX, screenXY, screenYY]` per splat.
@@ -953,6 +1079,53 @@ pub fn gaussian_pack_half_extents(half_extents: &[f32]) -> Result<Vec<u32>, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_scales_and_quaternions_produce_f32_camera_covariances() {
+        let result = gaussian_covariances_from_log_scales_rotations(
+            &[
+                0.,
+                2_f32.ln(),
+                3_f32.ln(),
+                2_f32.ln(),
+                3_f32.ln(),
+                4_f32.ln(),
+            ],
+            &[1., 0., 0., 0., 2_f32.sqrt() / 2., 0., 0., 2_f32.sqrt() / 2.],
+        )
+        .unwrap();
+        let expected = [1., 0., 0., 4., 0., 9., 9., 0., 0., 4., 0., 16.];
+        for (actual, expected) in result.iter().zip(expected) {
+            assert!((actual - expected).abs() <= 2e-6 * expected.max(1.));
+        }
+        let normalized =
+            gaussian_covariances_from_log_scales_rotations(&[0., 0., 0.], &[1e-30, 0., 0., 0.])
+                .unwrap();
+        assert_eq!(normalized, [1., 0., 0., 1., 0., 1.]);
+    }
+
+    #[test]
+    fn log_scale_covariances_reject_invalid_parameterizations() {
+        assert!(gaussian_covariances_from_log_scales_rotations(&[0., 0.], &[]).is_err());
+        assert!(
+            gaussian_covariances_from_log_scales_rotations(&[0., 0., 0.], &[0., 0., 0., 0.])
+                .is_err()
+        );
+        assert!(gaussian_covariances_from_log_scales_rotations(
+            &[f32::INFINITY, 0., 0.],
+            &[1., 0., 0., 0.]
+        )
+        .is_err());
+        assert!(gaussian_covariances_from_log_scales_rotations(
+            &[-1000., 0., 0.],
+            &[1., 0., 0., 0.]
+        )
+        .is_err());
+        assert!(
+            gaussian_covariances_from_log_scales_rotations(&[100., 0., 0.], &[1., 0., 0., 0.])
+                .is_err()
+        );
+    }
 
     #[test]
     fn opacity_changes_support_and_keeps_threshold_equality() {

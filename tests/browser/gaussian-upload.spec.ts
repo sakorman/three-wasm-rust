@@ -338,3 +338,40 @@ test('Gaussian raster renderer composites per-record linear RGB with premultipli
   expect(result.right[2]).toBeGreaterThan(200);
   expect(result.error).toBe(0);
 });
+
+test('trained Gaussian PLY keeps activated DC color through browser preparation and upload', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('引擎已就绪');
+  const result = await page.evaluate(async () => {
+    const { GAUSSIAN_RASTER_UPLOAD_STRIDE, parseGaussianSplatPly, packGaussianRasterUpload, prepareGaussianRaster } = await import('../../web/engine/index.ts');
+    const fields = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3'];
+    const rows = [
+      [0, 0, 2, 0, 0, 0, 0, -2, -2, -2, 1, 0, 0, 0],
+      [.1, 0, 3, 1, -3, .5, Math.log(3), -2, -2, -2, 1, 0, 0, 0],
+    ];
+    const header = new TextEncoder().encode(['ply', 'format binary_little_endian 1.0', `element vertex ${rows.length}`,
+      ...fields.map(field => `property float ${field}`), 'end_header', ''].join('\n'));
+    const buffer = new ArrayBuffer(header.length + rows.length * fields.length * Float32Array.BYTES_PER_ELEMENT);
+    new Uint8Array(buffer).set(header);
+    const view = new DataView(buffer);
+    rows.forEach((row, rowIndex) => row.forEach((value, column) => view.setFloat32(header.length + (rowIndex * fields.length + column) * 4, value, true)));
+    const source = parseGaussianSplatPly(buffer);
+    const prepared = prepareGaussianRaster({
+      ...source, cutoff: .1,
+      camera: { focalX: 96, focalY: 96, principalX: 128, principalY: 96, near: 1, far: 4, width: 256, height: 192 },
+    });
+    const upload = packGaussianRasterUpload(prepared);
+    return {
+      sourceColors: Array.from(source.colors), sourceOpacities: Array.from(source.opacities),
+      originalIds: Array.from(prepared.originalIds),
+      farColor: Array.from(upload.splatData.slice(12, 15)), stride: GAUSSIAN_RASTER_UPLOAD_STRIDE,
+    };
+  });
+  expect(result.sourceOpacities).toEqual([.5, .75]);
+  expect(result.sourceColors[0]).toBeCloseTo(.5, 6);
+  expect(result.sourceColors[3]).toBeCloseTo(.7820948, 6);
+  expect(result.sourceColors[4]).toBe(0);
+  expect(result.originalIds).toEqual([1, 0]);
+  expect(result.farColor[0]).toBeCloseTo(result.sourceColors[3], 6);
+  expect(result.stride).toBe(15);
+});

@@ -2,6 +2,14 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-28 · 训练 PLY 输入
+
+- 新增 `parseGaussianSplatPly()`：接收原始 3DGS 训练代码写出的二进制小端 PLY，输出独立的模型空间中心、协方差、激活后不透明度和线性 RGB。此前光栅准备只能接收调用方手工提供的数组。
+- 新增 Rust/WASM 的 log-scale 与 `[w, x, y, z]` 四元数协方差激活；输出写回 f32 后检查正定性。0 阶 SH 颜色会还原为 RGB 并截断负通道，字段顺序可变的 PLY 仍按名称读取。
+- Node 覆盖乱序字段、未知标量、截断/格式/字段/旋转拒绝及准备衔接；浏览器回归覆盖 PLY 到准备和上传的 DC 颜色保持。
+- 验证：287 项测试通过（84 Rust、101 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：仅支持原始二进制小端 f32 顶点布局，只使用 0 阶 SH；不支持高阶视角相关颜色、坐标变换、流式加载、色彩管理、曝光或色调映射。参考 [原始 PLY 属性与激活](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/gaussian_model.py) 与 [SH 常数](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/utils/sh_utils.py)，未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-28 · 高斯线性 RGB 合成
 
 - `prepareGaussianRaster()` 现在接收可选的非负线性 RGB 并随紧凑深度顺序重排；缺省输入写入白色。此前独立 pass 只输出灰度 alpha，颜色无法进入高斯记录。
