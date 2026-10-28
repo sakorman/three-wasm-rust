@@ -1,11 +1,18 @@
 import {
   gaussian_covariances_from_log_scales_rotations,
   gaussian_transform_camera_space,
+  multiply_matrices,
 } from '../../pkg/three_wasm_rust.js';
 
 const MAX_HEADER_BYTES = 1 << 20;
 const MAX_SPLATS = 1_000_000;
 const SH_C0 = 0.28209479177387814;
+const THREE_TO_POSITIVE_Z = new Float32Array([
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, -1, 0,
+  0, 0, 0, 1,
+]);
 
 type PlyScalarType = 'char' | 'int8' | 'uchar' | 'uint8' | 'short' | 'int16' | 'ushort' | 'uint16' | 'int' | 'int32' | 'uint' | 'uint32' | 'float' | 'float32' | 'double' | 'float64';
 
@@ -209,10 +216,20 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
 }
 
 /**
+ * Compose a model matrix and a Three.js `camera.matrixWorldInverse` into the positive-z
+ * camera convention used by Gaussian raster preparation. All inputs and the result are
+ * column-major. This helper has no Three.js dependency so it can be used with copied matrix
+ * elements from any compatible caller.
+ */
+export function composeThreeModelToPositiveZCamera(modelToWorld: Float32Array, threeWorldToView: Float32Array): Float32Array {
+  return multiply_matrices(THREE_TO_POSITIVE_Z, multiply_matrices(threeWorldToView, modelToWorld));
+}
+
+/**
  * Transform a decoded model-space PLY source into the positive-z camera convention used by
  * `prepareGaussianRaster()`. `worldToCamera` is column-major and must be affine; its linear
- * part transforms covariance as `R × Σ × Rᵀ`. For a standard Three.js negative-z view matrix,
- * callers must include an explicit z-axis conversion before this step.
+ * part transforms covariance as `R × Σ × Rᵀ`. Use `composeThreeModelToPositiveZCamera()` for
+ * a standard Three.js negative-z view matrix.
  */
 export function transformGaussianPlyToCameraSpace(source: GaussianPlySource, worldToCamera: Float32Array): GaussianCameraSource {
   validateSource(source);
