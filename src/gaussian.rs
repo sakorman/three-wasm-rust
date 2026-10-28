@@ -155,6 +155,163 @@ pub fn gaussian_covariances_from_log_scales_rotations(
     Ok(result)
 }
 
+/// Transform model-space Gaussian centers and covariances into camera space.
+///
+/// `world_to_camera` is a column-major affine matrix for column vectors, matching
+/// Three.js and WebGL storage. Each result contains nine f32 values:
+/// `[centerX, centerY, centerZ, xx, xy, xz, yy, yz, zz]`. The linear part is
+/// applied as `R * covariance * Rᵀ`; translation affects only centers. The matrix
+/// must be non-singular and affine because perspective division does not preserve a
+/// Gaussian covariance.
+#[wasm_bindgen]
+pub fn gaussian_transform_camera_space(
+    centers: &[f32],
+    covariances: &[f32],
+    world_to_camera: &[f32],
+) -> Result<Vec<f32>, String> {
+    if !centers.len().is_multiple_of(3)
+        || covariances.len() != centers.len() / 3 * 6
+        || centers.len() / 3 > MAX_SPLATS
+    {
+        return Err(
+            "expected xyz centers and six covariance values per splat, at most 1000000 splats"
+                .into(),
+        );
+    }
+    let matrix: &[f32; 16] = world_to_camera
+        .try_into()
+        .map_err(|_| "Gaussian world-to-camera matrix must contain 16 values")?;
+    if matrix.iter().any(|value| !value.is_finite()) {
+        return Err("Gaussian world-to-camera matrix must be finite".into());
+    }
+    if matrix[3] != 0. || matrix[7] != 0. || matrix[11] != 0. || matrix[15] != 1. {
+        return Err("Gaussian world-to-camera matrix must be affine".into());
+    }
+    let linear = [
+        [
+            f64::from(matrix[0]),
+            f64::from(matrix[4]),
+            f64::from(matrix[8]),
+        ],
+        [
+            f64::from(matrix[1]),
+            f64::from(matrix[5]),
+            f64::from(matrix[9]),
+        ],
+        [
+            f64::from(matrix[2]),
+            f64::from(matrix[6]),
+            f64::from(matrix[10]),
+        ],
+    ];
+    let determinant = linear[0][0] * (linear[1][1] * linear[2][2] - linear[1][2] * linear[2][1])
+        - linear[0][1] * (linear[1][0] * linear[2][2] - linear[1][2] * linear[2][0])
+        + linear[0][2] * (linear[1][0] * linear[2][1] - linear[1][1] * linear[2][0]);
+    if !determinant.is_finite() || determinant == 0. {
+        return Err("Gaussian world-to-camera matrix must have an invertible linear part".into());
+    }
+    let translation = [
+        f64::from(matrix[12]),
+        f64::from(matrix[13]),
+        f64::from(matrix[14]),
+    ];
+    for (index, (center, covariance)) in centers
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(covariances.as_chunks::<6>().0)
+        .enumerate()
+    {
+        if !center.iter().all(|value| value.is_finite()) || !valid_camera_covariance(covariance) {
+            return Err(format!(
+                "invalid Gaussian center or covariance at splat {index}"
+            ));
+        }
+    }
+    let mut result = Vec::with_capacity(centers.len() / 3 * 9);
+    for (index, (center, covariance)) in centers
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(covariances.as_chunks::<6>().0)
+        .enumerate()
+    {
+        let center = center.map(f64::from);
+        let transformed_center = [
+            (0..3)
+                .map(|axis| linear[0][axis] * center[axis])
+                .sum::<f64>()
+                + translation[0],
+            (0..3)
+                .map(|axis| linear[1][axis] * center[axis])
+                .sum::<f64>()
+                + translation[1],
+            (0..3)
+                .map(|axis| linear[2][axis] * center[axis])
+                .sum::<f64>()
+                + translation[2],
+        ];
+        let [xx, xy, xz, yy, yz, zz] = covariance.map(f64::from);
+        let covariance = [[xx, xy, xz], [xy, yy, yz], [xz, yz, zz]];
+        let transformed_covariance = |row: usize, column: usize| {
+            (0..3)
+                .map(|left| {
+                    (0..3)
+                        .map(|right| {
+                            linear[row][left] * covariance[left][right] * linear[column][right]
+                        })
+                        .sum::<f64>()
+                })
+                .sum::<f64>()
+        };
+        let output = [
+            finite_f32(
+                transformed_center[0],
+                "transformed Gaussian center exceeds f32 range",
+            )?,
+            finite_f32(
+                transformed_center[1],
+                "transformed Gaussian center exceeds f32 range",
+            )?,
+            finite_f32(
+                transformed_center[2],
+                "transformed Gaussian center exceeds f32 range",
+            )?,
+            finite_f32(
+                transformed_covariance(0, 0),
+                "transformed Gaussian covariance exceeds f32 range",
+            )?,
+            finite_f32(
+                transformed_covariance(0, 1),
+                "transformed Gaussian covariance exceeds f32 range",
+            )?,
+            finite_f32(
+                transformed_covariance(0, 2),
+                "transformed Gaussian covariance exceeds f32 range",
+            )?,
+            finite_f32(
+                transformed_covariance(1, 1),
+                "transformed Gaussian covariance exceeds f32 range",
+            )?,
+            finite_f32(
+                transformed_covariance(1, 2),
+                "transformed Gaussian covariance exceeds f32 range",
+            )?,
+            finite_f32(
+                transformed_covariance(2, 2),
+                "transformed Gaussian covariance exceeds f32 range",
+            )?,
+        ];
+        if !valid_camera_covariance(&output[3..].try_into().unwrap()) {
+            return Err(format!(
+                "transformed Gaussian covariance is not positive definite in f32 at splat {index}"
+            ));
+        }
+        result.extend_from_slice(&output);
+    }
+    Ok(result)
+}
+
 /// Project camera-space 3D Gaussian covariances into pixel-space ellipses.
 /// Inputs use `[xx, xy, xz, yy, yz, zz]`; output is
 /// `[pixelX, pixelY, depth, screenXX, screenXY, screenYY]` per splat.
@@ -1079,6 +1236,7 @@ pub fn gaussian_pack_half_extents(half_extents: &[f32]) -> Result<Vec<u32>, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::math::IDENTITY;
 
     #[test]
     fn log_scales_and_quaternions_produce_f32_camera_covariances() {
@@ -1124,6 +1282,40 @@ mod tests {
         assert!(
             gaussian_covariances_from_log_scales_rotations(&[100., 0., 0.], &[1., 0., 0., 0.])
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn camera_space_transform_moves_centers_and_rotates_covariances() {
+        let matrix = [
+            0., 3., 0., 0., -2., 0., 0., 0., 0., 0., 0.5, 0., 10., 20., 30., 1.,
+        ];
+        let result =
+            gaussian_transform_camera_space(&[1., 2., 3.], &[4., 1., 2., 9., 3., 16.], &matrix)
+                .unwrap();
+        assert_eq!(result, [6., 23., 31.5, 36., -6., -3., 36., 3., 4.]);
+        let identity =
+            gaussian_transform_camera_space(&[1., 2., 3.], &[4., 1., 2., 9., 3., 16.], &IDENTITY)
+                .unwrap();
+        assert_eq!(identity, [1., 2., 3., 4., 1., 2., 9., 3., 16.]);
+    }
+
+    #[test]
+    fn camera_space_transform_rejects_projective_singular_and_invalid_inputs() {
+        let center = [0., 0., 1.];
+        let covariance = [1., 0., 0., 1., 0., 1.];
+        assert!(gaussian_transform_camera_space(&center, &covariance, &[0.; 15]).is_err());
+        let mut projective = IDENTITY;
+        projective[3] = 1.;
+        assert!(gaussian_transform_camera_space(&center, &covariance, &projective).is_err());
+        let mut singular = IDENTITY;
+        singular[0] = 0.;
+        assert!(gaussian_transform_camera_space(&center, &covariance, &singular).is_err());
+        assert!(
+            gaussian_transform_camera_space(&[f32::NAN, 0., 1.], &covariance, &IDENTITY).is_err()
+        );
+        assert!(
+            gaussian_transform_camera_space(&center, &[1., 1., 0., 1., 0., 1.], &IDENTITY).is_err()
         );
     }
 

@@ -1,6 +1,6 @@
 # 高斯光栅化准备
 
-Rust/WASM 高斯准备接口包含原始训练 PLY 的受限解码、三维协方差投影、仿射半空间裁切系数、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先按不透明度与相机深度筛选，投影、滤波并重算范围后再按视口范围筛选、排序和分箱。完整的高阶 SH 着色、坐标变换和主场景接入仍需继续。
+Rust/WASM 高斯准备接口包含原始训练 PLY 的受限解码、模型到相机空间的仿射变换、三维协方差投影、仿射半空间裁切系数、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先转换到相机空间，再按不透明度与相机深度筛选，投影、滤波并重算范围后按视口范围筛选、排序和分箱。完整的高阶 SH 着色和主场景接入仍需继续。
 
 ## 训练 PLY 输入
 
@@ -19,14 +19,26 @@ rot_0 rot_1 rot_2 rot_3
 `scale_*` 按自然指数激活；`opacity` 使用数值稳定的 sigmoid；`rot_*` 按 `[w, x, y, z]` 归一化。Rust/WASM 在 f64 中构造 `R × diag(exp(scale)^2) × Rᵀ`，写回 f32 后再次检查三维协方差正定性，输出布局为 `[xx, xy, xz, yy, yz, zz]`。DC 颜色按 `0.28209479177387814 × f_dc + 0.5` 还原为线性 RGB，负值截为零以满足当前上传记录的非负颜色约束。
 
 ```ts
-import { init, parseGaussianSplatPly } from './web/engine/index.ts';
+import { init, parseGaussianSplatPly, transformGaussianPlyToCameraSpace } from './web/engine/index.ts';
 
 await init();
 const source = parseGaussianSplatPly(await response.arrayBuffer());
-// source 使用模型坐标；先把中心和协方差变换到相机空间，再传给 prepareGaussianRaster()。
+const cameraSource = transformGaussianPlyToCameraSpace(source, positiveZWorldToCamera);
+// cameraSource 可直接传给 prepareGaussianRaster()。
 ```
 
-当前只读取 0 阶 SH，`f_rest_*` 不参与颜色计算；没有实现高阶、视角相关 SH、色彩管理、曝光、色调映射、PLY 流式加载或模型到相机的坐标变换。此处的格式和激活约定参照原始实现的 [PLY 属性顺序与激活](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/gaussian_model.py) 及 [SH 常数](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/utils/sh_utils.py)；未使用其代码、模型或实验数据。
+### 模型到相机空间
+
+`transformGaussianPlyToCameraSpace(source, worldToCamera)` 接收列主序的 4×4 仿射矩阵，返回新的相机空间数组，不会改写 PLY 源数组。对模型空间中心 `c` 和协方差 `Σ`，线性部分为 `R`、平移为 `t` 时：
+
+```text
+c_camera = R × c + t
+Σ_camera = R × Σ × Rᵀ
+```
+
+平移不改变协方差；实现以 f64 计算并在返回 f32 后再次检查正定性。准备和投影路径约定相机前方为 `z > 0`。标准 Three.js `matrixWorldInverse` 使用负 z 前方，调用方应在左侧预乘 z 翻转矩阵 `diag(1, 1, -1, 1)`，再传入本接口。接口拒绝透视矩阵、奇异线性部分、非有限中心及非正定协方差；投影除法无法对三维高斯协方差保持上述仿射关系。
+
+当前只读取 0 阶 SH，`f_rest_*` 不参与颜色计算；没有实现高阶、视角相关 SH、色彩管理、曝光、色调映射、PLY 流式加载或自动的 Three.js 坐标系转换。此处的格式和激活约定参照原始实现的 [PLY 属性顺序与激活](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/gaussian_model.py) 及 [SH 常数](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/utils/sh_utils.py)；变换关系参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未使用其代码、模型或实验数据。
 
 ## 公式与接口
 

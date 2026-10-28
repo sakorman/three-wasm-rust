@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import init from '../pkg/three_wasm_rust.js';
-import { parseGaussianSplatPly, prepareGaussianRaster } from '../web/engine/index.ts';
+import { parseGaussianSplatPly, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
@@ -53,15 +53,23 @@ test('trained binary PLY decodes activated attributes and degree-zero SH into th
   close(source.colors[3], .5 + .28209479177387814); assert.equal(source.colors[4], 0); close(source.colors[5], .5 + .5 * .28209479177387814);
   const expectedCovariance = [1, 0, 0, 4, 0, 9, 9, 0, 0, 4, 0, 16];
   source.covariances.forEach((value, index) => close(value, expectedCovariance[index]));
+  const cameraSource = transformGaussianPlyToCameraSpace(source, new Float32Array([
+    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1,
+  ]));
+  assert.deepEqual(Array.from(cameraSource.centers), [1, 2, 4, -.25, .5, 5]);
+  assert.deepEqual(Array.from(cameraSource.covariances), Array.from(source.covariances));
+  source.opacities[0] = .1; source.colors[0] = 9;
+  assert.equal(cameraSource.opacities[0], .5);
+  assert.equal(cameraSource.colors[0], .5);
 
   const prepared = prepareGaussianRaster({
-    ...source, cutoff: .1,
-    camera: { focalX: 96, focalY: 96, principalX: 128, principalY: 96, near: 1, far: 4, width: 256, height: 192 },
+    ...cameraSource, cutoff: .1,
+    camera: { focalX: 96, focalY: 96, principalX: 128, principalY: 96, near: 1, far: 5, width: 256, height: 192 },
   });
   assert.deepEqual(Array.from(prepared.originalIds), [1, 0]);
   assert.equal(prepared.colors.length, 6);
-  close(prepared.colors[0], source.colors[3]);
-  close(prepared.colors[3], source.colors[0]);
+  close(prepared.colors[0], cameraSource.colors[3]);
+  close(prepared.colors[3], cameraSource.colors[0]);
 });
 
 test('trained PLY parser rejects truncated, unsupported and invalid source records before preparation', () => {
@@ -73,4 +81,7 @@ test('trained PLY parser rejects truncated, unsupported and invalid source recor
   assert.throws(() => parseGaussianSplatPly(new TextEncoder().encode('ply\nformat ascii 1.0\nelement vertex 0\nend_header\n').buffer), /binary_little_endian/);
   assert.throws(() => parseGaussianSplatPly(new TextEncoder().encode('ply\nformat binary_little_endian 1.0\nproperty float x\nelement vertex 0\nend_header\n').buffer), /property must follow an element/);
   assert.throws(() => parseGaussianSplatPly(new TextEncoder().encode('ply\nformat binary_little_endian 1.0\nelement vertex 1\nproperty list uchar int vertex_indices\nend_header\n').buffer), /list properties/);
+  const source = parseGaussianSplatPly(valid);
+  const singularAffine = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+  assert.throws(() => transformGaussianPlyToCameraSpace(source, singularAffine), /invertible/);
 });

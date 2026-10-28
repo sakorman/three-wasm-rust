@@ -1,4 +1,7 @@
-import { gaussian_covariances_from_log_scales_rotations } from '../../pkg/three_wasm_rust.js';
+import {
+  gaussian_covariances_from_log_scales_rotations,
+  gaussian_transform_camera_space,
+} from '../../pkg/three_wasm_rust.js';
 
 const MAX_HEADER_BYTES = 1 << 20;
 const MAX_SPLATS = 1_000_000;
@@ -28,6 +31,14 @@ export interface GaussianPlySource {
   /** Activated alpha values in `[0, 1]`. */
   opacities: Float32Array;
   /** Non-negative, view-independent linear RGB reconstructed from degree-zero SH. */
+  colors: Float32Array;
+}
+
+/** Gaussian attributes expressed in the positive-z camera convention used by raster preparation. */
+export interface GaussianCameraSource {
+  centers: Float32Array;
+  covariances: Float32Array;
+  opacities: Float32Array;
   colors: Float32Array;
 }
 
@@ -141,6 +152,23 @@ function sigmoid(value: number): number {
   return exponent / (1 + exponent);
 }
 
+function validateSource({ centers, covariances, opacities, colors }: GaussianPlySource): void {
+  if (centers.length % 3 !== 0 || covariances.length !== centers.length * 2
+    || opacities.length !== centers.length / 3 || colors.length !== centers.length) {
+    throw new Error('Gaussian source attributes have inconsistent lengths');
+  }
+  for (let index = 0; index < opacities.length; index++) {
+    if (!Number.isFinite(opacities[index]) || opacities[index] < 0 || opacities[index] > 1) {
+      throw new Error(`Gaussian source opacity is invalid at index ${index}`);
+    }
+  }
+  for (let index = 0; index < colors.length; index++) {
+    if (!Number.isFinite(colors[index]) || colors[index] < 0) {
+      throw new Error(`Gaussian source color is invalid at component ${index}`);
+    }
+  }
+}
+
 /**
  * Decode the binary little-endian PLY layout emitted by the original 3D Gaussian Splatting
  * training code. It activates log scales, opacity and quaternion rotation through the WASM
@@ -178,4 +206,24 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
   }
   const covariances = gaussian_covariances_from_log_scales_rotations(logScales, rotations);
   return { centers, covariances, opacities, colors };
+}
+
+/**
+ * Transform a decoded model-space PLY source into the positive-z camera convention used by
+ * `prepareGaussianRaster()`. `worldToCamera` is column-major and must be affine; its linear
+ * part transforms covariance as `R × Σ × Rᵀ`. For a standard Three.js negative-z view matrix,
+ * callers must include an explicit z-axis conversion before this step.
+ */
+export function transformGaussianPlyToCameraSpace(source: GaussianPlySource, worldToCamera: Float32Array): GaussianCameraSource {
+  validateSource(source);
+  const packed = gaussian_transform_camera_space(source.centers, source.covariances, worldToCamera);
+  const count = source.centers.length / 3;
+  if (packed.length !== count * 9) throw new Error('Gaussian camera-space transform returned an invalid record count');
+  const centers = new Float32Array(count * 3), covariances = new Float32Array(count * 6);
+  for (let index = 0; index < count; index++) {
+    const sourceOffset = index * 9;
+    centers.set(packed.subarray(sourceOffset, sourceOffset + 3), index * 3);
+    covariances.set(packed.subarray(sourceOffset + 3, sourceOffset + 9), index * 6);
+  }
+  return { centers, covariances, opacities: source.opacities.slice(), colors: source.colors.slice() };
 }
