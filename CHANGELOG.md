@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-29 · Three.js 高斯视图组合
+
+- 新增 `composeThreeModelToPositiveZCamera()`：将 `model.matrixWorld` 和 `camera.matrixWorldInverse` 的列主序副本组合为 `diag(1, 1, -1, 1) × view × model`。此前调用方需手工插入 z 翻转，模型变换与视图矩阵的乘法顺序容易出错。
+- 助手不导入 Three.js，仍由 Rust/WASM 完成矩阵乘法和 f32 溢出校验；返回矩阵可直接交给 PLY 高斯的相机空间变换。相机或模型变动后由调用方重新组合。
+- 验证：Node 将带旋转、非均匀缩放的 Three.js 模型与相机参考逐项比较，并确认模型原点转换到正 z；浏览器 PLY→准备→上传链路核对深度排序和 DC 颜色。完整测试 290 项通过（86 Rust、102 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：不自动订阅 Three.js 变换，不接受透视矩阵进入协方差变换，尚未将真实高斯资产接入主场景。参考 [Three.js Camera.matrixWorldInverse](https://threejs.org/docs/#api/en/cameras/Camera.matrixWorldInverse) 与 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-29 · 高斯相机空间变换
 
 - 新增 Rust/WASM `gaussian_transform_camera_space()` 和 TypeScript `transformGaussianPlyToCameraSpace()`：训练 PLY 的模型空间中心现可按列主序仿射矩阵转换到光栅准备所需的正 z 相机空间，协方差同步按 `R × Σ × Rᵀ` 变换。此前调用方只能自行改写中心与协方差，容易遗漏旋转或缩放。

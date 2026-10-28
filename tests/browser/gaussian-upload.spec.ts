@@ -343,7 +343,7 @@ test('trained Gaussian PLY keeps activated DC color through browser preparation 
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('引擎已就绪');
   const result = await page.evaluate(async () => {
-    const { GAUSSIAN_RASTER_UPLOAD_STRIDE, parseGaussianSplatPly, packGaussianRasterUpload, prepareGaussianRaster, transformGaussianPlyToCameraSpace } = await import('../../web/engine/index.ts');
+    const { GAUSSIAN_RASTER_UPLOAD_STRIDE, composeThreeModelToPositiveZCamera, parseGaussianSplatPly, packGaussianRasterUpload, prepareGaussianRaster, transformGaussianPlyToCameraSpace } = await import('../../web/engine/index.ts');
     const fields = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3'];
     const rows = [
       [0, 0, 2, 0, 0, 0, 0, -2, -2, -2, 1, 0, 0, 0],
@@ -356,9 +356,9 @@ test('trained Gaussian PLY keeps activated DC color through browser preparation 
     const view = new DataView(buffer);
     rows.forEach((row, rowIndex) => row.forEach((value, column) => view.setFloat32(header.length + (rowIndex * fields.length + column) * 4, value, true)));
     const source = parseGaussianSplatPly(buffer);
-    const cameraSource = transformGaussianPlyToCameraSpace(source, new Float32Array([
-      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1,
-    ]));
+    const modelToWorld = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    const threeWorldToView = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1]);
+    const cameraSource = transformGaussianPlyToCameraSpace(source, composeThreeModelToPositiveZCamera(modelToWorld, threeWorldToView));
     const prepared = prepareGaussianRaster({
       ...cameraSource, cutoff: .1,
       camera: { focalX: 96, focalY: 96, principalX: 128, principalY: 96, near: 1, far: 4, width: 256, height: 192 },
@@ -368,15 +368,16 @@ test('trained Gaussian PLY keeps activated DC color through browser preparation 
       sourceColors: Array.from(source.colors), sourceOpacities: Array.from(source.opacities),
       cameraDepths: Array.from(cameraSource.centers.filter((_, index) => index % 3 === 2)),
       originalIds: Array.from(prepared.originalIds),
-      farColor: Array.from(upload.splatData.slice(12, 15)), stride: GAUSSIAN_RASTER_UPLOAD_STRIDE,
+      farColor: Array.from(upload.splatData.slice(12, 15)), nearColor: Array.from(upload.splatData.slice(27, 30)), stride: GAUSSIAN_RASTER_UPLOAD_STRIDE,
     };
   });
   expect(result.sourceOpacities).toEqual([.5, .75]);
   expect(result.sourceColors[0]).toBeCloseTo(.5, 6);
   expect(result.sourceColors[3]).toBeCloseTo(.7820948, 6);
   expect(result.sourceColors[4]).toBe(0);
-  expect(result.cameraDepths).toEqual([3, 4]);
-  expect(result.originalIds).toEqual([1, 0]);
-  expect(result.farColor[0]).toBeCloseTo(result.sourceColors[3], 6);
+  expect(result.cameraDepths).toEqual([3, 2]);
+  expect(result.originalIds).toEqual([0, 1]);
+  expect(result.farColor[0]).toBeCloseTo(result.sourceColors[0], 6);
+  expect(result.nearColor[0]).toBeCloseTo(result.sourceColors[3], 6);
   expect(result.stride).toBe(15);
 });

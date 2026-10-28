@@ -17,7 +17,7 @@ export { gaussian_covariances_from_log_scales_rotations } from '../../pkg/three_
 export { gaussian_transform_camera_space } from '../../pkg/three_wasm_rust.js';
 export { GAUSSIAN_RASTER_UPLOAD_STRIDE, packGaussianRasterUpload, prepareGaussianRaster } from './gaussian.ts';
 export type { GaussianClipPlane, GaussianRasterCamera, GaussianRasterPreparationOptions, GaussianRasterTiles, PackedGaussianRasterUpload, PreparedGaussianRaster } from './gaussian.ts';
-export { parseGaussianSplatPly, transformGaussianPlyToCameraSpace } from './GaussianPly.ts';
+export { composeThreeModelToPositiveZCamera, parseGaussianSplatPly, transformGaussianPlyToCameraSpace } from './GaussianPly.ts';
 export type { GaussianCameraSource, GaussianPlySource } from './GaussianPly.ts';
 export { GaussianUploadBuffers } from './GaussianUploadBuffers.ts';
 export type { GaussianUploadBufferSnapshot, GaussianUploadTileLayout } from './GaussianUploadBuffers.ts';

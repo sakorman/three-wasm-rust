@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import * as THREE from 'three';
 import init from '../pkg/three_wasm_rust.js';
-import { parseGaussianSplatPly, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
+import { composeThreeModelToPositiveZCamera, parseGaussianSplatPly, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
@@ -84,4 +85,34 @@ test('trained PLY parser rejects truncated, unsupported and invalid source recor
   const source = parseGaussianSplatPly(valid);
   const singularAffine = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
   assert.throws(() => transformGaussianPlyToCameraSpace(source, singularAffine), /invertible/);
+});
+
+test('Three.js model and view matrices compose into the positive-z Gaussian camera convention', () => {
+  const model = new THREE.Matrix4().compose(
+    new THREE.Vector3(1, -2, -3),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(.2, -.5, .1)),
+    new THREE.Vector3(2, 1.5, .75),
+  );
+  const camera = new THREE.PerspectiveCamera(55, 1.6, .1, 100);
+  camera.position.set(4, 3, 7);
+  camera.lookAt(1, -2, -3);
+  camera.updateMatrixWorld();
+  const matrix = composeThreeModelToPositiveZCamera(
+    Float32Array.from(model.elements),
+    Float32Array.from(camera.matrixWorldInverse.elements),
+  );
+  const expected = new THREE.Matrix4()
+    .makeScale(1, 1, -1)
+    .multiply(camera.matrixWorldInverse)
+    .multiply(model);
+  expected.elements.forEach((value, index) => close(matrix[index], value));
+  const cameraSource = transformGaussianPlyToCameraSpace({
+    centers: new Float32Array([0, 0, 0]),
+    covariances: new Float32Array([1, 0, 0, 1, 0, 1]),
+    opacities: new Float32Array([.5]),
+    colors: new Float32Array([.2, .4, .6]),
+  }, matrix);
+  const expectedCenter = new THREE.Vector3().applyMatrix4(expected);
+  [expectedCenter.x, expectedCenter.y, expectedCenter.z].forEach((value, index) => close(cameraSource.centers[index], value));
+  assert.ok(cameraSource.centers[2] > 0);
 });
