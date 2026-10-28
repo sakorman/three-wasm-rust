@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-29 · 高斯相机空间变换
+
+- 新增 Rust/WASM `gaussian_transform_camera_space()` 和 TypeScript `transformGaussianPlyToCameraSpace()`：训练 PLY 的模型空间中心现可按列主序仿射矩阵转换到光栅准备所需的正 z 相机空间，协方差同步按 `R × Σ × Rᵀ` 变换。此前调用方只能自行改写中心与协方差，容易遗漏旋转或缩放。
+- 变换会返回独立的中心、协方差、不透明度和颜色数组；透视矩阵、奇异线性部分、非有限中心和非正定协方差会在准备前被拒绝。Three.js 的负 z 相机视图仍需调用方显式预乘 z 翻转矩阵。
+- 验证：新增中心/协方差解析变换与拒绝路径 Rust 测试；Node 覆盖 PLY 解码、属性副本隔离和准备衔接；浏览器覆盖转换后的深度进入上传。完整测试 289 项通过（86 Rust、101 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：不接受投影矩阵，不自动读取 Three.js 相机或处理动画变换；高阶 SH、真实模型流式加载和主场景接入尚未实现。公式参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/) 与 [`gsplat` rasterization](https://docs.gsplat.studio/main/apis/rasterization.html)，未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-28 · 训练 PLY 输入
 
 - 新增 `parseGaussianSplatPly()`：接收原始 3DGS 训练代码写出的二进制小端 PLY，输出独立的模型空间中心、协方差、激活后不透明度和线性 RGB。此前光栅准备只能接收调用方手工提供的数组。

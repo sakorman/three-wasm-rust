@@ -23,7 +23,7 @@
 - **TS 接口**：引擎生命周期、上下文恢复、几何体顶点更新、材质颜色与光照开关更新、轨道相机、盒体/圆柱/球体生成。`web/engine/` 不导入 Three.js。
 - **场景与对照**：三个场景，500–20,000 个可绘制对象；不实例化、实例化两种配对测试，共享输入、相机、几何体、shader 和像素尺寸。
 - **测量**：CPU 中位数/P95、帧间隔、FPS、可用时的 GPU 查询结果、draw call、可见对象数和 JSON 原始样本。
-- **高斯输入与准备**：`parseGaussianSplatPly()` 解码原始 3DGS 二进制 PLY 的中心、激活后协方差、不透明度和 DC 颜色；`prepareGaussianRaster()` 生成紧凑局部数据视图，`packGaussianRasterUpload()` 生成固定交错上传记录，`GaussianUploadBuffers` 负责可复用 VBO、恢复重传和连续局部记录分批，`GaussianRasterRenderer` 提供全屏与瓦片 CDF 合成 pass；覆盖筛选、投影、滤波、范围、深度排序、裁切系数与分箱。提供数值差分和 WebGL2 上传/绘制回归，首页对照仍为 Mesh 场景。
+- **高斯输入与准备**：`parseGaussianSplatPly()` 解码原始 3DGS 二进制 PLY 的中心、激活后协方差、不透明度和 DC 颜色；`transformGaussianPlyToCameraSpace()` 用显式仿射矩阵将模型空间属性转换到正 z 相机空间；`prepareGaussianRaster()` 生成紧凑局部数据视图，`packGaussianRasterUpload()` 生成固定交错上传记录，`GaussianUploadBuffers` 负责可复用 VBO、恢复重传和连续局部记录分批，`GaussianRasterRenderer` 提供全屏与瓦片 CDF 合成 pass；覆盖筛选、投影、滤波、范围、深度排序、裁切系数与分箱。提供数值差分和 WebGL2 上传/绘制回归，首页对照仍为 Mesh 场景。
 
 ## 三个场景
 
