@@ -258,6 +258,12 @@ test('Gaussian raster renderer preserves the compact blend result when dispatchi
     const gl = canvas.getContext('webgl2', { antialias: false, alpha: true });
     if (!gl) throw new Error('WebGL2 unavailable');
     const lifecycle = new ContextLifecycle(gl), renderer = new GaussianRasterRenderer(gl, lifecycle);
+    const nativeDraw = gl.drawArraysInstanced.bind(gl);
+    let collectTileDraws = false, tileDrawCalls = 0;
+    Object.defineProperty(gl, 'drawArraysInstanced', { value: (...args: Parameters<WebGL2RenderingContext['drawArraysInstanced']>) => {
+      if (collectTileDraws) tileDrawCalls++;
+      nativeDraw(...args);
+    } });
     const upload = packGaussianRasterUpload(prepareGaussianRaster({
       centers: new Float32Array([0, 0, .8, .1, 0, 2, 0, 0, 4.5, 10, 0, 2]),
       covariances: new Float32Array([
@@ -277,15 +283,20 @@ test('Gaussian raster renderer preserves the compact blend result when dispatchi
       renderer.draw({ width, height, cutoff, applyClip: true });
       const full = pixels();
       gl.clear(gl.COLOR_BUFFER_BIT); gl.scissor(2, 3, 4, 5);
-      const draws = renderer.drawTiles({ width, height, cutoff, applyClip: true }), tiled = pixels();
+      collectTileDraws = true;
+      const draws = renderer.drawTiles({ width, height, cutoff, applyClip: true });
+      collectTileDraws = false;
+      const tiled = pixels();
       let equal = true, visiblePixels = 0;
       for (let index = 0; index < full.length; index++) if (full[index] !== tiled[index]) { equal = false; break; }
       for (let index = 3; index < tiled.length; index += 4) if (tiled[index]) visiblePixels++;
       const scissorBox = Array.from(gl.getParameter(gl.SCISSOR_BOX) as Int32Array);
-      return { draws, equal, visiblePixels, scissorEnabled: gl.isEnabled(gl.SCISSOR_TEST), scissorBox, error: gl.getError() };
+      return { draws, tileDrawCalls, equal, visiblePixels, scissorEnabled: gl.isEnabled(gl.SCISSOR_TEST), scissorBox, error: gl.getError() };
     } finally { renderer.dispose(); lifecycle.dispose(); }
   });
   expect(result.draws).toBe(52);
+  expect(result.tileDrawCalls).toBeGreaterThan(0);
+  expect(result.tileDrawCalls).toBeLessThan(result.draws);
   expect(result.equal).toBe(true);
   expect(result.visiblePixels).toBeGreaterThan(100);
   expect(result.scissorEnabled).toBe(false);

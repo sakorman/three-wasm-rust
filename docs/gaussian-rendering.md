@@ -313,7 +313,9 @@ renderer.update(upload);
 renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 ```
 
-绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。当前每条瓦片引用仍为一次实例化提交，用于验证调度、边界和混合顺序，而非减少 draw call。
+绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。
+
+同一瓦片中连续递增的局部 ID 指向连续的交错 VBO 记录，可作为一条 `drawArraysInstanced` 提交；`forEachTileBatch()` 只合并这种最大连续段。遇到跳号或逆序 ID 会立即结束当前段，保持原有混合顺序。`drawTiles()` 的返回值仍是引用数量而非 draw call 数。该实现没有 GPU 级间接索引，不能合并任意稀疏 ID，也不把合并次数推断为 GPU 时间、帧率或端到端性能收益。瓦片内按深度排序、再 alpha 合成的流程可参照 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。
 
 绘制器不提供颜色、球谐、纹理、深度/透明度策略或主页面接入。因此该 pass 只验证已有几何与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
 
@@ -347,7 +349,7 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 独立光栅 pass 回归以同一份 3 条上传记录分别执行裁切和未裁切绘制，二者产生 23,264 个不同 RGBA 通道；恢复前后裁切图像逐字节一致。回归还设置非默认混合因子并确认 draw 返回后恢复。该结果只检查着色器、属性布局、透明混合和恢复顺序，不比较瓦片调度、GPU 时间、帧率或真实模型质量。
 
-瓦片绘制回归将同一份 16 像素网格的 52 条局部引用送入 `drawTiles()`；每个 tile 以 scissor 限制像素区域，输出与一次全屏紧凑绘制逐字节一致。调用前关闭 scissor 并设为 `[2, 3, 4, 5]`，返回后状态和盒子保持不变。该路径有 52 次提交，不能解释为 GPU 速度或 draw call 优化。
+瓦片绘制回归将同一份 16 像素网格的 52 条局部引用送入 `drawTiles()`；每个 tile 以 scissor 限制像素区域，输出与一次全屏紧凑绘制逐字节一致。调用前关闭 scissor 并设为 `[2, 3, 4, 5]`，返回后状态和盒子保持不变。连续局部 ID 会以一条实例化调用提交，浏览器回归确认调用数小于引用数；逆序 ID 的单元测试确认会拆段并保持原顺序。该结果只检查提交语义，不代表 GPU 时间、帧率或端到端性能。
 
 深度筛选以 65,537 项输入对照 JavaScript 的不透明度筛选、深度条件和稳定排序。浏览器用例的 8 个高斯中，7 个通过不透明度筛选，3 个通过 `[2, 10]` 深度范围；未经筛选的整批投影会因相机后方中心报错，筛选后正确保留近远边界项及其不透明度，绘制 2,074 个可见像素，与 f32 范围参考 RGBA 一致。报告保存为 `test-results/**/gaussian-clip.json`；这验证的是筛选规则和管线衔接，不代表裁剪前后的画面应当相同。
 

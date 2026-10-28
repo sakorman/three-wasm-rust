@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-28 · 高斯瓦片连续记录分批
+
+- `GaussianUploadBuffers` 新增连续局部 ID 段迭代，`drawTiles()` 对每段执行一次实例化提交。此前每条瓦片引用都会单独提交；现在仅合并相邻记录，跳号或逆序会保留独立段和原有混合顺序。
+- 16 像素网格的 52 条引用仍与全屏紧凑路径逐字节一致，浏览器回归确认实际提交数小于引用数、scissor 状态和区域不变；Node 回归覆盖连续段与非连续 ID 拆段。
+- 验证：280 项测试通过（82 Rust、98 Node、100 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：该路径仍在 CPU 侧迭代，不能对任意稀疏 ID 批量提交，未接入颜色/SH、纹理或主页面，也未测量 GPU 时间、帧率或端到端性能。参考 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) 与 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)，未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-28 · 高斯瓦片绘制路径
 
 - `GaussianUploadBuffers` 新增只读瓦片元数据与局部 ID 迭代；外部数组在 `update()` 后改写不会影响瓦片调度。此前上传缓冲虽保存了瓦片引用，独立光栅 pass 并未消费它们。

@@ -165,6 +165,36 @@ export class GaussianUploadBuffers {
     }
   }
 
+  /**
+   * Iterates maximal contiguous local-ID runs in row-major tile order.
+   *
+   * A run is safe for one instanced draw because adjacent GPU records retain their
+   * stored blending order. Non-contiguous IDs deliberately remain separate runs.
+   */
+  forEachTileBatch(callback: (column: number, row: number, tileSize: number, firstLocalId: number, count: number) => void): void {
+    const tiles = this.source?.tiles;
+    if (!tiles) throw new Error('Gaussian upload has no tile data');
+    const tileCount = tiles.columns * tiles.rows;
+    const referenceStart = tileCount + 1;
+    for (let tile = 0; tile < tileCount; tile++) {
+      const column = tile % tiles.columns, row = Math.floor(tile / tiles.columns);
+      const begin = tiles.packed[tile], end = tiles.packed[tile + 1];
+      if (begin === end) continue;
+      let firstLocalId = tiles.packed[referenceStart + begin], count = 1;
+      for (let reference = begin + 1; reference < end; reference++) {
+        const localId = tiles.packed[referenceStart + reference];
+        if (localId === firstLocalId + count) {
+          count++;
+          continue;
+        }
+        callback(column, row, tiles.tileSize, firstLocalId, count);
+        firstLocalId = localId;
+        count = 1;
+      }
+      callback(column, row, tiles.tileSize, firstLocalId, count);
+    }
+  }
+
   private readonly onContextStateChange = (): void => {
     if (this.disposed || !this.context.ready) {
       this.clearHandles();

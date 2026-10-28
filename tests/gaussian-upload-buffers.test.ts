@@ -127,14 +127,28 @@ test('Gaussian upload buffers expose tile metadata and ordered local IDs without
   const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl), buffers = new GaussianUploadBuffers(fake.gl, lifecycle);
   const data = upload();
   buffers.update(data);
-  const layout = buffers.tileLayout(), references: Array<[number, number, number, number]> = [];
+  const layout = buffers.tileLayout(), references: Array<[number, number, number, number]> = [], batches: Array<[number, number, number, number, number]> = [];
   buffers.forEachTileReference((column, row, tileSize, localId) => references.push([column, row, tileSize, localId]));
+  buffers.forEachTileBatch((column, row, tileSize, firstLocalId, count) => batches.push([column, row, tileSize, firstLocalId, count]));
   assert.deepEqual(layout, { tileSize: 16, columns: 2, rows: 1, referenceCount: 3 });
   assert.deepEqual(references, [[0, 0, 16, 0], [0, 0, 16, 1], [1, 0, 16, 2]]);
+  assert.deepEqual(batches, [[0, 0, 16, 0, 2], [1, 0, 16, 2, 1]]);
   data.tiles!.packed.fill(99);
   const afterMutation: number[] = [];
   buffers.forEachTileReference((_column, _row, _tileSize, localId) => afterMutation.push(localId));
   assert.deepEqual(afterMutation, [0, 1, 2]);
+  buffers.dispose();
+  lifecycle.dispose();
+});
+
+test('Gaussian upload tile batches retain non-contiguous local-ID order', () => {
+  const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl), buffers = new GaussianUploadBuffers(fake.gl, lifecycle);
+  const data = upload();
+  data.tiles = { tileSize: 16, columns: 1, rows: 1, packed: new Uint32Array([0, 3, 0, 2, 1]) };
+  buffers.update(data);
+  const batches: Array<[number, number, number, number, number]> = [];
+  buffers.forEachTileBatch((column, row, tileSize, firstLocalId, count) => batches.push([column, row, tileSize, firstLocalId, count]));
+  assert.deepEqual(batches, [[0, 0, 16, 0, 1], [0, 0, 16, 2, 1], [0, 0, 16, 1, 1]]);
   buffers.dispose();
   lifecycle.dispose();
 });

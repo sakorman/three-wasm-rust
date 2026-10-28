@@ -133,7 +133,7 @@ export class GaussianRasterRenderer {
     });
   }
 
-  /** Draw every local tile reference with a tile scissor rectangle. Returns submitted references. */
+  /** Draw tile-local records with scissor rectangles. Returns submitted references, not draw-call count. */
   drawTiles(options: GaussianRasterDrawOptions): number {
     assertDrawOptions(options);
     const tiles = this.uploads.tileLayout();
@@ -143,15 +143,15 @@ export class GaussianRasterRenderer {
     }
     return this.withDraw(options, () => {
       this.gl.enable(this.gl.SCISSOR_TEST);
-      let draws = 0;
-      this.uploads.forEachTileReference((column, row, tileSize, localId) => {
+      let references = 0;
+      this.uploads.forEachTileBatch((column, row, tileSize, firstLocalId, count) => {
         const x = column * tileSize, y = row * tileSize;
         this.gl.scissor(x, y, Math.min(tileSize, options.width - x), Math.min(tileSize, options.height - y));
-        this.bindAttributes(localId);
-        this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, 1);
-        draws++;
+        this.bindAttributes(firstLocalId);
+        this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, count);
+        references += count;
       });
-      return draws;
+      return references;
     });
   }
 
