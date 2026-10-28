@@ -247,3 +247,48 @@ test('Gaussian raster renderer composites packed records and restores its indepe
   expect(result.draws).toBe(3);
   expect(result.error).toBe(0);
 });
+
+test('Gaussian raster renderer preserves the compact blend result when dispatching tile references', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('引擎已就绪');
+  const result = await page.evaluate(async () => {
+    const { ContextLifecycle, GaussianRasterRenderer, packGaussianRasterUpload, prepareGaussianRaster } = await import('../../web/engine/index.ts');
+    const width = 256, height = 192, cutoff = .1;
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: true });
+    if (!gl) throw new Error('WebGL2 unavailable');
+    const lifecycle = new ContextLifecycle(gl), renderer = new GaussianRasterRenderer(gl, lifecycle);
+    const upload = packGaussianRasterUpload(prepareGaussianRaster({
+      centers: new Float32Array([0, 0, .8, .1, 0, 2, 0, 0, 4.5, 10, 0, 2]),
+      covariances: new Float32Array([
+        .04, 0, 0, .04, 0, .25, .04, 0, 0, .04, 0, .25,
+        .04, 0, 0, .04, 0, .25, .04, 0, 0, .04, 0, .25,
+      ]),
+      opacities: new Float32Array([.5, .8, .7, .9]), cutoff, filterVariance: .25, tileSize: 16,
+      camera: { focalX: 96, focalY: 96, principalX: 128, principalY: 96, near: 1, far: 4, width, height },
+      clipPlane: { normal: new Float32Array([0, 0, -1]), offset: -1 },
+    }));
+    const pixels = () => {
+      const result = new Uint8Array(width * height * 4); gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, result); return result;
+    };
+    try {
+      renderer.update(upload);
+      gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, width, height); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      renderer.draw({ width, height, cutoff, applyClip: true });
+      const full = pixels();
+      gl.clear(gl.COLOR_BUFFER_BIT); gl.scissor(2, 3, 4, 5);
+      const draws = renderer.drawTiles({ width, height, cutoff, applyClip: true }), tiled = pixels();
+      let equal = true, visiblePixels = 0;
+      for (let index = 0; index < full.length; index++) if (full[index] !== tiled[index]) { equal = false; break; }
+      for (let index = 3; index < tiled.length; index += 4) if (tiled[index]) visiblePixels++;
+      const scissorBox = Array.from(gl.getParameter(gl.SCISSOR_BOX) as Int32Array);
+      return { draws, equal, visiblePixels, scissorEnabled: gl.isEnabled(gl.SCISSOR_TEST), scissorBox, error: gl.getError() };
+    } finally { renderer.dispose(); lifecycle.dispose(); }
+  });
+  expect(result.draws).toBe(52);
+  expect(result.equal).toBe(true);
+  expect(result.visiblePixels).toBeGreaterThan(100);
+  expect(result.scissorEnabled).toBe(false);
+  expect(result.scissorBox).toEqual([2, 3, 4, 5]);
+  expect(result.error).toBe(0);
+});

@@ -122,3 +122,19 @@ test('Gaussian upload buffers reject a silent storage allocation failure and all
   buffers.dispose();
   lifecycle.dispose();
 });
+
+test('Gaussian upload buffers expose tile metadata and ordered local IDs without sharing storage', () => {
+  const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl), buffers = new GaussianUploadBuffers(fake.gl, lifecycle);
+  const data = upload();
+  buffers.update(data);
+  const layout = buffers.tileLayout(), references: Array<[number, number, number, number]> = [];
+  buffers.forEachTileReference((column, row, tileSize, localId) => references.push([column, row, tileSize, localId]));
+  assert.deepEqual(layout, { tileSize: 16, columns: 2, rows: 1, referenceCount: 3 });
+  assert.deepEqual(references, [[0, 0, 16, 0], [0, 0, 16, 1], [1, 0, 16, 2]]);
+  data.tiles!.packed.fill(99);
+  const afterMutation: number[] = [];
+  buffers.forEachTileReference((_column, _row, _tileSize, localId) => afterMutation.push(localId));
+  assert.deepEqual(afterMutation, [0, 1, 2]);
+  buffers.dispose();
+  lifecycle.dispose();
+});

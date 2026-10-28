@@ -127,6 +127,35 @@ export class GaussianRasterRenderer {
   }
 
   draw(options: GaussianRasterDrawOptions): void {
+    this.withDraw(options, (upload) => {
+      this.bindAttributes(0);
+      this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, upload.recordCount);
+    });
+  }
+
+  /** Draw every local tile reference with a tile scissor rectangle. Returns submitted references. */
+  drawTiles(options: GaussianRasterDrawOptions): number {
+    assertDrawOptions(options);
+    const tiles = this.uploads.tileLayout();
+    if (!tiles) throw new Error('Gaussian raster tile data is unavailable');
+    if (tiles.columns !== Math.ceil(options.width / tiles.tileSize) || tiles.rows !== Math.ceil(options.height / tiles.tileSize)) {
+      throw new Error('Gaussian raster tile grid does not match the draw viewport');
+    }
+    return this.withDraw(options, () => {
+      this.gl.enable(this.gl.SCISSOR_TEST);
+      let draws = 0;
+      this.uploads.forEachTileReference((column, row, tileSize, localId) => {
+        const x = column * tileSize, y = row * tileSize;
+        this.gl.scissor(x, y, Math.min(tileSize, options.width - x), Math.min(tileSize, options.height - y));
+        this.bindAttributes(localId);
+        this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, 1);
+        draws++;
+      });
+      return draws;
+    });
+  }
+
+  private withDraw<T>(options: GaussianRasterDrawOptions, draw: (upload: GaussianUploadBufferSnapshot) => T): T {
     if (this.disposed) throw new Error('Gaussian raster renderer is disposed');
     assertDrawOptions(options);
     this.context.assertReady();
@@ -142,18 +171,19 @@ export class GaussianRasterRenderer {
     const destinationRgb = this.gl.getParameter(this.gl.BLEND_DST_RGB) as number;
     const sourceAlpha = this.gl.getParameter(this.gl.BLEND_SRC_ALPHA) as number;
     const destinationAlpha = this.gl.getParameter(this.gl.BLEND_DST_ALPHA) as number;
+    const scissor = this.gl.isEnabled(this.gl.SCISSOR_TEST);
+    const previousScissor = this.gl.getParameter(this.gl.SCISSOR_BOX) as Int32Array;
     try {
       this.gl.useProgram(state.program);
       this.gl.bindVertexArray(state.vao);
       this.gl.bindBuffer(this.gl.ARRAY_BUFFER, upload.splatBuffer);
-      this.bindAttributes();
       this.gl.enable(this.gl.BLEND);
       this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
       this.gl.viewport(0, 0, options.width, options.height);
       this.gl.uniform2f(state.viewport, options.width, options.height);
       this.gl.uniform1f(state.cutoff, options.cutoff);
       this.gl.uniform1i(state.applyClip, options.applyClip === false ? 0 : 1);
-      this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, upload.recordCount);
+      return draw(upload);
     } finally {
       this.gl.useProgram(previousProgram);
       this.gl.bindVertexArray(previousVao);
@@ -162,14 +192,18 @@ export class GaussianRasterRenderer {
       if (blend) this.gl.enable(this.gl.BLEND);
       else this.gl.disable(this.gl.BLEND);
       this.gl.blendFuncSeparate(sourceRgb, destinationRgb, sourceAlpha, destinationAlpha);
+      if (scissor) this.gl.enable(this.gl.SCISSOR_TEST);
+      else this.gl.disable(this.gl.SCISSOR_TEST);
+      this.gl.scissor(previousScissor[0], previousScissor[1], previousScissor[2], previousScissor[3]);
     }
   }
 
-  private bindAttributes(): void {
+  private bindAttributes(record: number): void {
     const stride = GAUSSIAN_RASTER_UPLOAD_STRIDE * Float32Array.BYTES_PER_ELEMENT;
     const attribute = (location: number, size: number, offset: number) => {
       this.gl.enableVertexAttribArray(location);
-      this.gl.vertexAttribPointer(location, size, this.gl.FLOAT, false, stride, offset * Float32Array.BYTES_PER_ELEMENT);
+      this.gl.vertexAttribPointer(location, size, this.gl.FLOAT, false, stride,
+        (record * GAUSSIAN_RASTER_UPLOAD_STRIDE + offset) * Float32Array.BYTES_PER_ELEMENT);
       this.gl.vertexAttribDivisor(location, 1);
     };
     attribute(0, 2, 0);

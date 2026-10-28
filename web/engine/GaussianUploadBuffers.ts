@@ -12,6 +12,13 @@ export interface GaussianUploadBufferSnapshot {
   tileCapacityBytes: number;
 }
 
+export interface GaussianUploadTileLayout {
+  tileSize: number;
+  columns: number;
+  rows: number;
+  referenceCount: number;
+}
+
 function cloneTiles(tiles: GaussianRasterTiles, recordCount: number): GaussianRasterTiles {
   if (!Number.isSafeInteger(tiles.tileSize) || tiles.tileSize <= 0
     || !Number.isSafeInteger(tiles.columns) || tiles.columns <= 0
@@ -129,6 +136,33 @@ export class GaussianUploadBuffers {
       tileBytes: this.source.tiles?.packed.byteLength ?? 0,
       tileCapacityBytes: this.tileCapacityBytes,
     };
+  }
+
+  /** Tile metadata without exposing the internal offset/reference array. */
+  tileLayout(): GaussianUploadTileLayout | undefined {
+    const tiles = this.source?.tiles;
+    if (!tiles) return undefined;
+    const tileCount = tiles.columns * tiles.rows;
+    return {
+      tileSize: tiles.tileSize,
+      columns: tiles.columns,
+      rows: tiles.rows,
+      referenceCount: tiles.packed.length - tileCount - 1,
+    };
+  }
+
+  /** Iterates local IDs in their stored row-major tile order without sharing CPU storage. */
+  forEachTileReference(callback: (column: number, row: number, tileSize: number, localId: number) => void): void {
+    const tiles = this.source?.tiles;
+    if (!tiles) throw new Error('Gaussian upload has no tile data');
+    const tileCount = tiles.columns * tiles.rows;
+    const referenceStart = tileCount + 1;
+    for (let tile = 0; tile < tileCount; tile++) {
+      const column = tile % tiles.columns, row = Math.floor(tile / tiles.columns);
+      for (let reference = tiles.packed[tile]; reference < tiles.packed[tile + 1]; reference++) {
+        callback(column, row, tiles.tileSize, tiles.packed[referenceStart + reference]);
+      }
+    }
   }
 
   private readonly onContextStateChange = (): void => {

@@ -2,6 +2,14 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-28 · 高斯瓦片绘制路径
+
+- `GaussianUploadBuffers` 新增只读瓦片元数据与局部 ID 迭代；外部数组在 `update()` 后改写不会影响瓦片调度。此前上传缓冲虽保存了瓦片引用，独立光栅 pass 并未消费它们。
+- `GaussianRasterRenderer.drawTiles()` 按行优先瓦片—局部 ID 顺序设置 scissor，并校验瓦片网格与绘制尺寸。每条引用配置其交错记录后单实例提交，调用结束恢复调用方 scissor 状态和区域。
+- 16 像素网格的 52 条引用与全屏紧凑路径逐字节一致；单元测试确认元数据与局部 ID 顺序，浏览器测试确认像素和非默认 scissor 状态。
+- 验证：279 项测试通过（82 Rust、97 Node、100 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：当前实现每条引用一次提交，尚未实现基于实例 ID 的批量瓦片提交、颜色/SH、纹理或主页面接入；该正确性路径不代表 GPU 时间、帧率、显存或 draw call 收益。参考 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst) 与 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)，未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-28 · 独立高斯光栅 pass
 
 - 新增 `GaussianRasterRenderer`：固定交错上传记录现在可由独立 WebGL2 pass 直接绘制。此前只有 VBO 数据准备和手写测试着色器，没有可复用的绘制器。
