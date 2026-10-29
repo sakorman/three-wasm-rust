@@ -126,6 +126,12 @@ export class GaussianRasterRenderer {
     this.uploads.update(upload);
   }
 
+  /** Release the active Gaussian view while retaining the renderer program and VAO for reuse. */
+  clear(): void {
+    if (this.disposed) throw new Error('Gaussian raster renderer is disposed');
+    this.uploads.clear();
+  }
+
   snapshot(): GaussianUploadBufferSnapshot | undefined {
     return this.uploads.snapshot();
   }

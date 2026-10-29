@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-30 · 高斯视图主动卸载
+
+- 新增 `GaussianUploadBuffers.clear()` 与 `GaussianRasterRenderer.clear()`：可在保留渲染器、上下文订阅、program 和 VAO 的前提下释放当前高斯视图的 CPU 副本与 VBO。此前只有永久 `dispose()` 能释放上传数据，视图会持续占用资源，且恢复时仍可能重传旧数据。
+- 卸载后快照、瓦片布局和记录数均为空，`draw()` 明确拒绝没有上传数据的调用；WebGL 上下文恢复不再重建已卸载视图，后续 `update()` 可在同一对象上重新上传并绘制。
+- 验证：模拟上下文覆盖 VBO 删除、恢复不重传和重新上传；真实 WebGL2 覆盖卸载后的拒绝绘制与重新上传前后像素一致。完整测试 297 项通过（90 Rust、105 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：仅管理当前高斯上传记录和 VBO，保留 program、VAO 及上下文订阅；尚未连接场景级资产调度、自动卸载策略或显存测量，不代表帧率或 GPU 时间收益。参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/) 与 [`gsplat` rasterization](https://docs.gsplat.studio/main/apis/rasterization.html)；未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-29 · PLY 到 Three 相机视图
 
 - 新增 `prepareGaussianPlyForThreeCamera()`：以一次调用衔接世界相机位置反解、模型空间 SH 颜色、正 z 相机空间中心/协方差变换，以及筛选、投影、排序和分箱。此前调用方需要手工串联四个步骤，容易把世界坐标用于 SH，或遗漏将动态颜色传入准备阶段。

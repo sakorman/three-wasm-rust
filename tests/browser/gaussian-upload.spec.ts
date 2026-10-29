@@ -235,7 +235,17 @@ test('Gaussian raster renderer composites packed records and restores its indepe
       for (let index = 0; index < initial.length; index++) {
         if (initial[index] !== restored[index]) { restoredEqual = false; break; }
       }
-      return { changedChannels, visiblePixels, blendRestored, readyWhileLost, snapshotWhileLost, restoredEqual, draws, error: gl.getError() };
+      renderer.clear();
+      const clearedSnapshot = renderer.snapshot(), clearedRecords = renderer.uploads.recordCount;
+      let drawAfterClear = '';
+      try { renderer.draw({ width, height, cutoff, applyClip: true }); } catch (error) { drawAfterClear = String(error); }
+      renderer.update(makeUpload());
+      const reloaded = render(true);
+      let reloadEqual = true;
+      for (let index = 0; index < restored.length; index++) {
+        if (restored[index] !== reloaded[index]) { reloadEqual = false; break; }
+      }
+      return { changedChannels, visiblePixels, blendRestored, readyWhileLost, snapshotWhileLost, restoredEqual, clearedSnapshot, clearedRecords, drawAfterClear, reloadEqual, draws, error: gl.getError() };
     } finally { renderer.dispose(); lifecycle.dispose(); }
   });
   expect(result.changedChannels).toBeGreaterThan(500);
@@ -244,7 +254,11 @@ test('Gaussian raster renderer composites packed records and restores its indepe
   expect(result.readyWhileLost).toBe(false);
   expect(result.snapshotWhileLost).toBeUndefined();
   expect(result.restoredEqual).toBe(true);
-  expect(result.draws).toBe(3);
+  expect(result.clearedSnapshot).toBeUndefined();
+  expect(result.clearedRecords).toBe(0);
+  expect(result.drawAfterClear).toContain('resources are unavailable');
+  expect(result.reloadEqual).toBe(true);
+  expect(result.draws).toBe(4);
   expect(result.error).toBe(0);
 });
 

@@ -123,6 +123,33 @@ test('Gaussian upload buffers reject a silent storage allocation failure and all
   lifecycle.dispose();
 });
 
+test('Gaussian upload buffers clear copied data and handles without restoring an unloaded view', () => {
+  const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl), buffers = new GaussianUploadBuffers(fake.gl, lifecycle);
+  buffers.update(upload());
+  assert.ok(buffers.snapshot());
+  buffers.clear();
+  assert.equal(buffers.recordCount, 0);
+  assert.equal(buffers.snapshot(), undefined);
+  assert.equal(buffers.tileLayout(), undefined);
+  assert.throws(() => buffers.forEachTileReference(() => {}), /no tile data/);
+  assert.deepEqual(fake.stats(), { creates: 2, deletes: 2, dataCalls: 2, subDataCalls: 0 });
+  fake.lose();
+  fake.restore();
+  assert.equal(buffers.snapshot(), undefined);
+  assert.equal(fake.stats().creates, 2);
+
+  const reduced: PackedGaussianRasterUpload = { splatData: upload().splatData.slice(0, 15), originalIds: new Uint32Array([7]) };
+  buffers.update(reduced);
+  const reloaded = buffers.snapshot();
+  assert.ok(reloaded);
+  assert.equal(reloaded.recordCount, 1);
+  assert.equal(reloaded.tileBuffer, undefined);
+  assert.equal(fake.stats().creates, 3);
+  buffers.dispose();
+  assert.throws(() => buffers.clear(), /disposed/);
+  lifecycle.dispose();
+});
+
 test('Gaussian upload buffers expose tile metadata and ordered local IDs without sharing storage', () => {
   const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl), buffers = new GaussianUploadBuffers(fake.gl, lifecycle);
   const data = upload();
