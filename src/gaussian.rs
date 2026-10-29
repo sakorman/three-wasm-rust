@@ -350,6 +350,78 @@ pub fn gaussian_compose_three_camera(
     Ok(camera.to_vec())
 }
 
+/// Convert a world-space camera position into the model space of trained Gaussian centers.
+///
+/// `model_to_world` is a column-major affine matrix. This applies its inverse to the camera
+/// position without depending on Three.js, so the result can be supplied to
+/// `gaussian_sh_colors()` together with model-space PLY centers.
+#[wasm_bindgen]
+pub fn gaussian_model_camera_position(
+    model_to_world: &[f32],
+    world_camera_position: &[f32],
+) -> Result<Vec<f32>, String> {
+    let matrix = affine_camera_matrix(model_to_world, "model-to-world")?;
+    let world_camera_position: &[f32; 3] = world_camera_position
+        .try_into()
+        .map_err(|_| "Gaussian world camera position must contain three values")?;
+    if !world_camera_position.iter().all(|value| value.is_finite()) {
+        return Err("Gaussian world camera position must be finite".into());
+    }
+    let [a, b, c] = [
+        f64::from(matrix[0]),
+        f64::from(matrix[4]),
+        f64::from(matrix[8]),
+    ];
+    let [d, e, f] = [
+        f64::from(matrix[1]),
+        f64::from(matrix[5]),
+        f64::from(matrix[9]),
+    ];
+    let [g, h, i] = [
+        f64::from(matrix[2]),
+        f64::from(matrix[6]),
+        f64::from(matrix[10]),
+    ];
+    let determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    let inverse = [
+        [
+            (e * i - f * h) / determinant,
+            (c * h - b * i) / determinant,
+            (b * f - c * e) / determinant,
+        ],
+        [
+            (f * g - d * i) / determinant,
+            (a * i - c * g) / determinant,
+            (c * d - a * f) / determinant,
+        ],
+        [
+            (d * h - e * g) / determinant,
+            (b * g - a * h) / determinant,
+            (a * e - b * d) / determinant,
+        ],
+    ];
+    let translated = [
+        f64::from(world_camera_position[0]) - f64::from(matrix[12]),
+        f64::from(world_camera_position[1]) - f64::from(matrix[13]),
+        f64::from(world_camera_position[2]) - f64::from(matrix[14]),
+    ];
+    inverse
+        .map(|row| {
+            row.iter()
+                .zip(translated)
+                .map(|(value, position)| value * position)
+                .sum::<f64>()
+        })
+        .map(|value| {
+            finite_f32(
+                value,
+                "Gaussian model camera position is outside the finite f32 range",
+            )
+        })
+        .into_iter()
+        .collect()
+}
+
 /// Transform model-space Gaussian centers and covariances into camera space.
 ///
 /// `world_to_camera` is a column-major affine matrix for column vectors, matching
@@ -1550,6 +1622,25 @@ mod tests {
         singular[5] = 0.;
         assert!(gaussian_compose_three_camera(&IDENTITY, &singular).is_err());
         assert!(gaussian_compose_three_camera(&[0.; 15], &IDENTITY).is_err());
+    }
+
+    #[test]
+    fn model_camera_position_inverts_affine_model_transforms() {
+        let matrix = [
+            0., 3., 0., 0., -2., 0., 0., 0., 0., 0., 0.5, 0., 10., 20., 30., 1.,
+        ];
+        assert_eq!(
+            gaussian_model_camera_position(&matrix, &[6., 23., 31.5]).unwrap(),
+            [1., 2., 3.]
+        );
+        let mut projective = IDENTITY;
+        projective[3] = 1.;
+        assert!(gaussian_model_camera_position(&projective, &[0., 0., 0.]).is_err());
+        let mut singular = IDENTITY;
+        singular[5] = 0.;
+        assert!(gaussian_model_camera_position(&singular, &[0., 0., 0.]).is_err());
+        assert!(gaussian_model_camera_position(&IDENTITY, &[0., 0.]).is_err());
+        assert!(gaussian_model_camera_position(&IDENTITY, &[f32::NAN, 0., 0.]).is_err());
     }
 
     #[test]

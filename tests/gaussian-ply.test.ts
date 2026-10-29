@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import init from '../pkg/three_wasm_rust.js';
-import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, parseGaussianSplatPly, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
+import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
@@ -135,6 +135,12 @@ test('Three.js model and view matrices compose into the positive-z Gaussian came
     Float32Array.from(model.elements),
     Float32Array.from(camera.matrixWorldInverse.elements),
   );
+  const modelCameraPosition = modelCameraPositionFromThreeWorld(
+    Float32Array.from(model.elements),
+    Float32Array.from(camera.getWorldPosition(new THREE.Vector3()).toArray()),
+  );
+  const expectedModelCameraPosition = camera.getWorldPosition(new THREE.Vector3()).applyMatrix4(model.clone().invert());
+  expectedModelCameraPosition.toArray().forEach((value, index) => close(modelCameraPosition[index], value));
   const expected = new THREE.Matrix4()
     .makeScale(1, 1, -1)
     .multiply(camera.matrixWorldInverse)
