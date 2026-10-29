@@ -5,6 +5,12 @@ import {
   gaussian_sh_colors,
   gaussian_transform_camera_space,
 } from '../../pkg/three_wasm_rust.js';
+import {
+  prepareGaussianRaster,
+  type GaussianClipPlane,
+  type GaussianRasterCamera,
+  type PreparedGaussianRaster,
+} from './gaussian.ts';
 
 const MAX_HEADER_BYTES = 1 << 20;
 const MAX_SPLATS = 1_000_000;
@@ -49,6 +55,22 @@ export interface GaussianCameraSource {
   covariances: Float32Array;
   opacities: Float32Array;
   colors: Float32Array;
+}
+
+/** Inputs needed to prepare one trained PLY view from copied Three.js camera state. */
+export interface GaussianPlyThreeCameraOptions {
+  source: GaussianPlySource;
+  /** Model-to-world matrix in Three.js column-major layout. */
+  modelToWorld: Float32Array;
+  /** Three.js `camera.matrixWorldInverse` in its native negative-z convention. */
+  threeWorldToView: Float32Array;
+  /** Three.js world-space camera position. */
+  threeCameraWorldPosition: Float32Array;
+  cutoff: number;
+  camera: GaussianRasterCamera;
+  filterVariance?: number;
+  clipPlane?: GaussianClipPlane;
+  tileSize?: number;
 }
 
 const scalarSizes: Readonly<Record<PlyScalarType, number>> = {
@@ -296,4 +318,29 @@ export function transformGaussianPlyToCameraSpace(source: GaussianPlySource, wor
     covariances.set(packed.subarray(sourceOffset + 3, sourceOffset + 9), index * 6);
   }
   return { centers, covariances, opacities: source.opacities.slice(), colors: source.colors.slice() };
+}
+
+/**
+ * Prepare one trained PLY view from copied Three.js model and camera state.
+ *
+ * SH colors are evaluated with the camera position transformed back into model space, while
+ * centers and covariances use the matching positive-z camera transform. The returned compact
+ * raster view is independent from the source and all input matrix/position arrays.
+ */
+export function prepareGaussianPlyForThreeCamera({
+  source,
+  modelToWorld,
+  threeWorldToView,
+  threeCameraWorldPosition,
+  cutoff,
+  camera,
+  filterVariance,
+  clipPlane,
+  tileSize,
+}: GaussianPlyThreeCameraOptions): PreparedGaussianRaster {
+  const modelCameraPosition = modelCameraPositionFromThreeWorld(modelToWorld, threeCameraWorldPosition);
+  const colors = evaluateGaussianPlyShColors(source, modelCameraPosition);
+  const worldToCamera = composeThreeModelToPositiveZCamera(modelToWorld, threeWorldToView);
+  const cameraSource = transformGaussianPlyToCameraSpace(source, worldToCamera);
+  return prepareGaussianRaster({ ...cameraSource, colors, cutoff, camera, filterVariance, clipPlane, tileSize });
 }

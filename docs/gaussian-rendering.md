@@ -19,21 +19,20 @@ rot_0 rot_1 rot_2 rot_3
 `scale_*` 按自然指数激活；`opacity` 使用数值稳定的 sigmoid；`rot_*` 按 `[w, x, y, z]` 归一化。Rust/WASM 在 f64 中构造 `R × diag(exp(scale)^2) × Rᵀ`，写回 f32 后再次检查三维协方差正定性，输出布局为 `[xx, xy, xz, yy, yz, zz]`。DC 颜色按 `0.28209479177387814 × f_dc + 0.5` 还原为线性 RGB，负值截为零以满足当前上传记录的非负颜色约束。`evaluateGaussianPlyShColors(source, modelCameraPosition)` 在 Rust/WASM 中使用同一约定求 0–3 阶实球谐，添加原始 3DGS 的 `+0.5` 偏置并截断负值；相机位置必须与模型空间 `centers` 使用同一坐标系。
 
 ```ts
-import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, init, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, transformGaussianPlyToCameraSpace } from './web/engine/index.ts';
+import { init, parseGaussianSplatPly, prepareGaussianPlyForThreeCamera } from './web/engine/index.ts';
 
 await init();
 const source = parseGaussianSplatPly(await response.arrayBuffer());
 const modelToWorld = Float32Array.from(model.matrixWorld.elements);
-const modelSpaceCameraPosition = modelCameraPositionFromThreeWorld(
-  modelToWorld, Float32Array.from(camera.getWorldPosition(new THREE.Vector3()).toArray()),
-);
-const colors = evaluateGaussianPlyShColors(source, modelSpaceCameraPosition);
-const positiveZWorldToCamera = composeThreeModelToPositiveZCamera(
+const prepared = prepareGaussianPlyForThreeCamera({
+  source,
   modelToWorld,
-  Float32Array.from(camera.matrixWorldInverse.elements),
-);
-const cameraSource = transformGaussianPlyToCameraSpace(source, positiveZWorldToCamera);
-// 将 colors 作为 prepareGaussianRaster() 的 colors 参数；cameraSource 保持几何属性。
+  threeWorldToView: Float32Array.from(camera.matrixWorldInverse.elements),
+  threeCameraWorldPosition: Float32Array.from(camera.getWorldPosition(new THREE.Vector3()).toArray()),
+  cutoff: 1 / 255,
+  camera: { focalX, focalY, principalX, principalY, near: camera.near, far: camera.far, width, height },
+  tileSize: 16,
+});
 ```
 
 ### 模型到相机空间
@@ -47,7 +46,7 @@ c_camera = R × c + t
 
 平移不改变协方差；实现以 f64 计算并在返回 f32 后再次检查正定性。准备和投影路径约定相机前方为 `z > 0`。标准 Three.js `matrixWorldInverse` 使用负 z 前方；`composeThreeModelToPositiveZCamera(modelToWorld, threeWorldToView)` 在一次 WASM 调用中返回 `diag(1, 1, -1, 1) × threeWorldToView × modelToWorld`，可直接交给本接口。该助手不导入 Three.js，输入是复制后的列主序矩阵；模型、视图和组合结果均须为有限且可逆的仿射矩阵，相机或模型变化后须重新组合。接口拒绝透视矩阵、奇异线性部分、非有限中心及非正定协方差；投影除法无法对三维高斯协方差保持上述仿射关系。
 
-`modelCameraPositionFromThreeWorld(modelToWorld, worldCameraPosition)` 在 Rust/WASM 中反解模型的可逆仿射变换，返回可直接用于 SH 的模型空间相机位置；它拒绝投影、奇异、非有限或 f32 不可表示的结果。当前支持 0–3 阶 SH 的独立 CPU/WASM 求值，但不会自动订阅 Three.js 变换，也不会自动将结果接到上传或首页 Mesh 场景；没有实现 GPU SH 着色、色彩管理、曝光、色调映射或 PLY 流式加载。此处的格式和激活约定参照原始实现的 [PLY 属性顺序与激活](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/gaussian_model.py)、[`gsplat` SH 工具说明](https://docs.gsplat.studio/main/apis/utils) 及 [SH 常数](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/utils/sh_utils.py)；变换关系参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未使用其代码、模型或实验数据。
+`prepareGaussianPlyForThreeCamera()` 将上述四个步骤连成一次准备：先把世界相机位置反解为模型空间以求 SH，再组合正 z 相机矩阵、变换中心和协方差，最后调用 `prepareGaussianRaster()`。它返回独立的紧凑视图，矩阵、相机位置或源数组更新后须重新调用；它不自动订阅 Three.js 变换，也不会自动将结果上传到首页 Mesh 场景。其底层 `modelCameraPositionFromThreeWorld(modelToWorld, worldCameraPosition)` 拒绝投影、奇异、非有限或 f32 不可表示的结果。当前未实现 GPU SH 着色、色彩管理、曝光、色调映射或 PLY 流式加载。此处的格式和激活约定参照原始实现的 [PLY 属性顺序与激活](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/gaussian_model.py)、[`gsplat` SH 工具说明](https://docs.gsplat.studio/main/apis/utils) 及 [SH 常数](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/utils/sh_utils.py)；变换关系参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未使用其代码、模型或实验数据。
 
 ## 公式与接口
 
