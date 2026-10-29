@@ -343,7 +343,7 @@ test('trained Gaussian PLY keeps activated and view-dependent SH color through b
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('引擎已就绪');
   const result = await page.evaluate(async () => {
-    const { GAUSSIAN_RASTER_UPLOAD_STRIDE, composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, parseGaussianSplatPly, packGaussianRasterUpload, prepareGaussianRaster, transformGaussianPlyToCameraSpace } = await import('../../web/engine/index.ts');
+    const { GAUSSIAN_RASTER_UPLOAD_STRIDE, composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, packGaussianRasterUpload, prepareGaussianRaster, transformGaussianPlyToCameraSpace } = await import('../../web/engine/index.ts');
     const fields = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3', ...Array.from({ length: 9 }, (_, index) => `f_rest_${index}`)];
     const rows = [
       [0, 0, 2, 0, 0, 0, 0, -2, -2, -2, 1, 0, 0, 0, ...Array<number>(9).fill(0)],
@@ -356,8 +356,8 @@ test('trained Gaussian PLY keeps activated and view-dependent SH color through b
     const view = new DataView(buffer);
     rows.forEach((row, rowIndex) => row.forEach((value, column) => view.setFloat32(header.length + (rowIndex * fields.length + column) * 4, value, true)));
     const source = parseGaussianSplatPly(buffer);
-    const evaluatedColors = evaluateGaussianPlyShColors(source, new Float32Array([0, 0, 0]));
     const modelToWorld = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    const evaluatedColors = evaluateGaussianPlyShColors(source, modelCameraPositionFromThreeWorld(modelToWorld, new Float32Array([0, 0, 0])));
     const threeWorldToView = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1]);
     const cameraSource = transformGaussianPlyToCameraSpace(source, composeThreeModelToPositiveZCamera(modelToWorld, threeWorldToView));
     const prepared = prepareGaussianRaster({

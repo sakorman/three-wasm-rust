@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-29 · SH 模型空间相机位置
+
+- 新增 Rust/WASM `gaussian_model_camera_position()` 与 `modelCameraPositionFromThreeWorld()`：通过模型矩阵的逆仿射变换，将世界相机位置转换为 PLY 模型空间观察点。此前调用方需自行求逆，直接传世界坐标会在模型含平移、旋转或缩放时得到错误的 SH 方向。
+- 转换校验输入为有限、仿射且线性部分可逆；TypeScript 助手只接收矩阵和位置副本，不引入 Three.js 依赖。浏览器 SH 上传链路现显式使用该模型空间位置。
+- 验证：Rust 覆盖旋转、非均匀缩放、平移及非法矩阵；Node 与 Three.js `Matrix4.invert()` 的位置结果比较；浏览器覆盖 SH 颜色到准备和上传。完整测试 295 项通过（90 Rust、103 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：不自动订阅模型或相机变换，只接受仿射模型矩阵；SH 仍在 CPU/WASM 侧求值，尚未进入 GPU shader 或主页面渲染循环。参考 [Three.js Matrix4.invert](https://threejs.org/docs/#api/en/math/Matrix4.invert)、[3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/) 与 [`gsplat` SH 工具说明](https://docs.gsplat.studio/main/apis/utils)；未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-29 · 高斯视角 SH 颜色
 
 - `parseGaussianSplatPly()` 现识别完整连续的 1、2、3 阶 `f_rest_*` 组，并以基函数主序 RGB 三元组保留原始系数。此前只还原 DC 颜色，训练出的视角相关颜色会被忽略；不完整或未知组仍按原行为跳过。

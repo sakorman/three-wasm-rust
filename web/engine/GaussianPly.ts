@@ -1,6 +1,7 @@
 import {
   gaussian_compose_three_camera,
   gaussian_covariances_from_log_scales_rotations,
+  gaussian_model_camera_position,
   gaussian_sh_colors,
   gaussian_transform_camera_space,
 } from '../../pkg/three_wasm_rust.js';
@@ -264,6 +265,17 @@ export function evaluateGaussianPlyShColors(source: GaussianPlySource, modelCame
  */
 export function composeThreeModelToPositiveZCamera(modelToWorld: Float32Array, threeWorldToView: Float32Array): Float32Array {
   return gaussian_compose_three_camera(modelToWorld, threeWorldToView);
+}
+
+/**
+ * Convert a Three.js-compatible world-space camera position into PLY model space.
+ *
+ * Pass the returned position to `evaluateGaussianPlyShColors()` before transforming the
+ * source to camera space. Inputs are copied matrix elements and position values, so this
+ * helper does not import or retain Three.js objects.
+ */
+export function modelCameraPositionFromThreeWorld(modelToWorld: Float32Array, threeCameraWorldPosition: Float32Array): Float32Array {
+  return gaussian_model_camera_position(modelToWorld, threeCameraWorldPosition);
 }
 
 /**
