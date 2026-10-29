@@ -336,7 +336,7 @@ gl.bufferData(gl.ARRAY_BUFFER, upload.splatData, gl.DYNAMIC_DRAW);
 
 ### 可复用上传缓冲
 
-`GaussianUploadBuffers` 将上传记录保存在独立 CPU 副本中，并以指定的 `ContextLifecycle` 管理一对 WebGL2 缓冲。`update()` 在容量足够时使用 `bufferSubData`，增长时才重新分配；瓦片数据缺失时释放瓦片缓冲。它只保存数据和句柄，不创建 VAO、shader 或绘制提交。
+`GaussianUploadBuffers` 将上传记录保存在独立 CPU 副本中，并以指定的 `ContextLifecycle` 管理一对 WebGL2 缓冲。`update()` 在容量足够时使用 `bufferSubData`，增长时才重新分配；瓦片数据缺失时释放瓦片缓冲。`clear()` 会同时释放 CPU 副本和当前 VBO，但保留对象及其上下文订阅，供后续 `update()` 重新上传；清空后的上下文恢复不会重传旧视图。它只保存数据和句柄，不创建 VAO、shader 或绘制提交。
 
 ```ts
 import { ContextLifecycle, GaussianUploadBuffers } from './web/engine/index.ts';
@@ -345,6 +345,7 @@ const lifecycle = new ContextLifecycle(gl);
 const buffers = new GaussianUploadBuffers(gl, lifecycle);
 buffers.update(upload);
 const gpu = buffers.snapshot(); // ready 时返回 VBO、可用字节数和容量
+buffers.clear(); // 卸载当前视图；随后可调用 update(upload) 重新建立缓冲
 ```
 
 上下文丢失时 `snapshot()` 返回 `undefined`，旧 WebGL 句柄不会再暴露；恢复后自动以内部副本新建缓冲并重传。调用方在恢复后的 `snapshot()` 中重新绑定 VAO 和属性即可。传入数组在 `update()` 后可以修改，不会影响恢复内容。该类尚未接入首页 Mesh 场景或完整高斯主渲染器；缓冲容量、上传次数和本节 WebGL 测试均不是 GPU 时间、帧率或显存收益结论。
@@ -361,7 +362,7 @@ renderer.update(upload);
 renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 ```
 
-绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。
+绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。`GaussianRasterRenderer.clear()` 会委托上传层卸载当前视图，保留 program/VAO；清空后 `draw()` 会拒绝，新的 `update()` 后可恢复绘制。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。
 
 同一瓦片中连续递增的局部 ID 指向连续的交错 VBO 记录，可作为一条 `drawArraysInstanced` 提交；`forEachTileBatch()` 只合并这种最大连续段。遇到跳号或逆序 ID 会立即结束当前段，保持原有混合顺序。`drawTiles()` 的返回值仍是引用数量而非 draw call 数。该实现没有 GPU 级间接索引，不能合并任意稀疏 ID，也不把合并次数推断为 GPU 时间、帧率或端到端性能收益。瓦片内按深度排序、再 alpha 合成的流程可参照 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。
 

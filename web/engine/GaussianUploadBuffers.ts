@@ -126,6 +126,14 @@ export class GaussianUploadBuffers {
     }
   }
 
+  /** Release the current CPU copy and both GPU buffers while keeping this instance reusable. */
+  clear(): void {
+    if (this.disposed || this.context.state === 'disposed') throw new Error('Gaussian upload buffers are disposed');
+    this.deleteHandles();
+    this.source = undefined;
+    this.currentError = undefined;
+  }
+
   /** Current GPU handles. Returns undefined while lost, failed, empty or disposed. */
   snapshot(): GaussianUploadBufferSnapshot | undefined {
     if (!this.context.ready || this.currentError || !this.source || !this.splatBuffer) return undefined;
