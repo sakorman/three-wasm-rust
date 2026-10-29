@@ -1,6 +1,7 @@
 import {
   gaussian_compose_three_camera,
   gaussian_covariances_from_log_scales_rotations,
+  gaussian_sh_colors,
   gaussian_transform_camera_space,
 } from '../../pkg/three_wasm_rust.js';
 
@@ -23,6 +24,8 @@ interface GaussianPlyHeader {
   properties: Map<string, PlyProperty>;
 }
 
+export type GaussianShDegree = 0 | 1 | 2 | 3;
+
 /** Camera-independent source attributes decoded from one trained 3D Gaussian PLY file. */
 export interface GaussianPlySource {
   /** Model-space centers; transform them to camera space before raster preparation. */
@@ -33,6 +36,10 @@ export interface GaussianPlySource {
   opacities: Float32Array;
   /** Non-negative, view-independent linear RGB reconstructed from degree-zero SH. */
   colors: Float32Array;
+  /** Decoded SH degree. Full trained PLY exports use degrees zero through three. */
+  shDegree: GaussianShDegree;
+  /** Coefficient-major RGB triples per splat: `[r0, g0, b0, r1, g1, b1, ...]`. */
+  shCoefficients: Float32Array;
 }
 
 /** Gaussian attributes expressed in the positive-z camera convention used by raster preparation. */
@@ -153,10 +160,14 @@ function sigmoid(value: number): number {
   return exponent / (1 + exponent);
 }
 
-function validateSource({ centers, covariances, opacities, colors }: GaussianPlySource): void {
+function validateSource({ centers, covariances, opacities, colors, shDegree, shCoefficients }: GaussianPlySource): void {
   if (centers.length % 3 !== 0 || covariances.length !== centers.length * 2
     || opacities.length !== centers.length / 3 || colors.length !== centers.length) {
     throw new Error('Gaussian source attributes have inconsistent lengths');
+  }
+  if (!Number.isInteger(shDegree) || shDegree < 0 || shDegree > 3
+    || shCoefficients.length !== centers.length * (shDegree + 1) ** 2) {
+    throw new Error('Gaussian source SH coefficients have inconsistent degree or length');
   }
   for (let index = 0; index < opacities.length; index++) {
     if (!Number.isFinite(opacities[index]) || opacities[index] < 0 || opacities[index] > 1) {
@@ -168,13 +179,30 @@ function validateSource({ centers, covariances, opacities, colors }: GaussianPly
       throw new Error(`Gaussian source color is invalid at component ${index}`);
     }
   }
+  for (let index = 0; index < shCoefficients.length; index++) {
+    if (!Number.isFinite(shCoefficients[index])) {
+      throw new Error(`Gaussian source SH coefficient is invalid at component ${index}`);
+    }
+  }
+}
+
+function shProperties(header: GaussianPlyHeader): { degree: GaussianShDegree; rest: PlyProperty[] } {
+  for (let degree = 3; degree >= 1; degree--) {
+    const count = 3 * ((degree + 1) ** 2 - 1);
+    const names = Array.from({ length: count }, (_, index) => `f_rest_${index}`);
+    if (names.every(name => header.properties.has(name))) {
+      return { degree: degree as GaussianShDegree, rest: names.map(name => requiredFloat(header, name)) };
+    }
+  }
+  return { degree: 0, rest: [] };
 }
 
 /**
  * Decode the binary little-endian PLY layout emitted by the original 3D Gaussian Splatting
  * training code. It activates log scales, opacity and quaternion rotation through the WASM
- * covariance helper, then reconstructs only degree-zero SH color. Higher SH terms stay
- * unconsumed until view-dependent shading is available.
+ * covariance helper. Complete `f_rest_0…N` groups for degrees one through three are
+ * retained as coefficient-major RGB triples; incomplete or unknown groups remain ignored.
+ * `evaluateGaussianPlyShColors()` evaluates the retained coefficients for a camera position.
  *
  * Call `init()` before this function. The result is model-space source data, not a prepared
  * camera view; callers must transform centers and covariances into camera space first.
@@ -183,6 +211,7 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
   const header = parseHeader(buffer);
   const required = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3']
     .map(name => requiredFloat(header, name));
+  const sh = shProperties(header);
   const requiredBytes = header.bodyOffset + header.count * header.stride;
   if (!Number.isSafeInteger(requiredBytes) || requiredBytes > buffer.byteLength) throw new Error('Gaussian PLY vertex data is truncated');
   const view = new DataView(buffer);
@@ -191,6 +220,7 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
   const rotations = new Float32Array(header.count * 4);
   const opacities = new Float32Array(header.count);
   const colors = new Float32Array(header.count * 3);
+  const shCoefficients = new Float32Array(header.count * (sh.degree + 1) ** 2 * 3);
   for (let index = 0; index < header.count; index++) {
     const record = header.bodyOffset + index * header.stride;
     const value = (property: PlyProperty) => finiteF32(view.getFloat32(record + property.offset, true), property.name, index);
@@ -199,6 +229,11 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
     logScales.set([scaleX, scaleY, scaleZ], index * 3);
     rotations.set([rotationW, rotationX, rotationY, rotationZ], index * 4);
     opacities[index] = finiteF32(sigmoid(opacity), 'activated opacity', index);
+    const coefficientOffset = index * (sh.degree + 1) ** 2 * 3;
+    shCoefficients.set([red, green, blue], coefficientOffset);
+    for (let restIndex = 0; restIndex < sh.rest.length; restIndex++) {
+      shCoefficients[coefficientOffset + 3 + restIndex] = value(sh.rest[restIndex]);
+    }
     colors.set([
       finiteF32(Math.max(0, red * SH_C0 + .5), 'degree-zero red', index),
       finiteF32(Math.max(0, green * SH_C0 + .5), 'degree-zero green', index),
@@ -206,7 +241,19 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
     ], index * 3);
   }
   const covariances = gaussian_covariances_from_log_scales_rotations(logScales, rotations);
-  return { centers, covariances, opacities, colors };
+  return { centers, covariances, opacities, colors, shDegree: sh.degree, shCoefficients };
+}
+
+/**
+ * Evaluate the decoded 0–3 degree SH coefficients for a camera position in model space.
+ *
+ * The returned non-negative linear RGB may be passed to `prepareGaussianRaster()`. It is
+ * independent from the model-to-camera transform, so the position must use `source.centers`'
+ * original coordinate system rather than the positive-z camera space.
+ */
+export function evaluateGaussianPlyShColors(source: GaussianPlySource, modelCameraPosition: Float32Array): Float32Array {
+  validateSource(source);
+  return gaussian_sh_colors(source.centers, source.shCoefficients, source.shDegree, modelCameraPosition);
 }
 
 /**
