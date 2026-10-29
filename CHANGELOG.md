@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-29 · 高斯相机组合校验
+
+- 新增 Rust/WASM `gaussian_compose_three_camera()`：将模型矩阵和 Three.js 负 z 视图矩阵在一次受约束调用中组合为正 z 相机矩阵。此前 TypeScript 助手连续调用通用矩阵乘法，错误矩阵可能延后到属性变换阶段才被拒绝。
+- 模型、视图与组合结果现在都会校验为有限、仿射且线性部分可逆；TypeScript 助手改为委托生成的 WASM 绑定，接口仍不依赖 Three.js。
+- 验证：新增 Rust 组合与拒绝路径测试；完整测试 291 项通过（87 Rust、102 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：不自动订阅模型或相机变换，不接受投影矩阵，尚未将真实高斯资产接入主场景。参考 [Three.js Camera.matrixWorldInverse](https://threejs.org/docs/#api/en/cameras/Camera.matrixWorldInverse)、[3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/) 与 [`gsplat` rasterization](https://docs.gsplat.studio/main/apis/rasterization.html)；未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-29 · Three.js 高斯视图组合
 
 - 新增 `composeThreeModelToPositiveZCamera()`：将 `model.matrixWorld` 和 `camera.matrixWorldInverse` 的列主序副本组合为 `diag(1, 1, -1, 1) × view × model`。此前调用方需手工插入 z 翻转，模型变换与视图矩阵的乘法顺序容易出错。

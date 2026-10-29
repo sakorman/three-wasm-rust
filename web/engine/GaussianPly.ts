@@ -1,18 +1,12 @@
 import {
+  gaussian_compose_three_camera,
   gaussian_covariances_from_log_scales_rotations,
   gaussian_transform_camera_space,
-  multiply_matrices,
 } from '../../pkg/three_wasm_rust.js';
 
 const MAX_HEADER_BYTES = 1 << 20;
 const MAX_SPLATS = 1_000_000;
 const SH_C0 = 0.28209479177387814;
-const THREE_TO_POSITIVE_Z = new Float32Array([
-  1, 0, 0, 0,
-  0, 1, 0, 0,
-  0, 0, -1, 0,
-  0, 0, 0, 1,
-]);
 
 type PlyScalarType = 'char' | 'int8' | 'uchar' | 'uint8' | 'short' | 'int16' | 'ushort' | 'uint16' | 'int' | 'int32' | 'uint' | 'uint32' | 'float' | 'float32' | 'double' | 'float64';
 
@@ -222,7 +216,7 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
  * elements from any compatible caller.
  */
 export function composeThreeModelToPositiveZCamera(modelToWorld: Float32Array, threeWorldToView: Float32Array): Float32Array {
-  return multiply_matrices(THREE_TO_POSITIVE_Z, multiply_matrices(threeWorldToView, modelToWorld));
+  return gaussian_compose_three_camera(modelToWorld, threeWorldToView);
 }
 
 /**

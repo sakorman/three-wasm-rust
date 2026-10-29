@@ -1,9 +1,15 @@
-use crate::bounds::add_outward;
+use crate::{
+    bounds::add_outward,
+    math::{multiply, Mat4},
+};
 use wasm_bindgen::prelude::*;
 
 const MAX_SPLATS: usize = 1_000_000;
 const MAX_TILES: usize = 1_000_000;
 const MAX_TILE_REFERENCES: usize = 4_000_000;
+const THREE_TO_POSITIVE_Z: Mat4 = [
+    1., 0., 0., 0., 0., 1., 0., 0., 0., 0., -1., 0., 0., 0., 0., 1.,
+];
 
 fn valid_screen_covariance(covariance: &[f32; 3]) -> bool {
     let [xx, xy, yy] = covariance.map(f64::from);
@@ -27,6 +33,44 @@ fn finite_f32(value: f64, message: &str) -> Result<f32, String> {
     } else {
         Err(message.into())
     }
+}
+
+fn affine_camera_matrix<'a>(values: &'a [f32], label: &str) -> Result<&'a Mat4, String> {
+    let matrix: &Mat4 = values
+        .try_into()
+        .map_err(|_| format!("Gaussian {label} matrix must contain 16 values"))?;
+    if matrix.iter().any(|value| !value.is_finite()) {
+        return Err(format!("Gaussian {label} matrix must be finite"));
+    }
+    if matrix[3] != 0. || matrix[7] != 0. || matrix[11] != 0. || matrix[15] != 1. {
+        return Err(format!("Gaussian {label} matrix must be affine"));
+    }
+    let linear = [
+        [
+            f64::from(matrix[0]),
+            f64::from(matrix[4]),
+            f64::from(matrix[8]),
+        ],
+        [
+            f64::from(matrix[1]),
+            f64::from(matrix[5]),
+            f64::from(matrix[9]),
+        ],
+        [
+            f64::from(matrix[2]),
+            f64::from(matrix[6]),
+            f64::from(matrix[10]),
+        ],
+    ];
+    let determinant = linear[0][0] * (linear[1][1] * linear[2][2] - linear[1][2] * linear[2][1])
+        - linear[0][1] * (linear[1][0] * linear[2][2] - linear[1][2] * linear[2][0])
+        + linear[0][2] * (linear[1][0] * linear[2][1] - linear[1][1] * linear[2][0]);
+    if !determinant.is_finite() || determinant == 0. {
+        return Err(format!(
+            "Gaussian {label} matrix must have an invertible linear part"
+        ));
+    }
+    Ok(matrix)
 }
 
 /// Decode the scale and rotation parameterization used by trained 3D Gaussian PLY files.
@@ -155,6 +199,27 @@ pub fn gaussian_covariances_from_log_scales_rotations(
     Ok(result)
 }
 
+/// Compose a Three.js model matrix and negative-z view matrix for Gaussian preparation.
+///
+/// Inputs are column-major affine matrices. The result is
+/// `diag(1, 1, -1, 1) * three_world_to_view * model_to_world`, expressed in the
+/// positive-z camera convention used by the remaining Gaussian functions. Every input
+/// and the composed result must have an invertible affine linear part.
+#[wasm_bindgen]
+pub fn gaussian_compose_three_camera(
+    model_to_world: &[f32],
+    three_world_to_view: &[f32],
+) -> Result<Vec<f32>, String> {
+    let model_to_world = affine_camera_matrix(model_to_world, "model-to-world")?;
+    let three_world_to_view = affine_camera_matrix(three_world_to_view, "Three.js world-to-view")?;
+    let camera = multiply(
+        &THREE_TO_POSITIVE_Z,
+        &multiply(three_world_to_view, model_to_world),
+    );
+    affine_camera_matrix(&camera, "composed positive-z camera")?;
+    Ok(camera.to_vec())
+}
+
 /// Transform model-space Gaussian centers and covariances into camera space.
 ///
 /// `world_to_camera` is a column-major affine matrix for column vectors, matching
@@ -178,15 +243,7 @@ pub fn gaussian_transform_camera_space(
                 .into(),
         );
     }
-    let matrix: &[f32; 16] = world_to_camera
-        .try_into()
-        .map_err(|_| "Gaussian world-to-camera matrix must contain 16 values")?;
-    if matrix.iter().any(|value| !value.is_finite()) {
-        return Err("Gaussian world-to-camera matrix must be finite".into());
-    }
-    if matrix[3] != 0. || matrix[7] != 0. || matrix[11] != 0. || matrix[15] != 1. {
-        return Err("Gaussian world-to-camera matrix must be affine".into());
-    }
+    let matrix = affine_camera_matrix(world_to_camera, "world-to-camera")?;
     let linear = [
         [
             f64::from(matrix[0]),
@@ -204,12 +261,6 @@ pub fn gaussian_transform_camera_space(
             f64::from(matrix[10]),
         ],
     ];
-    let determinant = linear[0][0] * (linear[1][1] * linear[2][2] - linear[1][2] * linear[2][1])
-        - linear[0][1] * (linear[1][0] * linear[2][2] - linear[1][2] * linear[2][0])
-        + linear[0][2] * (linear[1][0] * linear[2][1] - linear[1][1] * linear[2][0]);
-    if !determinant.is_finite() || determinant == 0. {
-        return Err("Gaussian world-to-camera matrix must have an invertible linear part".into());
-    }
     let translation = [
         f64::from(matrix[12]),
         f64::from(matrix[13]),
@@ -1317,6 +1368,25 @@ mod tests {
         assert!(
             gaussian_transform_camera_space(&center, &[1., 1., 0., 1., 0., 1.], &IDENTITY).is_err()
         );
+    }
+
+    #[test]
+    fn three_camera_composition_converts_negative_z_and_rejects_invalid_matrices() {
+        let mut model = IDENTITY;
+        model[12] = 2.;
+        let mut view = IDENTITY;
+        view[14] = -5.;
+        assert_eq!(
+            gaussian_compose_three_camera(&model, &view).unwrap(),
+            [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., -1., 0., 2., 0., 5., 1.]
+        );
+        let mut projective = IDENTITY;
+        projective[3] = 1.;
+        assert!(gaussian_compose_three_camera(&projective, &IDENTITY).is_err());
+        let mut singular = IDENTITY;
+        singular[5] = 0.;
+        assert!(gaussian_compose_three_camera(&IDENTITY, &singular).is_err());
+        assert!(gaussian_compose_three_camera(&[0.; 15], &IDENTITY).is_err());
     }
 
     #[test]

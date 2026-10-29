@@ -14,6 +14,7 @@ export { gaussian_tile_depth_order } from '../../pkg/three_wasm_rust.js';
 export { gaussian_depth_order } from '../../pkg/three_wasm_rust.js';
 export { gaussian_pack_half_extents } from '../../pkg/three_wasm_rust.js';
 export { gaussian_covariances_from_log_scales_rotations } from '../../pkg/three_wasm_rust.js';
+export { gaussian_compose_three_camera } from '../../pkg/three_wasm_rust.js';
 export { gaussian_transform_camera_space } from '../../pkg/three_wasm_rust.js';
 export { GAUSSIAN_RASTER_UPLOAD_STRIDE, packGaussianRasterUpload, prepareGaussianRaster } from './gaussian.ts';
 export type { GaussianClipPlane, GaussianRasterCamera, GaussianRasterPreparationOptions, GaussianRasterTiles, PackedGaussianRasterUpload, PreparedGaussianRaster } from './gaussian.ts';
