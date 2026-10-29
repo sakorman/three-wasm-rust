@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import init from '../pkg/three_wasm_rust.js';
-import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
+import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianPlyForThreeCamera, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
@@ -157,4 +157,38 @@ test('Three.js model and view matrices compose into the positive-z Gaussian came
   const expectedCenter = new THREE.Vector3().applyMatrix4(expected);
   [expectedCenter.x, expectedCenter.y, expectedCenter.z].forEach((value, index) => close(cameraSource.centers[index], value));
   assert.ok(cameraSource.centers[2] > 0);
+});
+
+test('trained PLY prepares a Three.js camera view without mixing SH and raster coordinate spaces', () => {
+  const source = parseGaussianSplatPly(binaryPly([vertex({ f_rest_4: 1 })]));
+  const model = new THREE.Matrix4().compose(
+    new THREE.Vector3(1, -2, -3),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(.2, -.5, .1)),
+    new THREE.Vector3(2, 1.5, .75),
+  );
+  const camera = new THREE.PerspectiveCamera(55, 1.6, .1, 100);
+  camera.position.set(4, 3, 7);
+  camera.lookAt(1, -2, -3);
+  camera.updateMatrixWorld();
+  const modelToWorld = Float32Array.from(model.elements);
+  const threeWorldToView = Float32Array.from(camera.matrixWorldInverse.elements);
+  const threeCameraWorldPosition = Float32Array.from(camera.getWorldPosition(new THREE.Vector3()).toArray());
+  const rasterCamera = { focalX: 256, focalY: 256, principalX: 256, principalY: 160, near: .1, far: 100, width: 512, height: 320 };
+  const prepared = prepareGaussianPlyForThreeCamera({
+    source, modelToWorld, threeWorldToView, threeCameraWorldPosition,
+    cutoff: .1, camera: rasterCamera, tileSize: 32,
+  });
+  const expectedColors = evaluateGaussianPlyShColors(source, modelCameraPositionFromThreeWorld(modelToWorld, threeCameraWorldPosition));
+  const expectedCameraSource = transformGaussianPlyToCameraSpace(source, composeThreeModelToPositiveZCamera(modelToWorld, threeWorldToView));
+  const expected = prepareGaussianRaster({ ...expectedCameraSource, colors: expectedColors, cutoff: .1, camera: rasterCamera, tileSize: 32 });
+  assert.deepEqual(Array.from(prepared.originalIds), Array.from(expected.originalIds));
+  assert.deepEqual(Array.from(prepared.screenCenters), Array.from(expected.screenCenters));
+  assert.deepEqual(Array.from(prepared.colors), Array.from(expected.colors));
+  assert.deepEqual(Array.from(prepared.depths), Array.from(expected.depths));
+  assert.deepEqual(Array.from(prepared.tiles?.packed ?? []), Array.from(expected.tiles?.packed ?? []));
+  assert.deepEqual(Array.from(source.colors), [.5, .5, .5]);
+  assert.throws(() => prepareGaussianPlyForThreeCamera({
+    source, modelToWorld, threeWorldToView, threeCameraWorldPosition: new Float32Array([0, 0]),
+    cutoff: .1, camera: rasterCamera,
+  }), /three values/);
 });

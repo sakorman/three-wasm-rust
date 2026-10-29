@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-29 · PLY 到 Three 相机视图
+
+- 新增 `prepareGaussianPlyForThreeCamera()`：以一次调用衔接世界相机位置反解、模型空间 SH 颜色、正 z 相机空间中心/协方差变换，以及筛选、投影、排序和分箱。此前调用方需要手工串联四个步骤，容易把世界坐标用于 SH，或遗漏将动态颜色传入准备阶段。
+- 输入使用复制后的 Three.js 模型矩阵、`matrixWorldInverse` 与世界相机位置；输出为独立紧凑视图，不改写训练 PLY 源数据。非法矩阵、相机位置或光栅参数仍沿用各阶段的明确拒绝。
+- 验证：Node 将单次入口与分步的 Three.js 参考逐项比较，并覆盖错误位置长度；浏览器从训练 PLY 经该入口进入上传，确认视角颜色与远近顺序。完整测试 296 项通过（90 Rust、104 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：不自动订阅 Three.js 模型或相机变换，调用方变更后须重新准备；尚未接入首页 Mesh 场景或 GPU SH 着色，不代表真实模型加载耗时、画质或帧率。参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)、[`gsplat` rasterization](https://docs.gsplat.studio/main/apis/rasterization.html) 与 [Three.js Camera.matrixWorldInverse](https://threejs.org/docs/#api/en/cameras/Camera.matrixWorldInverse)；未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-29 · SH 模型空间相机位置
 
 - 新增 Rust/WASM `gaussian_model_camera_position()` 与 `modelCameraPositionFromThreeWorld()`：通过模型矩阵的逆仿射变换，将世界相机位置转换为 PLY 模型空间观察点。此前调用方需自行求逆，直接传世界坐标会在模型含平移、旋转或缩放时得到错误的 SH 方向。
