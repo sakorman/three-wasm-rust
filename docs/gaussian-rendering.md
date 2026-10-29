@@ -1,10 +1,10 @@
 # 高斯光栅化准备
 
-Rust/WASM 高斯准备接口包含原始训练 PLY 的受限解码、模型到相机空间的仿射变换、三维协方差投影、仿射半空间裁切系数、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先转换到相机空间，再按不透明度与相机深度筛选，投影、滤波并重算范围后按视口范围筛选、排序和分箱。完整的高阶 SH 着色和主场景接入仍需继续。
+Rust/WASM 高斯准备接口包含原始训练 PLY 的受限解码、0–3 阶球谐颜色求值、模型到相机空间的仿射变换、三维协方差投影、仿射半空间裁切系数、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先在模型坐标系求值视角颜色，再转换到相机空间，按不透明度与相机深度筛选，投影、滤波并重算范围后按视口范围筛选、排序和分箱。GPU 着色和主场景接入仍需继续。
 
 ## 训练 PLY 输入
 
-`parseGaussianSplatPly(buffer)` 解码原始 3D Gaussian Splatting 训练代码写出的 `binary_little_endian 1.0` PLY 顶点记录。调用前需完成 `init()`；函数返回独立的 `centers`、`covariances`、`opacities` 与 `colors`，不创建 GPU 资源。它要求顶点元素排在其他元素之前，并要求下列字段都是 f32：
+`parseGaussianSplatPly(buffer)` 解码原始 3D Gaussian Splatting 训练代码写出的 `binary_little_endian 1.0` PLY 顶点记录。调用前需完成 `init()`；函数返回独立的 `centers`、`covariances`、`opacities`、DC `colors`，以及系数主序 RGB 的 `shCoefficients` 和 `shDegree`，不创建 GPU 资源。它要求顶点元素排在其他元素之前，并要求下列字段都是 f32：
 
 ```text
 x y z
@@ -14,21 +14,22 @@ scale_0 scale_1 scale_2
 rot_0 rot_1 rot_2 rot_3
 ```
 
-解析器允许其间存在未知的标量字段（包括 `f_rest_*` 和法线），但拒绝顶点列表属性、ASCII/大端格式、重复或缺失字段、截断数据、超过一百万项的数据，以及非有限值。它不会猜测其他 PLY 变体的字段语义。
+完整且连续的 `f_rest_0…f_rest_8`、`f_rest_0…f_rest_23` 或 `f_rest_0…f_rest_44` 会分别识别为 1、2、3 阶 SH；其布局是每个基函数一个 RGB 三元组。其他未知或不完整的 `f_rest_*` 组保持未消费，兼容仅含 DC 或带额外标量的输入。解析器拒绝顶点列表属性、ASCII/大端格式、重复或缺失必填字段、截断数据、超过一百万项的数据，以及非有限值；不会猜测其他 PLY 变体的字段语义。
 
-`scale_*` 按自然指数激活；`opacity` 使用数值稳定的 sigmoid；`rot_*` 按 `[w, x, y, z]` 归一化。Rust/WASM 在 f64 中构造 `R × diag(exp(scale)^2) × Rᵀ`，写回 f32 后再次检查三维协方差正定性，输出布局为 `[xx, xy, xz, yy, yz, zz]`。DC 颜色按 `0.28209479177387814 × f_dc + 0.5` 还原为线性 RGB，负值截为零以满足当前上传记录的非负颜色约束。
+`scale_*` 按自然指数激活；`opacity` 使用数值稳定的 sigmoid；`rot_*` 按 `[w, x, y, z]` 归一化。Rust/WASM 在 f64 中构造 `R × diag(exp(scale)^2) × Rᵀ`，写回 f32 后再次检查三维协方差正定性，输出布局为 `[xx, xy, xz, yy, yz, zz]`。DC 颜色按 `0.28209479177387814 × f_dc + 0.5` 还原为线性 RGB，负值截为零以满足当前上传记录的非负颜色约束。`evaluateGaussianPlyShColors(source, modelCameraPosition)` 在 Rust/WASM 中使用同一约定求 0–3 阶实球谐，添加原始 3DGS 的 `+0.5` 偏置并截断负值；相机位置必须与模型空间 `centers` 使用同一坐标系。
 
 ```ts
-import { composeThreeModelToPositiveZCamera, init, parseGaussianSplatPly, transformGaussianPlyToCameraSpace } from './web/engine/index.ts';
+import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, init, parseGaussianSplatPly, transformGaussianPlyToCameraSpace } from './web/engine/index.ts';
 
 await init();
 const source = parseGaussianSplatPly(await response.arrayBuffer());
+const colors = evaluateGaussianPlyShColors(source, modelSpaceCameraPosition);
 const positiveZWorldToCamera = composeThreeModelToPositiveZCamera(
   Float32Array.from(model.matrixWorld.elements),
   Float32Array.from(camera.matrixWorldInverse.elements),
 );
 const cameraSource = transformGaussianPlyToCameraSpace(source, positiveZWorldToCamera);
-// cameraSource 可直接传给 prepareGaussianRaster()。
+// 将 colors 作为 prepareGaussianRaster() 的 colors 参数；cameraSource 保持几何属性。
 ```
 
 ### 模型到相机空间
@@ -42,7 +43,7 @@ c_camera = R × c + t
 
 平移不改变协方差；实现以 f64 计算并在返回 f32 后再次检查正定性。准备和投影路径约定相机前方为 `z > 0`。标准 Three.js `matrixWorldInverse` 使用负 z 前方；`composeThreeModelToPositiveZCamera(modelToWorld, threeWorldToView)` 在一次 WASM 调用中返回 `diag(1, 1, -1, 1) × threeWorldToView × modelToWorld`，可直接交给本接口。该助手不导入 Three.js，输入是复制后的列主序矩阵；模型、视图和组合结果均须为有限且可逆的仿射矩阵，相机或模型变化后须重新组合。接口拒绝透视矩阵、奇异线性部分、非有限中心及非正定协方差；投影除法无法对三维高斯协方差保持上述仿射关系。
 
-当前只读取 0 阶 SH，`f_rest_*` 不参与颜色计算；没有实现高阶、视角相关 SH、色彩管理、曝光、色调映射、PLY 流式加载或自动的 Three.js 坐标系转换。此处的格式和激活约定参照原始实现的 [PLY 属性顺序与激活](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/gaussian_model.py) 及 [SH 常数](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/utils/sh_utils.py)；变换关系参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未使用其代码、模型或实验数据。
+当前支持 0–3 阶 SH 的独立 CPU/WASM 求值，但不会自动将结果接到相机变换、上传或首页 Mesh 场景；没有实现 GPU SH 着色、色彩管理、曝光、色调映射、PLY 流式加载或自动的 Three.js 坐标系转换。此处的格式和激活约定参照原始实现的 [PLY 属性顺序与激活](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/gaussian_model.py)、[`gsplat` SH 工具说明](https://docs.gsplat.studio/main/apis/utils) 及 [SH 常数](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/utils/sh_utils.py)；变换关系参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未使用其代码、模型或实验数据。
 
 ## 公式与接口
 

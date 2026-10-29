@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-29 · 高斯视角 SH 颜色
+
+- `parseGaussianSplatPly()` 现识别完整连续的 1、2、3 阶 `f_rest_*` 组，并以基函数主序 RGB 三元组保留原始系数。此前只还原 DC 颜色，训练出的视角相关颜色会被忽略；不完整或未知组仍按原行为跳过。
+- 新增 Rust/WASM `gaussian_sh_colors()` 与 `evaluateGaussianPlyShColors()`：使用与模型空间中心一致的相机位置求 0–3 阶实球谐，输出可直接传入准备路径的非负线性 RGB。输入长度、系数有限性、相机位置和相机与高斯中心重合均会被拒绝。
+- 验证：Rust 覆盖 1 阶方向项、3 阶末项和非法批次；Node 覆盖 PLY 系数布局与模型空间求值；浏览器覆盖 SH 颜色进入准备和上传。完整测试 294 项通过（89 Rust、103 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：SH 仍在 CPU/WASM 侧独立求值，不自动同步 Three.js 相机、不在 GPU 着色器内动态计算，也不支持 3 阶以上、色彩管理或曝光。参考 [原始 PLY 与系数布局](https://github.com/graphdeco-inria/gaussian-splatting/blob/main/scene/gaussian_model.py)、[`gsplat` SH 工具说明](https://docs.gsplat.studio/main/apis/utils) 与 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-29 · 高斯相机组合校验
 
 - 新增 Rust/WASM `gaussian_compose_three_camera()`：将模型矩阵和 Three.js 负 z 视图矩阵在一次受约束调用中组合为正 z 相机矩阵。此前 TypeScript 助手连续调用通用矩阵乘法，错误矩阵可能延后到属性变换阶段才被拒绝。

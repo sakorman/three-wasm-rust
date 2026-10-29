@@ -10,6 +10,24 @@ const MAX_TILE_REFERENCES: usize = 4_000_000;
 const THREE_TO_POSITIVE_Z: Mat4 = [
     1., 0., 0., 0., 0., 1., 0., 0., 0., 0., -1., 0., 0., 0., 0., 1.,
 ];
+const SH_C0: f64 = 0.282_094_791_773_878_14;
+const SH_C1: f64 = 0.488_602_511_902_919_9;
+const SH_C2: [f64; 5] = [
+    1.092_548_430_592_079_2,
+    -1.092_548_430_592_079_2,
+    0.315_391_565_252_520_05,
+    -1.092_548_430_592_079_2,
+    0.546_274_215_296_039_6,
+];
+const SH_C3: [f64; 7] = [
+    -0.590_043_589_926_643_5,
+    2.890_611_442_640_554,
+    -0.457_045_799_464_465_8,
+    0.373_176_332_590_115_4,
+    -0.457_045_799_464_465_8,
+    1.445_305_721_320_277,
+    -0.590_043_589_926_643_5,
+];
 
 fn valid_screen_covariance(covariance: &[f32; 3]) -> bool {
     let [xx, xy, yy] = covariance.map(f64::from);
@@ -33,6 +51,39 @@ fn finite_f32(value: f64, message: &str) -> Result<f32, String> {
     } else {
         Err(message.into())
     }
+}
+
+fn sh_basis(degree: u32, [x, y, z]: [f64; 3]) -> [f64; 16] {
+    let mut result = [0.; 16];
+    result[0] = SH_C0;
+    if degree >= 1 {
+        result[1] = -SH_C1 * y;
+        result[2] = SH_C1 * z;
+        result[3] = -SH_C1 * x;
+    }
+    if degree >= 2 {
+        let xx = x * x;
+        let yy = y * y;
+        let zz = z * z;
+        result[4] = SH_C2[0] * x * y;
+        result[5] = SH_C2[1] * y * z;
+        result[6] = SH_C2[2] * (2. * zz - xx - yy);
+        result[7] = SH_C2[3] * x * z;
+        result[8] = SH_C2[4] * (xx - yy);
+    }
+    if degree >= 3 {
+        let xx = x * x;
+        let yy = y * y;
+        let zz = z * z;
+        result[9] = SH_C3[0] * y * (3. * xx - yy);
+        result[10] = SH_C3[1] * x * y * z;
+        result[11] = SH_C3[2] * y * (4. * zz - xx - yy);
+        result[12] = SH_C3[3] * z * (2. * zz - 3. * xx - 3. * yy);
+        result[13] = SH_C3[4] * x * (4. * zz - xx - yy);
+        result[14] = SH_C3[5] * z * (xx - yy);
+        result[15] = SH_C3[6] * x * (xx - 3. * yy);
+    }
+    result
 }
 
 fn affine_camera_matrix<'a>(values: &'a [f32], label: &str) -> Result<&'a Mat4, String> {
@@ -195,6 +246,85 @@ pub fn gaussian_covariances_from_log_scales_rotations(
             ));
         }
         result.extend_from_slice(&covariance);
+    }
+    Ok(result)
+}
+
+/// Evaluate degree-zero through degree-three RGB spherical harmonics for trained Gaussians.
+///
+/// `coefficients` is packed per splat as coefficient-major RGB triples: `[r0, g0, b0,
+/// r1, g1, b1, ...]`. Centers and `camera_position` must use the same coordinate system.
+/// The output is non-negative linear RGB after the original 3DGS `+0.5` bias.
+#[wasm_bindgen]
+pub fn gaussian_sh_colors(
+    centers: &[f32],
+    coefficients: &[f32],
+    degree: u32,
+    camera_position: &[f32],
+) -> Result<Vec<f32>, String> {
+    if degree > 3 {
+        return Err("Gaussian SH degree must be between 0 and 3".into());
+    }
+    if !centers.len().is_multiple_of(3) || centers.len() / 3 > MAX_SPLATS {
+        return Err(
+            "Gaussian SH centers must use three values per splat, at most 1000000 splats".into(),
+        );
+    }
+    let camera_position: &[f32; 3] = camera_position
+        .try_into()
+        .map_err(|_| "Gaussian SH camera position must contain three values")?;
+    if !camera_position.iter().all(|value| value.is_finite()) {
+        return Err("Gaussian SH camera position must be finite".into());
+    }
+    let coefficient_count = (degree as usize + 1).pow(2);
+    let expected_coefficients = centers
+        .len()
+        .checked_mul(coefficient_count)
+        .ok_or("Gaussian SH coefficient count overflows")?;
+    if coefficients.len() != expected_coefficients {
+        return Err("Gaussian SH coefficient count does not match centers and degree".into());
+    }
+    let mut result = Vec::with_capacity(centers.len());
+    for (index, center) in centers.as_chunks::<3>().0.iter().enumerate() {
+        if !center.iter().all(|value| value.is_finite()) {
+            return Err(format!("Gaussian SH center is non-finite at splat {index}"));
+        }
+        let direction = [
+            f64::from(center[0]) - f64::from(camera_position[0]),
+            f64::from(center[1]) - f64::from(camera_position[1]),
+            f64::from(center[2]) - f64::from(camera_position[2]),
+        ];
+        let maximum = direction
+            .iter()
+            .fold(0_f64, |maximum, value| maximum.max(value.abs()));
+        if maximum == 0. {
+            return Err(format!(
+                "Gaussian SH camera position coincides with splat {index}"
+            ));
+        }
+        let unit = direction.map(|value| value / maximum);
+        let length = maximum * (unit.iter().map(|value| value * value).sum::<f64>()).sqrt();
+        if !length.is_finite() || length == 0. {
+            return Err(format!("Gaussian SH direction is invalid at splat {index}"));
+        }
+        let basis = sh_basis(degree, direction.map(|value| value / length));
+        let coefficient_offset = index * coefficient_count * 3;
+        for channel in 0..3 {
+            let mut color = 0.;
+            for (basis_index, basis_value) in basis.iter().take(coefficient_count).enumerate() {
+                let coefficient = coefficients[coefficient_offset + basis_index * 3 + channel];
+                if !coefficient.is_finite() {
+                    return Err(format!(
+                        "Gaussian SH coefficient is non-finite at splat {index}"
+                    ));
+                }
+                color += f64::from(coefficient) * basis_value;
+            }
+            result.push(finite_f32(
+                (color + 0.5).max(0.),
+                "Gaussian SH color is outside the finite f32 range",
+            )?);
+        }
     }
     Ok(result)
 }
@@ -1334,6 +1464,39 @@ mod tests {
             gaussian_covariances_from_log_scales_rotations(&[100., 0., 0.], &[1., 0., 0., 0.])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn sh_colors_follow_view_direction_through_degree_three() {
+        let degree_one = [
+            0., 0., 0., -2., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 0.,
+            0., 0., 0.,
+        ];
+        let result =
+            gaussian_sh_colors(&[0., 1., 0., 0., 0., 1.], &degree_one, 1, &[0., 0., 0.]).unwrap();
+        assert!((result[0] - (0.5 + 2. * SH_C1 as f32)).abs() < 2e-6);
+        assert_eq!(&result[1..3], &[0.5, 0.5]);
+        assert_eq!(result[3], 0.5);
+        assert!((result[4] - (0.5 + SH_C1 as f32)).abs() < 2e-6);
+        assert_eq!(result[5], 0.5);
+
+        let mut degree_three = [0.; 48];
+        degree_three[15 * 3] = -1.;
+        let degree_three =
+            gaussian_sh_colors(&[1., 0., 0.], &degree_three, 3, &[0., 0., 0.]).unwrap();
+        assert!((degree_three[0] - (0.5 - SH_C3[6] as f32)).abs() < 2e-6);
+        assert_eq!(&degree_three[1..], &[0.5, 0.5]);
+    }
+
+    #[test]
+    fn sh_colors_reject_invalid_batches_and_camera_positions() {
+        let centers = [0., 0., 1.];
+        let coefficients = [0., 0., 0.];
+        assert!(gaussian_sh_colors(&centers, &coefficients, 4, &[0., 0., 0.]).is_err());
+        assert!(gaussian_sh_colors(&centers, &[], 0, &[0., 0., 0.]).is_err());
+        assert!(gaussian_sh_colors(&centers, &coefficients, 0, &[0., 0.]).is_err());
+        assert!(gaussian_sh_colors(&centers, &coefficients, 0, &[0., 0., 1.]).is_err());
+        assert!(gaussian_sh_colors(&centers, &[f32::NAN, 0., 0.], 0, &[0., 0., 0.]).is_err());
     }
 
     #[test]

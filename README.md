@@ -23,7 +23,7 @@
 - **TS 接口**：引擎生命周期、上下文恢复、几何体顶点更新、材质颜色与光照开关更新、轨道相机、盒体/圆柱/球体生成。`web/engine/` 不导入 Three.js。
 - **场景与对照**：三个场景，500–20,000 个可绘制对象；不实例化、实例化两种配对测试，共享输入、相机、几何体、shader 和像素尺寸。
 - **测量**：CPU 中位数/P95、帧间隔、FPS、可用时的 GPU 查询结果、draw call、可见对象数和 JSON 原始样本。
-- **高斯输入与准备**：`parseGaussianSplatPly()` 解码原始 3DGS 二进制 PLY 的中心、激活后协方差、不透明度和 DC 颜色；`composeThreeModelToPositiveZCamera()` 在一次 WASM 调用中将 Three.js 模型和视图矩阵组合为正 z 相机矩阵并校验仿射可逆性，`transformGaussianPlyToCameraSpace()` 再转换属性；`prepareGaussianRaster()` 生成紧凑局部数据视图，`packGaussianRasterUpload()` 生成固定交错上传记录，`GaussianUploadBuffers` 负责可复用 VBO、恢复重传和连续局部记录分批，`GaussianRasterRenderer` 提供全屏与瓦片 CDF 合成 pass；覆盖筛选、投影、滤波、范围、深度排序、裁切系数与分箱。提供数值差分和 WebGL2 上传/绘制回归，首页对照仍为 Mesh 场景。
+- **高斯输入与准备**：`parseGaussianSplatPly()` 解码原始 3DGS 二进制 PLY 的中心、激活后协方差、不透明度和 0–3 阶 SH 系数；`evaluateGaussianPlyShColors()` 在 Rust/WASM 中按模型坐标系视角求值线性 RGB。`composeThreeModelToPositiveZCamera()` 在一次 WASM 调用中将 Three.js 模型和视图矩阵组合为正 z 相机矩阵并校验仿射可逆性，`transformGaussianPlyToCameraSpace()` 再转换属性；`prepareGaussianRaster()` 生成紧凑局部数据视图，`packGaussianRasterUpload()` 生成固定交错上传记录，`GaussianUploadBuffers` 负责可复用 VBO、恢复重传和连续局部记录分批，`GaussianRasterRenderer` 提供全屏与瓦片 CDF 合成 pass；覆盖筛选、投影、滤波、范围、深度排序、裁切系数与分箱。提供数值差分和 WebGL2 上传/绘制回归，首页对照仍为 Mesh 场景。
 
 ## 三个场景
 

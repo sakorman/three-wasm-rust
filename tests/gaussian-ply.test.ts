@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import init from '../pkg/three_wasm_rust.js';
-import { composeThreeModelToPositiveZCamera, parseGaussianSplatPly, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
+import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, parseGaussianSplatPly, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
 const fields = [
-  'rot_2', 'f_rest_0', 'scale_1', 'x', 'f_dc_2', 'rot_0', 'opacity', 'z',
+  'rot_2', 'f_rest_0', 'f_rest_1', 'f_rest_2', 'f_rest_3', 'f_rest_4', 'f_rest_5', 'f_rest_6', 'f_rest_7', 'f_rest_8', 'scale_1', 'x', 'f_dc_2', 'rot_0', 'opacity', 'z',
   'scale_0', 'f_dc_0', 'rot_3', 'y', 'scale_2', 'f_dc_1', 'rot_1',
 ] as const;
 
@@ -31,9 +31,25 @@ function binaryPly(vertices: Vertex[], names: readonly (typeof fields)[number][]
   return buffer;
 }
 
+function fullShPly(degree: 2 | 3): ArrayBuffer {
+  const base = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3'];
+  const rest = Array.from({ length: 3 * ((degree + 1) ** 2 - 1) }, (_, index) => `f_rest_${index}`);
+  const names = [...base, ...rest];
+  const header = new TextEncoder().encode(['ply', 'format binary_little_endian 1.0', 'element vertex 1', ...names.map(name => `property float ${name}`), 'end_header', ''].join('\n'));
+  const buffer = new ArrayBuffer(header.length + names.length * Float32Array.BYTES_PER_ELEMENT);
+  new Uint8Array(buffer).set(header);
+  const view = new DataView(buffer);
+  names.forEach((name, index) => {
+    const value = name === 'z' ? 2 : name === 'rot_0' ? 1 : name === rest.at(-1) ? .25 : 0;
+    view.setFloat32(header.length + index * 4, value, true);
+  });
+  return buffer;
+}
+
 function vertex(values: Partial<Vertex>): Vertex {
   return {
-    x: 0, y: 0, z: 2, f_dc_0: 0, f_dc_1: 0, f_dc_2: 0, f_rest_0: 0,
+    x: 0, y: 0, z: 2, f_dc_0: 0, f_dc_1: 0, f_dc_2: 0,
+    f_rest_0: 0, f_rest_1: 0, f_rest_2: 0, f_rest_3: 0, f_rest_4: 0, f_rest_5: 0, f_rest_6: 0, f_rest_7: 0, f_rest_8: 0,
     opacity: 0, scale_0: 0, scale_1: 0, scale_2: 0, rot_0: 1, rot_1: 0, rot_2: 0, rot_3: 0,
     ...values,
   };
@@ -52,6 +68,8 @@ test('trained binary PLY decodes activated attributes and degree-zero SH into th
   assert.deepEqual(Array.from(source.opacities), [.5, .75]);
   close(source.colors[0], .5); close(source.colors[1], .5); close(source.colors[2], .5);
   close(source.colors[3], .5 + .28209479177387814); assert.equal(source.colors[4], 0); close(source.colors[5], .5 + .5 * .28209479177387814);
+  assert.equal(source.shDegree, 1);
+  assert.equal(source.shCoefficients.length, 24);
   const expectedCovariance = [1, 0, 0, 4, 0, 9, 9, 0, 0, 4, 0, 16];
   source.covariances.forEach((value, index) => close(value, expectedCovariance[index]));
   const cameraSource = transformGaussianPlyToCameraSpace(source, new Float32Array([
@@ -71,6 +89,22 @@ test('trained binary PLY decodes activated attributes and degree-zero SH into th
   assert.equal(prepared.colors.length, 6);
   close(prepared.colors[0], cameraSource.colors[3]);
   close(prepared.colors[3], cameraSource.colors[0]);
+});
+
+test('complete degree-one PLY coefficients produce view-dependent linear RGB in model coordinates', () => {
+  const source = parseGaussianSplatPly(binaryPly([vertex({ f_rest_4: 1 })]));
+  const evaluated = evaluateGaussianPlyShColors(source, new Float32Array([0, 0, 0]));
+  assert.deepEqual(Array.from(source.colors), [.5, .5, .5]);
+  assert.equal(evaluated[0], .5);
+  close(evaluated[1], .5 + .4886025119029199);
+  assert.equal(evaluated[2], .5);
+  assert.throws(() => evaluateGaussianPlyShColors(source, new Float32Array([0, 0, 2])), /coincides/);
+  for (const degree of [2, 3] as const) {
+    const decoded = parseGaussianSplatPly(fullShPly(degree));
+    assert.equal(decoded.shDegree, degree);
+    assert.equal(decoded.shCoefficients.length, 3 * (degree + 1) ** 2);
+    assert.equal(decoded.shCoefficients.at(-1), .25);
+  }
 });
 
 test('trained PLY parser rejects truncated, unsupported and invalid source records before preparation', () => {
@@ -111,6 +145,8 @@ test('Three.js model and view matrices compose into the positive-z Gaussian came
     covariances: new Float32Array([1, 0, 0, 1, 0, 1]),
     opacities: new Float32Array([.5]),
     colors: new Float32Array([.2, .4, .6]),
+    shDegree: 0,
+    shCoefficients: new Float32Array([-.3, -.1, .3]),
   }, matrix);
   const expectedCenter = new THREE.Vector3().applyMatrix4(expected);
   [expectedCenter.x, expectedCenter.y, expectedCenter.z].forEach((value, index) => close(cameraSource.centers[index], value));
