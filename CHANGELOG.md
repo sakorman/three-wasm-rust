@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-30 · 引擎 CPU 资源快照
+
+- 新增 `Engine.cpuResourceStats()`：准确汇总引擎为恢复保留的顶点、索引、批次和动画 TypedArray 字节数，并返回几何体与材质条数。此前只能读取 GPU 缓冲快照，无法区分引擎自身保留的 CPU 数组。
+- 构造后引擎只保存重建所需的独立副本，不再保留完整输入 `EngineScene`；上下文丢失、恢复失败和恢复成功期间 CPU 快照保持，`dispose()` 同时释放这些副本并返回零值。
+- 验证：真实 WebGL2 覆盖逐对象/实例化两种路径的拓扑扩缩容、失败回滚、丢失期间编辑、重建失败/重试和释放；完整测试 297 项通过（90 Rust、105 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：统计只涵盖 Engine 持有 TypedArray 的 `byteLength`，不包含 JS 对象/字符串、WASM 堆、浏览器 GC、调用方仍持有的输入、驱动或显存；不能据此推断加载峰值、帧率或 GPU 时间。参考 [WebGL 上下文丢失与恢复](https://registry.khronos.org/webgl/specs/latest/1.0/#5.15.2) 与 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-30 · 高斯视图主动卸载
 
 - 新增 `GaussianUploadBuffers.clear()` 与 `GaussianRasterRenderer.clear()`：可在保留渲染器、上下文订阅、program 和 VAO 的前提下释放当前高斯视图的 CPU 副本与 VBO。此前只有永久 `dispose()` 能释放上传数据，视图会持续占用资源，且恢复时仍可能重传旧数据。
