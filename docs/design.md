@@ -120,6 +120,8 @@ Renderer、Queue、SceneGraph 都有 `free()`。TS 的 Engine 用 `dispose()` �
 
 底层快照是 WASM 对象，读取后需调用其 `free()`；它不引用渲染器，渲染器修改或释放后仍保留采样值。`Engine.resourceStats()` 负责转换成普通 TS 对象并立即释放底层快照，类型为 `GpuResourceStats`。上下文丢失时报告零 GPU 资源，CPU 场景数据仍保留用于恢复；直接使用底层渲染器时，调用方仍需负责释放旧实例并重建。该统计不包含浏览器和驱动分配，也不代表进程内存或真实显存占用。
 
+`Engine.cpuResourceStats()` 是普通 TS 快照，统计引擎为重建而保留的顶点、索引、批次和动画 TypedArray 字节数。构造时这些数组会复制，之后 Engine 不持有完整 `EngineScene`；丢失/失败期间数值不变，`dispose()` 清空这些引用并返回零。它不统计 JS 对象与字符串、WASM `SceneGraph`/`RenderQueue` 的分配、浏览器 GC 或调用方仍持有的输入，因此不能作为堆、显存或加载峰值指标。
+
 ### 上下文丢失与恢复
 
 `ContextLifecycle` 提供只读的 `state`、`generation` 和 `error`，状态为 ready / lost / failed / disposed。Engine 会阻止浏览器放弃恢复，在丢失事件中释放旧 GPU 句柄；收到恢复事件后从场景资源描述重新注册几何体、材质和批次。CPU 侧场景图、已修改的 TRS 和队列继续复用，不重新生成场景。

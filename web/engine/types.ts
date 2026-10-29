@@ -56,6 +56,17 @@ export interface GpuResourceStats {
   instanceBytes: number;
   bufferBytes: number;
 }
+/** Exact byte lengths of Engine-owned TypedArray copies; excludes JS object overhead and WASM storage. */
+export interface CpuResourceStats {
+  disposed: boolean;
+  geometries: number;
+  materials: number;
+  vertexBytes: number;
+  indexBytes: number;
+  batchBytes: number;
+  animationBytes: number;
+  typedArrayBytes: number;
+}
 export interface SceneBackend {
   readonly kind: Backend;
   readonly gl: WebGL2RenderingContext;

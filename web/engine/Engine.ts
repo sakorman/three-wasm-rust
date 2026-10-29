@@ -2,7 +2,7 @@ import { SceneGraph, RenderQueue, EngineRenderer } from '../../pkg/three_wasm_ru
 import { ContextLifecycle } from './ContextLifecycle.ts';
 import { validateBounds } from './bounds.ts';
 import { geometryBounds } from './geometry.ts';
-import type { CameraFrame, EngineScene, SceneBackend, FrameStats, DrawTimer, MaterialData, GpuResourceStats } from './types.ts';
+import type { CameraFrame, CpuResourceStats, EngineScene, SceneBackend, FrameStats, DrawTimer, MaterialData, GpuResourceStats } from './types.ts';
 
 /** The engine path has no Three.js dependency. Call init() from the WASM package first. */
 export class Engine implements SceneBackend {
@@ -14,14 +14,15 @@ export class Engine implements SceneBackend {
   private renderer: EngineRenderer | undefined;
   private lastTime = NaN;
   private disposed = false;
-  private readonly materials: MaterialData[];
-  private readonly geometries: { positions: Float32Array; indices: Uint32Array }[];
-  private readonly batchGeometries: Uint32Array;
-  private readonly batchMaterials: Uint32Array;
+  private materials: MaterialData[];
+  private geometries: { positions: Float32Array; indices: Uint32Array }[];
+  private batchGeometries: Uint32Array;
+  private batchMaterials: Uint32Array;
+  private animatedNodes: Uint32Array;
 
   constructor(
     canvas: HTMLCanvasElement,
-    readonly data: EngineScene,
+    data: EngineScene,
     private readonly instanced = true,
   ) {
     validateBounds(data);
@@ -34,6 +35,7 @@ export class Engine implements SceneBackend {
       ...material,
       color: [...material.color],
     }));
+    this.animatedNodes = data.animatedNodes.slice();
     this.kind = instanced ? 'rust' : 'rust-direct';
     const gl = canvas.getContext('webgl2', {
       antialias: true,
@@ -156,7 +158,7 @@ export class Engine implements SceneBackend {
     if (!renderer) throw new Error('GPU resources are unavailable');
     const start = performance.now();
     if (time !== this.lastTime) {
-      this.graph.animate_nodes(this.data.animatedNodes, time);
+      this.graph.animate_nodes(this.animatedNodes, time);
       this.lastTime = time;
     }
     if (this.instanced) this.graph.update_world_matrices();
@@ -200,6 +202,24 @@ export class Engine implements SceneBackend {
     } finally { stats.free(); }
   }
 
+  /** Exact TypedArray bytes retained by this Engine for restoration; not a JS or WASM heap measurement. */
+  cpuResourceStats(): CpuResourceStats {
+    const vertexBytes = this.geometries.reduce((total, geometry) => total + geometry.positions.byteLength, 0);
+    const indexBytes = this.geometries.reduce((total, geometry) => total + geometry.indices.byteLength, 0);
+    const batchBytes = this.batchGeometries.byteLength + this.batchMaterials.byteLength;
+    const animationBytes = this.animatedNodes.byteLength;
+    return {
+      disposed: this.disposed,
+      geometries: this.geometries.length,
+      materials: this.materials.length,
+      vertexBytes,
+      indexBytes,
+      batchBytes,
+      animationBytes,
+      typedArrayBytes: vertexBytes + indexBytes + batchBytes + animationBytes,
+    };
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -208,5 +228,10 @@ export class Engine implements SceneBackend {
     this.renderer = undefined;
     this.queue.free();
     this.graph.free();
+    this.geometries = [];
+    this.materials = [];
+    this.batchGeometries = new Uint32Array();
+    this.batchMaterials = new Uint32Array();
+    this.animatedNodes = new Uint32Array();
   }
 }

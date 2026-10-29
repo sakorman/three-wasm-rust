@@ -63,52 +63,56 @@ for (const instanced of [false, true]) {
       };
       try {
         draw();
-        const initial = check();
+        const initial = check(), cpuInitial = engine.cpuResourceStats(), sourceRetained = Object.hasOwn(engine, 'data');
         const vertexBytes = data.geometries.reduce((sum, g) => sum + g.positions.byteLength, 0);
         const indexBytes = data.geometries.reduce((sum, g) => sum + g.indices.byteLength, 0);
         engine.updateMaterial(0, [0.4, 0.6, 0.2], true);
         engine.updateGeometry(0, data.geometries[0].positions);
-        const updated = check();
+        const updated = check(), cpuUpdated = engine.cpuResourceStats();
         engine.replaceGeometry(0, square, quadIndices); draw();
-        const grown = check();
+        const grown = check(), cpuGrown = engine.cpuResourceStats();
         failing = true;
         let rejected = false;
         try { engine.replaceGeometry(0, triangle, triIndices); } catch { rejected = true; }
         failing = false;
-        const afterFailure = check();
-        const cycles = [];
+        const afterFailure = check(), cpuAfterFailure = engine.cpuResourceStats();
+        const cycles = [], cpuCycles = [];
         for (let i = 0; i < 16; i++) {
           engine.replaceGeometry(0, i % 2 ? square : triangle, i % 2 ? quadIndices : triIndices);
-          draw(); cycles.push(check());
+          draw(); cycles.push(check()); cpuCycles.push(engine.cpuResourceStats());
         }
         const extension = gl.getExtension('WEBGL_lose_context'); if (!extension) throw new Error('No context test extension');
         const event = (name: string, action: () => void) => new Promise<void>((resolve) => {
           canvas.addEventListener(name, () => setTimeout(resolve, 0), { once: true }); action();
         });
-        let immediateLost;
+        let immediateLost, immediateCpu;
         await event('webglcontextlost', () => {
-          extension.loseContext(); immediateLost = engine.resourceStats();
+          extension.loseContext(); immediateLost = engine.resourceStats(); immediateCpu = engine.cpuResourceStats();
         });
-        const lost = check();
+        const lost = check(), cpuLost = engine.cpuResourceStats();
         engine.replaceGeometry(0, triangle, triIndices);
-        const editedWhileLost = check();
+        const editedWhileLost = check(), cpuEditedWhileLost = engine.cpuResourceStats();
         await event('webglcontextrestored', () => extension.restoreContext());
-        draw(); const restored = check();
+        draw(); const restored = check(), cpuRestored = engine.cpuResourceStats();
         await event('webglcontextlost', () => extension.loseContext());
         failing = true;
         await event('webglcontextrestored', () => extension.restoreContext());
-        const failed = check(), state = engine.context.state;
+        const failed = check(), state = engine.context.state, cpuFailed = engine.cpuResourceStats();
         failing = false;
         await event('webglcontextlost', () => extension.loseContext());
         await event('webglcontextrestored', () => extension.restoreContext());
-        draw(); const retried = check();
+        draw(); const retried = check(), cpuRetried = engine.cpuResourceStats();
         engine.context.dispose();
-        const stopped = check();
+        const stopped = check(), cpuStopped = engine.cpuResourceStats();
         engine.dispose(); engine.dispose();
         return { initial, updated, grown, afterFailure, rejected, cycles, immediateLost, lost, editedWhileLost,
-          restored, failed, state, retried, stopped, disposed: check(), vertexBytes, indexBytes,
+          restored, failed, state, retried, stopped, disposed: check(), cpuInitial, cpuUpdated, cpuGrown, cpuAfterFailure,
+          cpuCycles, immediateCpu, cpuLost, cpuEditedWhileLost, cpuRestored, cpuFailed, cpuRetried, cpuStopped,
+          cpuDisposed: engine.cpuResourceStats(), sourceRetained, vertexBytes, indexBytes,
           oldVertexBytes: data.geometries[0].positions.byteLength, oldIndexBytes: data.geometries[0].indices.byteLength,
-          geometryCount: data.geometries.length };
+          geometryCount: data.geometries.length, materialCount: data.materials.length,
+          batchBytes: data.batchGeometries.byteLength + data.batchMaterials.byteLength,
+          animationBytes: data.animatedNodes.byteLength };
       } finally { failing = false; engine.dispose(); camera.dispose(); }
     }, instanced);
     const instanceBytes = instanced ? 6400 : 0;
@@ -132,6 +136,27 @@ for (const instanced of [false, true]) {
     for (const snapshot of [result.immediateLost, result.lost, result.editedWhileLost, result.failed, result.disposed])
       expect(snapshot).toEqual({ ready: false, buffers: 0, vertexArrays: 0, programs: 0,
         vertexBytes: 0, indexBytes: 0, instanceBytes: 0, bufferBytes: 0 });
+    const cpuInitial = { disposed: false, geometries: result.geometryCount, materials: result.materialCount,
+      vertexBytes: result.vertexBytes, indexBytes: result.indexBytes, batchBytes: result.batchBytes,
+      animationBytes: result.animationBytes,
+      typedArrayBytes: result.vertexBytes + result.indexBytes + result.batchBytes + result.animationBytes };
+    const cpuGrown = { ...cpuInitial, vertexBytes: cpuInitial.vertexBytes - result.oldVertexBytes + 48,
+      indexBytes: cpuInitial.indexBytes - result.oldIndexBytes + 24 };
+    cpuGrown.typedArrayBytes = cpuGrown.vertexBytes + cpuGrown.indexBytes + cpuGrown.batchBytes + cpuGrown.animationBytes;
+    const cpuShrunk = { ...cpuGrown, vertexBytes: cpuGrown.vertexBytes - 12, indexBytes: cpuGrown.indexBytes - 12 };
+    cpuShrunk.typedArrayBytes = cpuShrunk.vertexBytes + cpuShrunk.indexBytes + cpuShrunk.batchBytes + cpuShrunk.animationBytes;
+    expect(result.sourceRetained).toBe(false);
+    expect(result.cpuInitial).toEqual(cpuInitial);
+    expect(result.cpuUpdated).toEqual(cpuInitial);
+    expect(result.cpuGrown).toEqual(cpuGrown);
+    expect(result.cpuAfterFailure).toEqual(cpuGrown);
+    result.cpuCycles.forEach((snapshot, i) => expect(snapshot).toEqual(i % 2 ? cpuGrown : cpuShrunk));
+    expect(result.immediateCpu).toEqual(cpuGrown);
+    expect(result.cpuLost).toEqual(cpuGrown);
+    for (const snapshot of [result.cpuEditedWhileLost, result.cpuRestored, result.cpuFailed, result.cpuRetried, result.cpuStopped])
+      expect(snapshot).toEqual(cpuShrunk);
+    expect(result.cpuDisposed).toEqual({ disposed: true, geometries: 0, materials: 0,
+      vertexBytes: 0, indexBytes: 0, batchBytes: 0, animationBytes: 0, typedArrayBytes: 0 });
   });
 }
 
