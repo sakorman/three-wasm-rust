@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import init from '../pkg/three_wasm_rust.js';
+import init, { gaussian_tile_depth_order } from '../pkg/three_wasm_rust.js';
 import { GAUSSIAN_RASTER_UPLOAD_STRIDE, packGaussianRasterUpload, prepareGaussianRaster } from '../web/engine/index.ts';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
@@ -110,4 +110,35 @@ test('Gaussian preparation defaults colors to white and rejects malformed RGB in
   assert.deepEqual(Array.from(prepareGaussianRaster(input).colors), [1, 1, 1]);
   assert.throws(() => prepareGaussianRaster({ ...input, colors: new Float32Array([1, 0]) }), /colors/);
   assert.throws(() => prepareGaussianRaster({ ...input, colors: new Float32Array([1, -1, 0]) }), /color/);
+});
+
+test('Gaussian packing agrees with Rust tile validation on per-tile uniqueness', () => {
+  const prepared = prepareGaussianRaster({
+    centers: new Float32Array([0, 0, 2, 0, 0, 3, 0, 0, 4]),
+    covariances: repeatedCovariance().slice(0, 18), opacities: new Float32Array([.5, .6, .7]), cutoff: .1, camera,
+  });
+  const cases = [
+    { valid: true, values: [0, 3, 3, 5, 2, 0, 1, 1, 0] }, // Cross-tile reuse and an empty tile.
+    { valid: true, values: [0, 0, 0, 0] },
+    { valid: false, values: [0, 2, 2, 2, 0, 0] },
+    { valid: false, values: [0, 3, 3, 3, 0, 1, 0] },
+    { valid: false, values: [0, 1, 1, 4, 0, 1, 0, 1] },
+    { valid: false, values: [0, 1, 1, 1, 3] },
+    { valid: false, values: [0, 2, 1, 2, 0, 1] },
+  ];
+  for (const entry of cases) {
+    const packed = new Uint32Array(entry.values), original = packed.slice();
+    const pack = () => packGaussianRasterUpload({ ...prepared, tiles: { tileSize: 16, columns: 3, rows: 1, packed } });
+    const rust = () => gaussian_tile_depth_order(prepared.depths, packed, 3);
+    if (entry.valid) {
+      const result = pack();
+      assert.deepEqual(result.tiles!.packed, original);
+      assert.notEqual(result.tiles!.packed, packed);
+      assert.doesNotThrow(rust);
+    } else {
+      assert.throws(pack, /duplicate|range|monotonic/);
+      assert.throws(rust, /duplicate|range|offset/);
+    }
+    assert.deepEqual(packed, original);
+  }
 });

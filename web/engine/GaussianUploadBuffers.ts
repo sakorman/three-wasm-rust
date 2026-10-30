@@ -1,5 +1,6 @@
 import { GAUSSIAN_RASTER_UPLOAD_STRIDE } from './gaussian.ts';
-import type { PackedGaussianRasterUpload, GaussianRasterTiles } from './gaussian.ts';
+import { copyGaussianRasterTiles } from './gaussianTiles.ts';
+import type { PackedGaussianRasterUpload } from './gaussian.ts';
 import type { ContextLifecycle } from './ContextLifecycle.ts';
 
 export interface GaussianUploadBufferSnapshot {
@@ -31,28 +32,6 @@ export interface GaussianUploadResourceStats {
   gpuSplatCapacityBytes: number;
   gpuTileCapacityBytes: number;
   gpuBytes: number;
-}
-
-function cloneTiles(tiles: GaussianRasterTiles, recordCount: number): GaussianRasterTiles {
-  if (!Number.isSafeInteger(tiles.tileSize) || tiles.tileSize <= 0
-    || !Number.isSafeInteger(tiles.columns) || tiles.columns <= 0
-    || !Number.isSafeInteger(tiles.rows) || tiles.rows <= 0) {
-    throw new Error('Gaussian tile metadata must use positive safe integers');
-  }
-  const tileCount = tiles.columns * tiles.rows;
-  if (!Number.isSafeInteger(tileCount) || tiles.packed.length < tileCount + 1 || tiles.packed[0] !== 0) {
-    throw new Error('Gaussian tile offsets are malformed');
-  }
-  const referenceStart = tileCount + 1;
-  const referenceCount = tiles.packed.length - referenceStart;
-  if (tiles.packed[tileCount] !== referenceCount) throw new Error('Gaussian tile offsets must end at the reference count');
-  for (let index = 0; index < tileCount; index++) {
-    if (tiles.packed[index] > tiles.packed[index + 1]) throw new Error('Gaussian tile offsets must be monotonic');
-  }
-  for (let index = referenceStart; index < tiles.packed.length; index++) {
-    if (tiles.packed[index] >= recordCount) throw new Error('Gaussian tile reference is out of range');
-  }
-  return { tileSize: tiles.tileSize, columns: tiles.columns, rows: tiles.rows, packed: tiles.packed.slice() };
 }
 
 function cloneUpload(upload: PackedGaussianRasterUpload): PackedGaussianRasterUpload {
@@ -87,7 +66,7 @@ function cloneUpload(upload: PackedGaussianRasterUpload): PackedGaussianRasterUp
   return {
     splatData: upload.splatData.slice(),
     originalIds: upload.originalIds.slice(),
-    ...(upload.tiles && { tiles: cloneTiles(upload.tiles, recordCount) }),
+    ...(upload.tiles && { tiles: copyGaussianRasterTiles(upload.tiles, recordCount) }),
   };
 }
 

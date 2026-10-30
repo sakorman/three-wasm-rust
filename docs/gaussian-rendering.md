@@ -340,9 +340,13 @@ gl.bufferData(gl.ARRAY_BUFFER, upload.splatData, gl.DYNAMIC_DRAW);
 
 瓦片偏移—引用缓冲保留在 `upload.tiles`，引用的是交错记录的局部索引；`originalIds` 仅用于回查源属性。该函数不拥有或释放 WebGL 缓冲，不处理上下文丢失，也不声明带宽、GPU 时间或帧率收益；资源复用与实际绘制器仍需单独接入。
 
+打包和上传共用瓦片校验：偏移必须从零单调递增或持平并终止于引用总数，局部 ID 必须在记录范围内，且同一瓦片中不能重复。不同瓦片可引用同一记录，空瓦片有效；校验只复制数据，不重排合成顺序，也不检查几何覆盖或深度顺序。
+
 ### 可复用上传缓冲
 
 `GaussianUploadBuffers` 将上传记录保存在独立 CPU 副本中，并以指定的 `ContextLifecycle` 管理一对 WebGL2 缓冲。`update()` 在容量足够时使用 `bufferSubData`，增长时才重新分配；瓦片数据缺失时释放瓦片缓冲。`clear()` 会同时释放 CPU 副本和当前 VBO，但保留对象及其上下文订阅，供后续 `update()` 重新上传；清空后的上下文恢复不会重传旧视图。它只保存数据和句柄，不创建 VAO、shader 或绘制提交。
+
+输入校验失败时，`update()` 不替换原 CPU 副本，不分配或写入 VBO，已有画面保持。上下文丢失期间的无效更新同样被拒绝，恢复仍使用上一次有效上传。
 
 `resourceStats()` 分别返回内部交错记录、源 ID、瓦片引用副本的精确 TypedArray 字节数，以及当前可用 VBO 的容量。上下文丢失、分配失败、`clear()` 或 `dispose()` 后 GPU 容量为零；丢失期间 CPU 副本仍保留，以便恢复时重传。该快照不包含 PLY 原文、绘制器的 program/VAO、JavaScript 对象、驱动开销或实际显存，不能用于推断显存、GPU 时间或性能。
 
@@ -384,6 +388,8 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
 ## 可复现结果
+
+`npm run test:e2e -- tests/browser/gaussian-tile-validation.spec.ts` 使用 32×32 半透明高斯和四个瓦片，在最后一个瓦片插入重复局部 ID。修复前中心 alpha 从 128 变为 192，276 个 RGBA 通道偏离全屏基线，恢复后仍保留错误结果；修复后无效更新被拒绝，上传调用数、资源快照不变，拒绝后及恢复后的像素差异均为零。合法跨瓦片复用也与全屏结果一致。报告为 `test-results/**/gaussian-tile-validation.json`，验证输入拒绝与资源保持，不衡量性能。
 
 `npx tsx --test tests/gaussian-ply-layout.test.ts` 检查 1–3 阶两个顶点的全部系数映射、乱序属性、字节输入不变及返回数组隔离，并覆盖缺项和额外字段的 DC 回退。`npm run test:e2e -- tests/browser/gaussian-ply-layout.spec.ts` 使用各通道独立的 z 方向系数，以正反相机位置生成视图，颜色对照 `0.5 ± sqrt(3/(4π)) × coefficient`。修复前全屏/瓦片各有 46–83 个 RGBA 通道与解析参考不同，修复后为零；中心预乘 RGBA 分别为 `[101, 39, 76, 128]` 与 `[26, 89, 51, 128]`，报告为 `test-results/**/gaussian-ply-layout.json`。该用例验证合成 PLY 的布局与颜色衔接，不代表真实模型画质或性能。
 

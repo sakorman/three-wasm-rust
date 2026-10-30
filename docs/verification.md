@@ -1,6 +1,6 @@
 # 测试说明
 
-当前测试集共 **312 项**：90 项 Rust、109 项 Node、113 项 Chromium。2026-10-31 PLY 球谐颜色布局修正已通过全部 Node 测试、9 项相关浏览器回归、strict 类型检查、生产构建、Rust 格式检查及原生/wasm32 Clippy。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
+当前测试集共 **315 项**：90 项 Rust、111 项 Node、114 项 Chromium。2026-10-31 瓦片引用校验已通过全部 Node 测试、8 项相关浏览器回归、strict 类型检查、生产构建、Rust 格式检查及原生/wasm32 Clippy。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
 
 ## 覆盖范围
 
@@ -122,6 +122,8 @@ GPU 诊断用例在两种绘制策略下分别模拟正常、分配失败、非�
 `gaussian-program-lifecycle.spec.ts` 对四类程序创建失败各执行三次构造和一次恢复失败，以真实 `isShader`、`isProgram`、`isVertexArray`、`isBuffer` 检查资源状态。失败构造不保留对象或恢复订阅；恢复失败仅保留已重传的上传缓冲，拒绝绘制，后续恢复后像素与基线逐字节相同，最终释放全部对象。报告记录 shader 清理与像素差异，不测量 GC 时机、驱动显存或真实故障概率。
 
 `gaussian-depth-state.spec.ts` 对全屏与瓦片路径检查七组深度测试、写掩码、剔除和绕序配置，合成颜色逐字节对齐基线，中心另与解析预乘 RGBA 对照。后续全屏三角形仅在原清除深度通过等值测试，用以检查高斯没有修改深度；提交后抛错也检查状态与深度，重试后颜色一致。JSON 记录差异和前后状态，不代表 Mesh 遮挡正确性或速度收益。
+
+`gaussian-tile-validation.spec.ts` 检查同瓦片重复引用在上传前被拒绝，活动和丢失上下文下的失败均不改变 CPU 副本、VBO 容量/句柄或上传调用数；恢复后图像与基线逐字节一致。Node 同时将打包接受/拒绝结果与 Rust 瓦片校验比较，覆盖相邻与间隔重复、后续瓦片重复、空瓦片、跨瓦片复用、越界和偏移倒序。有效输入保留原始引用顺序；该校验不判断几何覆盖或深度顺序。
 
 高斯瓦片绘制检查上传缓冲只给出瓦片元数据与局部 ID，调用方无法改写内部引用数组。真实 WebGL2 中 52 条 16 像素瓦片引用以 scissor 提交，输出与全屏紧凑路径逐字节相同；连续局部 ID 合并为一条实例化提交，浏览器回归确认调用数小于引用数。逆序 ID 在 Node 回归中保持拆段和原顺序；调用前关闭 scissor 并设置非默认盒子，返回后状态保持。该回归只验证提交语义，不推断速度、GPU 时间或端到端性能。
 
