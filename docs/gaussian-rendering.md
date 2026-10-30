@@ -373,7 +373,11 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 调用方仍需配置目标 framebuffer、深度、剔除与颜色写入等外部光栅状态；混合方程的保存与恢复不代表对全部 WebGL 状态的隔离。RGB/alpha 独立方程见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3)，预乘颜色累积的集成接口可参考 [SparkRenderer](https://sparkjs.dev/docs/spark-renderer/)。
 
+程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
+
 ## 可复现结果
+
+`npm run test:e2e -- tests/browser/gaussian-program-lifecycle.spec.ts` 注入片元着色器分配失败、非法片元源码、program 分配失败和 varying 不匹配导致的链接失败。每种场景检查三次连续构造失败及一次上下文恢复失败后的实际 WebGL 对象状态，再验证恢复成功后的像素和最终 `dispose()`。片元分配/编译失败在修复前分别累积 1、2、3 个未主动删除的 shader，修复后均为零；报告保存为 `test-results/**/gaussian-program-lifecycle.json`。统计仅验证句柄清理，不等同驱动显存测量。
 
 `npm run test:e2e -- tests/browser/gaussian-blending.spec.ts` 覆盖 32×32 的两个重叠彩色高斯：先画不透明度 0.5 的红色，再画不透明度 0.5 的绿色，中心预乘 RGBA 应为 `[0.25, 0.5, 0, 0.75]`。五组独立 RGB/alpha 方程涵盖加法、减法、反向减法和 MIN/MAX；修复前，全屏和瓦片路径各有 535–1,605 个 RGBA 通道偏离标准合成，修复后均为零。测试同时核对正常绘制、注入提交异常及重试后的混合状态，报告为 `test-results/**/gaussian-blending.json`。
 
