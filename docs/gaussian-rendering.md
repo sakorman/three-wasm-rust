@@ -355,7 +355,7 @@ buffers.clear(); // 卸载当前视图；随后可调用 update(upload) 重新�
 
 ### 独立光栅 pass
 
-`GaussianRasterRenderer` 消费 `PackedGaussianRasterUpload`，创建自己的 program 与 VAO，并以记录中的中心、范围、逆协方差、不透明度、线性 RGB 和可选 CDF 系数执行一次 `drawArraysInstanced`。它使用预乘线性 RGB alpha、源列表的远到近顺序和 `ONE / ONE_MINUS_SRC_ALPHA` 混合；调用前的 program、VAO、数组缓冲、viewport 与混合状态会在返回前恢复。
+`GaussianRasterRenderer` 消费 `PackedGaussianRasterUpload`，创建自己的 program 与 VAO，并以记录中的中心、范围、逆协方差、不透明度、线性 RGB 和可选 CDF 系数执行一次 `drawArraysInstanced`。它使用预乘线性 RGB alpha、源列表的远到近顺序、`FUNC_ADD` 方程和 `ONE / ONE_MINUS_SRC_ALPHA` 混合。全屏与瓦片绘制都会显式设置 RGB/alpha 的加法方程；调用前的独立方程、混合因子和开关，以及 program、VAO、数组缓冲和 viewport 会在正常返回或抛出异常时恢复。
 
 ```ts
 import { GaussianRasterRenderer } from './web/engine/index.ts';
@@ -371,7 +371,11 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 绘制器不提供球谐、纹理、深度/透明度策略或主页面接入。因此该 pass 只验证已有几何、颜色与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
 
+调用方仍需配置目标 framebuffer、深度、剔除与颜色写入等外部光栅状态；混合方程的保存与恢复不代表对全部 WebGL 状态的隔离。RGB/alpha 独立方程见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3)，预乘颜色累积的集成接口可参考 [SparkRenderer](https://sparkjs.dev/docs/spark-renderer/)。
+
 ## 可复现结果
+
+`npm run test:e2e -- tests/browser/gaussian-blending.spec.ts` 覆盖 32×32 的两个重叠彩色高斯：先画不透明度 0.5 的红色，再画不透明度 0.5 的绿色，中心预乘 RGBA 应为 `[0.25, 0.5, 0, 0.75]`。五组独立 RGB/alpha 方程涵盖加法、减法、反向减法和 MIN/MAX；修复前，全屏和瓦片路径各有 535–1,605 个 RGBA 通道偏离标准合成，修复后均为零。测试同时核对正常绘制、注入提交异常及重试后的混合状态，报告为 `test-results/**/gaussian-blending.json`。
 
 256×192 WebGL2 合成测试包含 28 个圆形、旋转椭圆及重叠高斯，不透明度覆盖 0–1。参考四边形按最坏峰值 1 计算范围，两边片元使用相同的真实不透明度、协方差、阈值、颜色、混合和绘制顺序。
 

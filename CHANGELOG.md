@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-30 · 高斯混合方程隔离
+
+- 修复高斯绘制继承前序 RGB/alpha 混合方程的问题：此前只设置混合因子，减法或 MIN/MAX 状态会改变颜色与透明度。全屏和瓦片路径现显式使用 `FUNC_ADD`，正常返回和异常退出均恢复调用方的独立方程。
+- 32×32 重叠红绿高斯回归覆盖五组混合方程；修复前两条路径各有 535–1,605 个 RGBA 通道偏离标准合成，修复后全部逐字节一致。中心颜色另与解析预乘值对照，注入绘制异常后状态恢复且重试结果一致。
+- 验证：8 项相关 Chromium 测试、strict 类型检查、原生/wasm32 Clippy 和生产构建通过。复现命令为 `npm run test:e2e -- tests/browser/gaussian-blending.spec.ts`，报告保存在 `test-results/**/gaussian-blending.json`。
+- 范围：本项修复混合状态，深度、剔除和目标 framebuffer 仍由调用方配置，未测量性能收益。参考 [WebGL 混合方程规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3) 与 [SparkRenderer 预乘颜色累积接口](https://sparkjs.dev/docs/spark-renderer/)，未引入外部代码。
+
 ## 2026-10-30 · 高斯上传资源快照
 
 - 新增 `GaussianUploadBuffers.resourceStats()` 与 `GaussianRasterRenderer.resourceStats()`：分别报告交错记录、原始 ID、瓦片引用副本的 CPU 字节数，以及当前可用 VBO 容量。此前 `snapshot()` 只在资源就绪时提供句柄和容量，无法区分恢复所需的 CPU 副本与可用 GPU 缓冲。

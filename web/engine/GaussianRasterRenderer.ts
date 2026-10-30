@@ -182,6 +182,8 @@ export class GaussianRasterRenderer {
     const previousArrayBuffer = this.gl.getParameter(this.gl.ARRAY_BUFFER_BINDING) as WebGLBuffer | null;
     const previousViewport = this.gl.getParameter(this.gl.VIEWPORT) as Int32Array;
     const blend = this.gl.isEnabled(this.gl.BLEND);
+    const equationRgb = this.gl.getParameter(this.gl.BLEND_EQUATION_RGB) as number;
+    const equationAlpha = this.gl.getParameter(this.gl.BLEND_EQUATION_ALPHA) as number;
     const sourceRgb = this.gl.getParameter(this.gl.BLEND_SRC_RGB) as number;
     const destinationRgb = this.gl.getParameter(this.gl.BLEND_DST_RGB) as number;
     const sourceAlpha = this.gl.getParameter(this.gl.BLEND_SRC_ALPHA) as number;
@@ -193,6 +195,7 @@ export class GaussianRasterRenderer {
       this.gl.bindVertexArray(state.vao);
       this.gl.bindBuffer(this.gl.ARRAY_BUFFER, upload.splatBuffer);
       this.gl.enable(this.gl.BLEND);
+      this.gl.blendEquation(this.gl.FUNC_ADD);
       this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
       this.gl.viewport(0, 0, options.width, options.height);
       this.gl.uniform2f(state.viewport, options.width, options.height);
@@ -206,6 +209,7 @@ export class GaussianRasterRenderer {
       this.gl.viewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
       if (blend) this.gl.enable(this.gl.BLEND);
       else this.gl.disable(this.gl.BLEND);
+      this.gl.blendEquationSeparate(equationRgb, equationAlpha);
       this.gl.blendFuncSeparate(sourceRgb, destinationRgb, sourceAlpha, destinationAlpha);
       if (scissor) this.gl.enable(this.gl.SCISSOR_TEST);
       else this.gl.disable(this.gl.SCISSOR_TEST);
