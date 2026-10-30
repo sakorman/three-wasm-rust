@@ -89,6 +89,7 @@ function assertDrawOptions({ width, height, cutoff }: GaussianRasterDrawOptions)
  *
  * This renderer uses the same compact order as `prepareGaussianRaster()`: callers retain
  * responsibility for camera preparation, tile dispatch, SH evaluation and targets.
+ * Screen-space splats ignore depth tests and face culling, and leave target depth unchanged.
  */
 export class GaussianRasterRenderer {
   readonly uploads: GaussianUploadBuffers;
@@ -181,6 +182,9 @@ export class GaussianRasterRenderer {
     const previousVao = this.gl.getParameter(this.gl.VERTEX_ARRAY_BINDING) as WebGLVertexArrayObject | null;
     const previousArrayBuffer = this.gl.getParameter(this.gl.ARRAY_BUFFER_BINDING) as WebGLBuffer | null;
     const previousViewport = this.gl.getParameter(this.gl.VIEWPORT) as Int32Array;
+    const depthTest = this.gl.isEnabled(this.gl.DEPTH_TEST);
+    const depthWrite = this.gl.getParameter(this.gl.DEPTH_WRITEMASK) as boolean;
+    const cullFace = this.gl.isEnabled(this.gl.CULL_FACE);
     const blend = this.gl.isEnabled(this.gl.BLEND);
     const equationRgb = this.gl.getParameter(this.gl.BLEND_EQUATION_RGB) as number;
     const equationAlpha = this.gl.getParameter(this.gl.BLEND_EQUATION_ALPHA) as number;
@@ -194,6 +198,10 @@ export class GaussianRasterRenderer {
       this.gl.useProgram(state.program);
       this.gl.bindVertexArray(state.vao);
       this.gl.bindBuffer(this.gl.ARRAY_BUFFER, upload.splatBuffer);
+      // Records contain screen positions, not target depth. Compose in prepared order.
+      this.gl.disable(this.gl.DEPTH_TEST);
+      this.gl.depthMask(false);
+      this.gl.disable(this.gl.CULL_FACE);
       this.gl.enable(this.gl.BLEND);
       this.gl.blendEquation(this.gl.FUNC_ADD);
       this.gl.blendFunc(this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA);
@@ -207,6 +215,11 @@ export class GaussianRasterRenderer {
       this.gl.bindVertexArray(previousVao);
       this.gl.bindBuffer(this.gl.ARRAY_BUFFER, previousArrayBuffer);
       this.gl.viewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
+      if (depthTest) this.gl.enable(this.gl.DEPTH_TEST);
+      else this.gl.disable(this.gl.DEPTH_TEST);
+      this.gl.depthMask(depthWrite);
+      if (cullFace) this.gl.enable(this.gl.CULL_FACE);
+      else this.gl.disable(this.gl.CULL_FACE);
       if (blend) this.gl.enable(this.gl.BLEND);
       else this.gl.disable(this.gl.BLEND);
       this.gl.blendEquationSeparate(equationRgb, equationAlpha);
