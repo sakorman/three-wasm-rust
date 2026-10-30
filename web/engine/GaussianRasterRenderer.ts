@@ -270,24 +270,26 @@ export class GaussianRasterRenderer {
 
   private createProgram(): WebGLProgram {
     const vertex = this.compile(this.gl.VERTEX_SHADER, vertexSource);
-    const fragment = this.compile(this.gl.FRAGMENT_SHADER, fragmentSource);
-    const program = this.gl.createProgram();
-    if (!program) {
+    let fragment: WebGLShader | undefined;
+    let program: WebGLProgram | null = null;
+    try {
+      fragment = this.compile(this.gl.FRAGMENT_SHADER, fragmentSource);
+      program = this.gl.createProgram();
+      if (!program) throw new Error('Gaussian raster program allocation failed');
+      this.gl.attachShader(program, vertex);
+      this.gl.attachShader(program, fragment);
+      this.gl.linkProgram(program);
+      if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
+        throw new Error(this.gl.getProgramInfoLog(program) ?? 'Gaussian raster program link failed');
+      }
+      return program;
+    } catch (error) {
+      if (program) this.gl.deleteProgram(program);
+      throw error;
+    } finally {
       this.gl.deleteShader(vertex);
-      this.gl.deleteShader(fragment);
-      throw new Error('Gaussian raster program allocation failed');
+      if (fragment) this.gl.deleteShader(fragment);
     }
-    this.gl.attachShader(program, vertex);
-    this.gl.attachShader(program, fragment);
-    this.gl.linkProgram(program);
-    this.gl.deleteShader(vertex);
-    this.gl.deleteShader(fragment);
-    if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
-      const log = this.gl.getProgramInfoLog(program) ?? 'Gaussian raster program link failed';
-      this.gl.deleteProgram(program);
-      throw new Error(log);
-    }
-    return program;
   }
 
   private compile(type: number, source: string): WebGLShader {

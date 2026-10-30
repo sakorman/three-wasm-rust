@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-30 · 高斯着色器失败清理
+
+- 修复片元着色器分配或编译失败后未删除已编译顶点着色器的问题。程序创建流程现统一释放临时 shader，失败时删除已创建的 program；构造和上下文恢复共用该清理路径。
+- 真实 WebGL2 回归中，连续三次失败此前留下 1、2、3 个未主动删除的 shader，回收依赖 GC；修复后每次均为零。覆盖片元分配、编译、程序分配和链接四种失败，恢复失败时拒绝绘制，下一次恢复后像素与原图逐字节一致。
+- 验证：12 项相关 Chromium 测试、strict 类型检查、原生/wasm32 Clippy 与生产构建通过。复现命令为 `npm run test:e2e -- tests/browser/gaussian-program-lifecycle.spec.ts`，JSON 报告记录失败后的存活句柄和恢复前后像素差异。
+- 范围：验证显式资源清理，不测量驱动内部内存或实际故障发生率；恢复失败时保留上传数据，供后续恢复使用。参考 [WebGL shader/program 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9) 与 [SparkRenderer 资源释放](https://sparkjs.dev/docs/spark-renderer/#dispose)，未引入外部代码。
+
 ## 2026-10-30 · 高斯混合方程隔离
 
 - 修复高斯绘制继承前序 RGB/alpha 混合方程的问题：此前只设置混合因子，减法或 MIN/MAX 状态会改变颜色与透明度。全屏和瓦片路径现显式使用 `FUNC_ADD`，正常返回和异常退出均恢复调用方的独立方程。
