@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-30 · 高斯上传资源快照
+
+- 新增 `GaussianUploadBuffers.resourceStats()` 与 `GaussianRasterRenderer.resourceStats()`：分别报告交错记录、原始 ID、瓦片引用副本的 CPU 字节数，以及当前可用 VBO 容量。此前 `snapshot()` 只在资源就绪时提供句柄和容量，无法区分恢复所需的 CPU 副本与可用 GPU 缓冲。
+- 上下文丢失、静默分配失败、主动卸载和释放后 GPU 数值归零；丢失期间保留 CPU 副本，恢复后按最新数据重传。缩减上传仍可保留既有 VBO 容量，瓦片移除后其容量归零。
+- 验证：模拟 WebGL 覆盖更新、失败、恢复、卸载与重载的精确字节数；真实 WebGL2 覆盖容量复用、上下文丢失/恢复和绘制器重载。完整测试 297 项通过（90 Rust、105 Node、102 Chromium），strict、原生/wasm32 Clippy 与生产构建通过。
+- 限制：快照不包含 PLY 原文、program、VAO、JavaScript/驱动开销或实际显存，不能用于推断 GPU 时间或性能。参考 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/) 与 [`gsplat` rasterization](https://docs.gsplat.studio/main/apis/rasterization.html)；未使用其代码、模型、实验数据或性能结论。
+
 ## 2026-10-30 · 引擎 CPU 资源快照
 
 - 新增 `Engine.cpuResourceStats()`：准确汇总引擎为恢复保留的顶点、索引、批次和动画 TypedArray 字节数，并返回几何体与材质条数。此前只能读取 GPU 缓冲快照，无法区分引擎自身保留的 CPU 数组。

@@ -19,6 +19,20 @@ export interface GaussianUploadTileLayout {
   referenceCount: number;
 }
 
+/** CPU copies and live VBO capacities owned by one prepared Gaussian upload. */
+export interface GaussianUploadResourceStats {
+  disposed: boolean;
+  recordCount: number;
+  cpuSplatBytes: number;
+  cpuOriginalIdBytes: number;
+  cpuTileBytes: number;
+  cpuBytes: number;
+  gpuReady: boolean;
+  gpuSplatCapacityBytes: number;
+  gpuTileCapacityBytes: number;
+  gpuBytes: number;
+}
+
 function cloneTiles(tiles: GaussianRasterTiles, recordCount: number): GaussianRasterTiles {
   if (!Number.isSafeInteger(tiles.tileSize) || tiles.tileSize <= 0
     || !Number.isSafeInteger(tiles.columns) || tiles.columns <= 0
@@ -145,6 +159,34 @@ export class GaussianUploadBuffers {
       ...(this.tileBuffer && { tileBuffer: this.tileBuffer }),
       tileBytes: this.source.tiles?.packed.byteLength ?? 0,
       tileCapacityBytes: this.tileCapacityBytes,
+    };
+  }
+
+  /**
+   * Exact bytes of this upload's copied TypedArrays and currently usable VBO capacities.
+   *
+   * CPU copies remain available across context loss for restoration. GPU capacities report
+   * zero while unavailable, after clear, after a failed upload, or after dispose.
+   */
+  resourceStats(): GaussianUploadResourceStats {
+    const source = this.source;
+    const cpuSplatBytes = source?.splatData.byteLength ?? 0;
+    const cpuOriginalIdBytes = source?.originalIds.byteLength ?? 0;
+    const cpuTileBytes = source?.tiles?.packed.byteLength ?? 0;
+    const gpuReady = !this.disposed && this.context.ready && !this.currentError && source !== undefined && this.splatBuffer !== undefined;
+    const gpuSplatCapacityBytes = gpuReady ? this.splatCapacityBytes : 0;
+    const gpuTileCapacityBytes = gpuReady && this.tileBuffer ? this.tileCapacityBytes : 0;
+    return {
+      disposed: this.disposed,
+      recordCount: source?.originalIds.length ?? 0,
+      cpuSplatBytes,
+      cpuOriginalIdBytes,
+      cpuTileBytes,
+      cpuBytes: cpuSplatBytes + cpuOriginalIdBytes + cpuTileBytes,
+      gpuReady,
+      gpuSplatCapacityBytes,
+      gpuTileCapacityBytes,
+      gpuBytes: gpuSplatCapacityBytes + gpuTileCapacityBytes,
     };
   }
 

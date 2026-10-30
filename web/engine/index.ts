@@ -23,7 +23,7 @@ export type { GaussianClipPlane, GaussianRasterCamera, GaussianRasterPreparation
 export { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianPlyForThreeCamera, transformGaussianPlyToCameraSpace } from './GaussianPly.ts';
 export type { GaussianCameraSource, GaussianPlySource, GaussianPlyThreeCameraOptions, GaussianShDegree } from './GaussianPly.ts';
 export { GaussianUploadBuffers } from './GaussianUploadBuffers.ts';
-export type { GaussianUploadBufferSnapshot, GaussianUploadTileLayout } from './GaussianUploadBuffers.ts';
+export type { GaussianUploadBufferSnapshot, GaussianUploadResourceStats, GaussianUploadTileLayout } from './GaussianUploadBuffers.ts';
 export { GaussianRasterRenderer } from './GaussianRasterRenderer.ts';
 export type { GaussianRasterDrawOptions } from './GaussianRasterRenderer.ts';
 export { Engine } from './Engine.ts';

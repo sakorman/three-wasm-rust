@@ -77,6 +77,10 @@ test('Gaussian upload buffers reuse capacity and recreate copied data after a co
   assert.equal(first.tileBytes, 24);
   assert.equal(first.tileCapacityBytes, 24);
   assert.equal(fake.stats().creates, 2);
+  assert.deepEqual(buffers.resourceStats(), {
+    disposed: false, recordCount: 3, cpuSplatBytes: 180, cpuOriginalIdBytes: 12, cpuTileBytes: 24, cpuBytes: 216,
+    gpuReady: true, gpuSplatCapacityBytes: 180, gpuTileCapacityBytes: 24, gpuBytes: 204,
+  });
 
   const reduced: PackedGaussianRasterUpload = {
     splatData: initial.splatData.slice(0, 30), originalIds: initial.originalIds.slice(0, 2),
@@ -89,22 +93,37 @@ test('Gaussian upload buffers reuse capacity and recreate copied data after a co
   assert.equal(reused.tileBuffer, undefined);
   assert.equal(reused.tileCapacityBytes, 0);
   assert.deepEqual(fake.stats(), { creates: 2, deletes: 1, dataCalls: 2, subDataCalls: 1 });
+  assert.deepEqual(buffers.resourceStats(), {
+    disposed: false, recordCount: 2, cpuSplatBytes: 120, cpuOriginalIdBytes: 8, cpuTileBytes: 0, cpuBytes: 128,
+    gpuReady: true, gpuSplatCapacityBytes: 180, gpuTileCapacityBytes: 0, gpuBytes: 180,
+  });
 
   assert.equal(fake.lose().defaultPrevented, true);
   assert.equal(buffers.snapshot(), undefined);
+  assert.deepEqual(buffers.resourceStats(), {
+    disposed: false, recordCount: 2, cpuSplatBytes: 120, cpuOriginalIdBytes: 8, cpuTileBytes: 0, cpuBytes: 128,
+    gpuReady: false, gpuSplatCapacityBytes: 0, gpuTileCapacityBytes: 0, gpuBytes: 0,
+  });
   const recovery = upload(), expectedCenter = recovery.splatData[0];
   buffers.update(recovery);
   recovery.splatData[0] = -100;
+  assert.equal(buffers.resourceStats().cpuBytes, 216);
+  assert.equal(buffers.resourceStats().gpuBytes, 0);
   fake.restore();
   const restored = buffers.snapshot();
   assert.ok(restored);
   assert.notEqual(restored.splatBuffer, first.splatBuffer);
   assert.equal(fake.floatAt(restored.splatBuffer), expectedCenter);
   assert.deepEqual(fake.stats(), { creates: 4, deletes: 1, dataCalls: 4, subDataCalls: 1 });
+  assert.equal(buffers.resourceStats().gpuBytes, 204);
 
   assert.throws(() => buffers.update({ ...recovery, splatData: new Float32Array(1) }), /inconsistent/);
   buffers.dispose();
   assert.equal(buffers.snapshot(), undefined);
+  assert.deepEqual(buffers.resourceStats(), {
+    disposed: true, recordCount: 0, cpuSplatBytes: 0, cpuOriginalIdBytes: 0, cpuTileBytes: 0, cpuBytes: 0,
+    gpuReady: false, gpuSplatCapacityBytes: 0, gpuTileCapacityBytes: 0, gpuBytes: 0,
+  });
   assert.deepEqual(fake.stats(), { creates: 4, deletes: 3, dataCalls: 4, subDataCalls: 1 });
   lifecycle.dispose();
 });
@@ -115,10 +134,15 @@ test('Gaussian upload buffers reject a silent storage allocation failure and all
   assert.throws(() => buffers.update(upload()), /storage allocation failed/);
   assert.equal(buffers.snapshot(), undefined);
   assert.match(String(buffers.error), /storage allocation failed/);
+  assert.deepEqual(buffers.resourceStats(), {
+    disposed: false, recordCount: 3, cpuSplatBytes: 180, cpuOriginalIdBytes: 12, cpuTileBytes: 24, cpuBytes: 216,
+    gpuReady: false, gpuSplatCapacityBytes: 0, gpuTileCapacityBytes: 0, gpuBytes: 0,
+  });
   assert.deepEqual(fake.stats(), { creates: 1, deletes: 1, dataCalls: 1, subDataCalls: 0 });
   buffers.update(upload());
   assert.ok(buffers.snapshot());
   assert.equal(buffers.error, undefined);
+  assert.equal(buffers.resourceStats().gpuBytes, 204);
   buffers.dispose();
   lifecycle.dispose();
 });
@@ -132,6 +156,10 @@ test('Gaussian upload buffers clear copied data and handles without restoring an
   assert.equal(buffers.snapshot(), undefined);
   assert.equal(buffers.tileLayout(), undefined);
   assert.throws(() => buffers.forEachTileReference(() => {}), /no tile data/);
+  assert.deepEqual(buffers.resourceStats(), {
+    disposed: false, recordCount: 0, cpuSplatBytes: 0, cpuOriginalIdBytes: 0, cpuTileBytes: 0, cpuBytes: 0,
+    gpuReady: false, gpuSplatCapacityBytes: 0, gpuTileCapacityBytes: 0, gpuBytes: 0,
+  });
   assert.deepEqual(fake.stats(), { creates: 2, deletes: 2, dataCalls: 2, subDataCalls: 0 });
   fake.lose();
   fake.restore();
@@ -145,6 +173,10 @@ test('Gaussian upload buffers clear copied data and handles without restoring an
   assert.equal(reloaded.recordCount, 1);
   assert.equal(reloaded.tileBuffer, undefined);
   assert.equal(fake.stats().creates, 3);
+  assert.deepEqual(buffers.resourceStats(), {
+    disposed: false, recordCount: 1, cpuSplatBytes: 60, cpuOriginalIdBytes: 4, cpuTileBytes: 0, cpuBytes: 64,
+    gpuReady: true, gpuSplatCapacityBytes: 60, gpuTileCapacityBytes: 0, gpuBytes: 60,
+  });
   buffers.dispose();
   assert.throws(() => buffers.clear(), /disposed/);
   lifecycle.dispose();

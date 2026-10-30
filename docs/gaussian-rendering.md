@@ -338,6 +338,8 @@ gl.bufferData(gl.ARRAY_BUFFER, upload.splatData, gl.DYNAMIC_DRAW);
 
 `GaussianUploadBuffers` 将上传记录保存在独立 CPU 副本中，并以指定的 `ContextLifecycle` 管理一对 WebGL2 缓冲。`update()` 在容量足够时使用 `bufferSubData`，增长时才重新分配；瓦片数据缺失时释放瓦片缓冲。`clear()` 会同时释放 CPU 副本和当前 VBO，但保留对象及其上下文订阅，供后续 `update()` 重新上传；清空后的上下文恢复不会重传旧视图。它只保存数据和句柄，不创建 VAO、shader 或绘制提交。
 
+`resourceStats()` 分别返回内部交错记录、源 ID、瓦片引用副本的精确 TypedArray 字节数，以及当前可用 VBO 的容量。上下文丢失、分配失败、`clear()` 或 `dispose()` 后 GPU 容量为零；丢失期间 CPU 副本仍保留，以便恢复时重传。该快照不包含 PLY 原文、绘制器的 program/VAO、JavaScript 对象、驱动开销或实际显存，不能用于推断显存、GPU 时间或性能。
+
 ```ts
 import { ContextLifecycle, GaussianUploadBuffers } from './web/engine/index.ts';
 
@@ -345,6 +347,7 @@ const lifecycle = new ContextLifecycle(gl);
 const buffers = new GaussianUploadBuffers(gl, lifecycle);
 buffers.update(upload);
 const gpu = buffers.snapshot(); // ready 时返回 VBO、可用字节数和容量
+const resources = buffers.resourceStats(); // 上传副本字节数与当前 VBO 容量
 buffers.clear(); // 卸载当前视图；随后可调用 update(upload) 重新建立缓冲
 ```
 
@@ -362,7 +365,7 @@ renderer.update(upload);
 renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 ```
 
-绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。`GaussianRasterRenderer.clear()` 会委托上传层卸载当前视图，保留 program/VAO；清空后 `draw()` 会拒绝，新的 `update()` 后可恢复绘制。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。
+绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。`GaussianRasterRenderer.clear()` 会委托上传层卸载当前视图，保留 program/VAO；清空后 `draw()` 会拒绝，新的 `update()` 后可恢复绘制。`GaussianRasterRenderer.resourceStats()` 透传上传层快照，不计绘制器自身的 program 或 VAO。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。
 
 同一瓦片中连续递增的局部 ID 指向连续的交错 VBO 记录，可作为一条 `drawArraysInstanced` 提交；`forEachTileBatch()` 只合并这种最大连续段。遇到跳号或逆序 ID 会立即结束当前段，保持原有混合顺序。`drawTiles()` 的返回值仍是引用数量而非 draw call 数。该实现没有 GPU 级间接索引，不能合并任意稀疏 ID，也不把合并次数推断为 GPU 时间、帧率或端到端性能收益。瓦片内按深度排序、再 alpha 合成的流程可参照 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。
 
@@ -394,7 +397,7 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 上传打包回归将同一份准备数据以 15-f32 交错属性上传到真实 WebGL2 VBO，并以一次 3 实例绘制执行 CDF 片元路径。记录步长为 60 字节，VBO 实际容量为 180 字节；包含 52 条引用的瓦片缓冲容量为 980 字节。裁切相对未裁切有 23,264 个不同通道、1,976 个可见像素，`gl.getError()` 为零；报告保存为 `test-results/**/gaussian-upload.json`。容量是该合成输入的缓冲大小，不是带宽、帧率或显存收益。
 
-上传缓冲恢复回归先上传 3 条记录和瓦片数据，再更新为 2 条记录，数据缓冲容量维持 180 字节并只进行子更新。触发真实 `WEBGL_lose_context` 后资源快照为空；在恢复前写入的新上传数据由内部副本重传，新的 VBO 中首项中心与写入时一致。该结果只验证所有权、容量和恢复语义，不代表完整场景的资源占用或恢复时间。
+上传缓冲恢复回归先上传 3 条记录和瓦片数据，再更新为 2 条记录，数据缓冲容量维持 180 字节并只进行子更新。资源快照分别报告记录、源 ID 与瓦片副本，以及可用 VBO 容量；触发真实 `WEBGL_lose_context` 后 GPU 容量归零，恢复前写入的新上传数据仍保留 CPU 副本，恢复后 VBO 容量和首项中心与写入时一致。该结果只验证所有权、容量和恢复语义，不代表完整场景的资源占用或恢复时间。
 
 独立光栅 pass 回归以同一份 3 条上传记录分别执行裁切和未裁切绘制，二者产生 23,264 个不同 RGBA 通道；恢复前后裁切图像逐字节一致。回归还设置非默认混合因子并确认 draw 返回后恢复。另有两个非重叠记录的 RGB 回归：红色与青色记录在对应中心保持预乘颜色分量。该结果只检查着色器、属性布局、透明混合和恢复顺序，不比较瓦片调度、GPU 时间、帧率或真实模型质量。
 

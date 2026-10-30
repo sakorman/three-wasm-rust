@@ -142,16 +142,20 @@ test('Gaussian upload buffers reuse capacity and restore copied data after WebGL
     try {
       const initialUpload = makeUpload(); buffers.update(initialUpload);
       const initial = buffers.snapshot(); if (!initial) throw new Error('Missing initial Gaussian buffers');
+      const initialStats = buffers.resourceStats();
       const smaller = { splatData: initialUpload.splatData.slice(0, 30), originalIds: initialUpload.originalIds.slice(0, 2) };
       buffers.update(smaller);
       const reused = buffers.snapshot(); if (!reused) throw new Error('Missing reused Gaussian buffer');
+      const reusedStats = buffers.resourceStats();
       await event('webglcontextlost', () => extension.loseContext());
-      const duringLoss = buffers.snapshot();
+      const duringLoss = buffers.snapshot(), duringLossStats = buffers.resourceStats();
       const recoveryUpload = makeUpload(), expectedCenter = recoveryUpload.splatData[0];
       buffers.update(recoveryUpload);
       recoveryUpload.splatData[0] = -999;
+      const waitingRestoreStats = buffers.resourceStats();
       await event('webglcontextrestored', () => extension.restoreContext());
       const restored = buffers.snapshot(); if (!restored) throw new Error('Missing restored Gaussian buffer');
+      const restoredStats = buffers.resourceStats();
       gl.bindBuffer(gl.ARRAY_BUFFER, restored.splatBuffer);
       const values = new Float32Array(12); gl.getBufferSubData(gl.ARRAY_BUFFER, 0, values);
       const error = gl.getError();
@@ -160,6 +164,7 @@ test('Gaussian upload buffers reuse capacity and restore copied data after WebGL
         reusedBytes: reused.splatBytes, reusedCapacity: reused.splatCapacityBytes, reusedHasTile: Boolean(reused.tileBuffer),
         duringLoss, restoredBytes: restored.splatBytes, restoredTileBytes: restored.tileBytes,
         sameHandle: restored.splatBuffer === initial.splatBuffer, expectedCenter, restoredCenter: values[0], error, calls,
+        initialStats, reusedStats, duringLossStats, waitingRestoreStats, restoredStats,
       };
     } finally { buffers.dispose(); lifecycle.dispose(); }
   });
@@ -176,6 +181,19 @@ test('Gaussian upload buffers reuse capacity and restore copied data after WebGL
   expect(result.restoredCenter).toBe(result.expectedCenter);
   expect(result.error).toBe(0);
   expect(result.calls).toEqual({ create: 4, delete: 3, data: 4, subData: 1 });
+  expect(result.initialStats).toEqual({
+    disposed: false, recordCount: 3, cpuSplatBytes: 180, cpuOriginalIdBytes: 12, cpuTileBytes: 980, cpuBytes: 1172,
+    gpuReady: true, gpuSplatCapacityBytes: 180, gpuTileCapacityBytes: 980, gpuBytes: 1160,
+  });
+  expect(result.reusedStats).toEqual({
+    disposed: false, recordCount: 2, cpuSplatBytes: 120, cpuOriginalIdBytes: 8, cpuTileBytes: 0, cpuBytes: 128,
+    gpuReady: true, gpuSplatCapacityBytes: 180, gpuTileCapacityBytes: 0, gpuBytes: 180,
+  });
+  for (const stats of [result.duringLossStats, result.waitingRestoreStats])
+    expect(stats.gpuBytes).toBe(0);
+  expect(result.duringLossStats.cpuBytes).toBe(128);
+  expect(result.waitingRestoreStats.cpuBytes).toBe(1172);
+  expect(result.restoredStats).toEqual(result.initialStats);
 });
 
 test('Gaussian raster renderer composites packed records and restores its independent draw path', async ({ page }) => {
@@ -216,6 +234,7 @@ test('Gaussian raster renderer composites packed records and restores its indepe
       gl.disable(gl.BLEND);
       gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_DST_ALPHA, gl.ZERO, gl.ONE);
       const initialUpload = makeUpload(); renderer.update(initialUpload);
+      const initialUploadStats = renderer.resourceStats();
       const initial = render(true), unclipped = render(false);
       const blendRestored = !gl.isEnabled(gl.BLEND)
         && gl.getParameter(gl.BLEND_SRC_RGB) === gl.SRC_ALPHA
@@ -236,16 +255,17 @@ test('Gaussian raster renderer composites packed records and restores its indepe
         if (initial[index] !== restored[index]) { restoredEqual = false; break; }
       }
       renderer.clear();
-      const clearedSnapshot = renderer.snapshot(), clearedRecords = renderer.uploads.recordCount;
+      const clearedSnapshot = renderer.snapshot(), clearedRecords = renderer.uploads.recordCount, clearedStats = renderer.resourceStats();
       let drawAfterClear = '';
       try { renderer.draw({ width, height, cutoff, applyClip: true }); } catch (error) { drawAfterClear = String(error); }
       renderer.update(makeUpload());
+      const reloadedStats = renderer.resourceStats();
       const reloaded = render(true);
       let reloadEqual = true;
       for (let index = 0; index < restored.length; index++) {
         if (restored[index] !== reloaded[index]) { reloadEqual = false; break; }
       }
-      return { changedChannels, visiblePixels, blendRestored, readyWhileLost, snapshotWhileLost, restoredEqual, clearedSnapshot, clearedRecords, drawAfterClear, reloadEqual, draws, error: gl.getError() };
+      return { changedChannels, visiblePixels, blendRestored, readyWhileLost, snapshotWhileLost, restoredEqual, clearedSnapshot, clearedRecords, clearedStats, initialUploadStats, reloadedStats, drawAfterClear, reloadEqual, draws, error: gl.getError() };
     } finally { renderer.dispose(); lifecycle.dispose(); }
   });
   expect(result.changedChannels).toBeGreaterThan(500);
@@ -256,6 +276,10 @@ test('Gaussian raster renderer composites packed records and restores its indepe
   expect(result.restoredEqual).toBe(true);
   expect(result.clearedSnapshot).toBeUndefined();
   expect(result.clearedRecords).toBe(0);
+  expect(result.initialUploadStats.gpuBytes).toBeGreaterThan(0);
+  expect(result.clearedStats.cpuBytes).toBe(0);
+  expect(result.clearedStats.gpuBytes).toBe(0);
+  expect(result.reloadedStats).toEqual(result.initialUploadStats);
   expect(result.drawAfterClear).toContain('resources are unavailable');
   expect(result.reloadEqual).toBe(true);
   expect(result.draws).toBe(4);
