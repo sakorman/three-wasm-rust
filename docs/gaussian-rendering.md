@@ -369,13 +369,17 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 同一瓦片中连续递增的局部 ID 指向连续的交错 VBO 记录，可作为一条 `drawArraysInstanced` 提交；`forEachTileBatch()` 只合并这种最大连续段。遇到跳号或逆序 ID 会立即结束当前段，保持原有混合顺序。`drawTiles()` 的返回值仍是引用数量而非 draw call 数。该实现没有 GPU 级间接索引，不能合并任意稀疏 ID，也不把合并次数推断为 GPU 时间、帧率或端到端性能收益。瓦片内按深度排序、再 alpha 合成的流程可参照 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。
 
-绘制器不提供球谐、纹理、深度/透明度策略或主页面接入。因此该 pass 只验证已有几何、颜色与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
+上传记录只有屏幕位置，没有目标深度。全屏和瓦片绘制都会临时关闭深度测试、深度写入和面剔除，按准备后的顺序合成，不修改目标的深度缓冲。原有测试/剔除开关与深度写掩码在正常返回或绘制抛错时恢复；深度函数、范围、剔除面和绕序不作修改。不能直接借助 Mesh 遗留的深度状态实现遮挡，后续需要显式的高斯深度映射。
 
-调用方仍需配置目标 framebuffer、深度、剔除与颜色写入等外部光栅状态；混合方程的保存与恢复不代表对全部 WebGL 状态的隔离。RGB/alpha 独立方程见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3)，预乘颜色累积的集成接口可参考 [SparkRenderer](https://sparkjs.dev/docs/spark-renderer/)。
+绘制器不提供球谐、纹理、Mesh 遮挡、逐像素透明度排序或主页面接入。因此该 pass 只验证已有几何、颜色与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
+
+调用方仍需配置目标 framebuffer、模板测试、颜色写入、采样状态及 rasterizer discard；`draw()` 遵循调用方 scissor，`drawTiles()` 临时接管 scissor 进行分箱绘制。这里不隔离全部 WebGL 状态。光栅状态见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3)，集成时应像 [SparkRenderer 的 depthTest/depthWrite 选项](https://sparkjs.dev/docs/spark-renderer/#optional-parameters)一样明确区分遮挡测试和深度写入；当前屏幕空间 pass 不采用其 Mesh 深度测试方案。
 
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
 ## 可复现结果
+
+`npm run test:e2e -- tests/browser/gaussian-depth-state.spec.ts` 用 32×32 重叠红绿高斯检查七组深度测试、写掩码、剔除与绕序配置。全屏和瓦片路径在修复前各有六组偏离标准合成，差异为 1,443–1,605 个通道；`LESS` 加深度写入还会覆盖 535 个深度像素。修复后颜色差异为零，用深度等值探针验证所有像素仍保持清除深度。测试也检查原有状态、提交后注入异常与重试，报告为 `test-results/**/gaussian-depth-state.json`。本项不验证高斯与 Mesh 的几何遮挡或性能。
 
 `npm run test:e2e -- tests/browser/gaussian-program-lifecycle.spec.ts` 注入片元着色器分配失败、非法片元源码、program 分配失败和 varying 不匹配导致的链接失败。每种场景检查三次连续构造失败及一次上下文恢复失败后的实际 WebGL 对象状态，再验证恢复成功后的像素和最终 `dispose()`。片元分配/编译失败在修复前分别累积 1、2、3 个未主动删除的 shader，修复后均为零；报告保存为 `test-results/**/gaussian-program-lifecycle.json`。统计仅验证句柄清理，不等同驱动显存测量。
 

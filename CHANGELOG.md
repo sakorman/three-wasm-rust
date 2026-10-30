@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-30 · 高斯深度与剔除隔离
+
+- 独立高斯 pass 现关闭深度测试、深度写入和面剔除，按准备好的顺序合成；正常返回与绘制抛错后均恢复调用方开关和写掩码。此前继承 Mesh 状态会使高斯缺失，并可能覆盖目标深度。
+- 32×32 真实 WebGL2 回归覆盖全屏/瓦片两条路径及七组深度、写掩码、剔除和绕序设置。修复前六组出现 1,443–1,605 个 RGBA 通道差异，其中 `LESS` 加深度写入改动 535 个深度像素；修复后颜色逐字节一致，深度探针未发现改动。提交后注入异常再重试也保持状态和深度。
+- 验证：10 项相关 Chromium 回归、strict 类型检查、原生/wasm32 Clippy 和生产构建通过。复现命令为 `npm run test:e2e -- tests/browser/gaussian-depth-state.spec.ts`，JSON 保存颜色差异、深度探针和调用前后状态。
+- 范围：当前记录没有目标深度，本接口是屏幕空间合成，不能据此实现 Mesh 与高斯的互相遮挡。framebuffer、模板测试、颜色写入和采样状态仍由调用方配置；未测量性能收益。参考 [WebGL 光栅状态](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3) 与 [SparkRenderer 深度选项](https://sparkjs.dev/docs/spark-renderer/#optional-parameters)，未引入外部代码。
+
 ## 2026-10-30 · 高斯着色器失败清理
 
 - 修复片元着色器分配或编译失败后未删除已编译顶点着色器的问题。程序创建流程现统一释放临时 shader，失败时删除已创建的 program；构造和上下文恢复共用该清理路径。
