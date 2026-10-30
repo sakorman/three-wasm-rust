@@ -211,3 +211,36 @@ test('Gaussian upload tile batches retain non-contiguous local-ID order', () => 
   buffers.dispose();
   lifecycle.dispose();
 });
+
+test('invalid duplicate tile uploads preserve the current view and restored CPU copy', () => {
+  const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl), buffers = new GaussianUploadBuffers(fake.gl, lifecycle);
+  const initial = upload();
+  initial.tiles = { tileSize: 16, columns: 2, rows: 1, packed: new Uint32Array([0, 2, 4, 0, 1, 0, 2]) };
+  buffers.update(initial);
+  const snapshot = buffers.snapshot(), resources = buffers.resourceStats(), calls = fake.stats();
+  const attempt = () => {
+    for (const values of [[0, 2, 2, 0, 0], [0, 3, 3, 0, 1, 0], [0, 1, 4, 0, 2, 0, 2]]) {
+      const invalid = upload(); invalid.splatData[0] = 99;
+      invalid.tiles = { tileSize: 16, columns: 2, rows: 1, packed: new Uint32Array(values) };
+      const original = invalid.tiles.packed.slice();
+      assert.throws(() => buffers.update(invalid), /duplicate Gaussian tile reference/);
+      assert.deepEqual(invalid.tiles.packed, original);
+    }
+  };
+  attempt();
+  assert.deepEqual(buffers.snapshot(), snapshot);
+  assert.deepEqual(buffers.resourceStats(), resources);
+  assert.deepEqual(fake.stats(), calls);
+  assert.equal(buffers.error, undefined);
+  fake.lose();
+  const lostResources = buffers.resourceStats(), lostCalls = fake.stats();
+  attempt();
+  assert.deepEqual(buffers.resourceStats(), lostResources);
+  assert.deepEqual(fake.stats(), lostCalls);
+  fake.restore();
+  assert.equal(fake.floatAt(buffers.snapshot()!.splatBuffer), initial.splatData[0]);
+  const references: number[] = [];
+  buffers.forEachTileReference((_x, _y, _size, id) => references.push(id));
+  assert.deepEqual(references, [0, 1, 0, 2]);
+  buffers.dispose(); lifecycle.dispose();
+});

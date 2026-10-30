@@ -9,6 +9,7 @@ import {
   gaussian_viewport_indices,
   gaussian_visible_indices,
 } from '../../pkg/three_wasm_rust.js';
+import { copyGaussianRasterTiles } from './gaussianTiles.ts';
 
 export interface GaussianRasterCamera {
   focalX: number;
@@ -43,7 +44,7 @@ export interface GaussianRasterTiles {
   tileSize: number;
   columns: number;
   rows: number;
-  /** Offset table followed by local IDs into the other prepared arrays. */
+  /** Offset table followed by local IDs, unique within each tile but reusable across tiles. */
   packed: Uint32Array;
 }
 
@@ -125,28 +126,6 @@ function finiteF32(value: number, label: string, index: number): number {
   const rounded = Math.fround(value);
   if (!Number.isFinite(rounded)) throw new Error(`Gaussian ${label} exceeds f32 range at index ${index}`);
   return rounded;
-}
-
-function copyTiles(tiles: GaussianRasterTiles, splatCount: number): GaussianRasterTiles {
-  if (!Number.isSafeInteger(tiles.tileSize) || tiles.tileSize <= 0
-    || !Number.isSafeInteger(tiles.columns) || tiles.columns <= 0
-    || !Number.isSafeInteger(tiles.rows) || tiles.rows <= 0) {
-    throw new Error('Gaussian tile metadata must use positive safe integers');
-  }
-  const tileCount = tiles.columns * tiles.rows;
-  if (!Number.isSafeInteger(tileCount) || tiles.packed.length < tileCount + 1 || tiles.packed[0] !== 0) {
-    throw new Error('Gaussian tile offsets are malformed');
-  }
-  const referenceStart = tileCount + 1;
-  const referenceCount = tiles.packed.length - referenceStart;
-  if (tiles.packed[tileCount] !== referenceCount) throw new Error('Gaussian tile offsets must end at the reference count');
-  for (let index = 0; index < tileCount; index++) {
-    if (tiles.packed[index] > tiles.packed[index + 1]) throw new Error('Gaussian tile offsets must be monotonic');
-  }
-  for (let index = referenceStart; index < tiles.packed.length; index++) {
-    if (tiles.packed[index] >= splatCount) throw new Error('Gaussian tile reference is out of range');
-  }
-  return { tileSize: tiles.tileSize, columns: tiles.columns, rows: tiles.rows, packed: tiles.packed.slice() };
 }
 
 /**
@@ -281,6 +260,6 @@ export function packGaussianRasterUpload(prepared: PreparedGaussianRaster): Pack
   return {
     splatData: result,
     originalIds: prepared.originalIds.slice(),
-    ...(prepared.tiles && { tiles: copyTiles(prepared.tiles, count) }),
+    ...(prepared.tiles && { tiles: copyGaussianRasterTiles(prepared.tiles, count) }),
   };
 }
