@@ -210,8 +210,11 @@ function validateSource({ centers, covariances, opacities, colors, shDegree, shC
 }
 
 function shProperties(header: GaussianPlyHeader): { degree: GaussianShDegree; rest: PlyProperty[] } {
+  const storedCount = Array.from(header.properties.keys()).filter(name => name.startsWith('f_rest_')).length;
   for (let degree = 3; degree >= 1; degree--) {
     const count = 3 * ((degree + 1) ** 2 - 1);
+    // A lower-degree prefix of a larger group has the wrong per-channel stride.
+    if (storedCount !== count) continue;
     const names = Array.from({ length: count }, (_, index) => `f_rest_${index}`);
     if (names.every(name => header.properties.has(name))) {
       return { degree: degree as GaussianShDegree, rest: names.map(name => requiredFloat(header, name)) };
@@ -224,7 +227,8 @@ function shProperties(header: GaussianPlyHeader): { degree: GaussianShDegree; re
  * Decode the binary little-endian PLY layout emitted by the original 3D Gaussian Splatting
  * training code. It activates log scales, opacity and quaternion rotation through the WASM
  * covariance helper. Complete `f_rest_0…N` groups for degrees one through three are
- * retained as coefficient-major RGB triples; incomplete or unknown groups remain ignored.
+ * converted from channel-major file fields to coefficient-major RGB triples;
+ * incomplete or unknown groups remain ignored without using a lower-degree prefix.
  * `evaluateGaussianPlyShColors()` evaluates the retained coefficients for a camera position.
  *
  * Call `init()` before this function. The result is model-space source data, not a prepared
@@ -235,6 +239,7 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
   const required = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3']
     .map(name => requiredFloat(header, name));
   const sh = shProperties(header);
+  const coefficientsPerChannel = sh.rest.length / 3;
   const requiredBytes = header.bodyOffset + header.count * header.stride;
   if (!Number.isSafeInteger(requiredBytes) || requiredBytes > buffer.byteLength) throw new Error('Gaussian PLY vertex data is truncated');
   const view = new DataView(buffer);
@@ -254,8 +259,11 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
     opacities[index] = finiteF32(sigmoid(opacity), 'activated opacity', index);
     const coefficientOffset = index * (sh.degree + 1) ** 2 * 3;
     shCoefficients.set([red, green, blue], coefficientOffset);
-    for (let restIndex = 0; restIndex < sh.rest.length; restIndex++) {
-      shCoefficients[coefficientOffset + 3 + restIndex] = value(sh.rest[restIndex]);
+    // Trained PLY stores all red coefficients, then green, then blue (excluding DC).
+    for (let basis = 0; basis < coefficientsPerChannel; basis++) {
+      for (let channel = 0; channel < 3; channel++) {
+        shCoefficients[coefficientOffset + (basis + 1) * 3 + channel] = value(sh.rest[channel * coefficientsPerChannel + basis]);
+      }
     }
     colors.set([
       finiteF32(Math.max(0, red * SH_C0 + .5), 'degree-zero red', index),
