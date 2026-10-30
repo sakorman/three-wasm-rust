@@ -1,7 +1,7 @@
 import { GAUSSIAN_RASTER_UPLOAD_STRIDE } from './gaussian.ts';
 import { GaussianUploadBuffers } from './GaussianUploadBuffers.ts';
 import type { PackedGaussianRasterUpload } from './gaussian.ts';
-import type { GaussianUploadBufferSnapshot } from './GaussianUploadBuffers.ts';
+import type { GaussianUploadBufferSnapshot, GaussianUploadResourceStats } from './GaussianUploadBuffers.ts';
 import type { ContextLifecycle } from './ContextLifecycle.ts';
 
 export interface GaussianRasterDrawOptions {
@@ -134,6 +134,11 @@ export class GaussianRasterRenderer {
 
   snapshot(): GaussianUploadBufferSnapshot | undefined {
     return this.uploads.snapshot();
+  }
+
+  /** Resource snapshot for the copied upload data and reusable VBOs behind this renderer. */
+  resourceStats(): GaussianUploadResourceStats {
+    return this.uploads.resourceStats();
   }
 
   draw(options: GaussianRasterDrawOptions): void {
