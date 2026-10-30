@@ -14,7 +14,13 @@ scale_0 scale_1 scale_2
 rot_0 rot_1 rot_2 rot_3
 ```
 
-完整且连续的 `f_rest_0…f_rest_8`、`f_rest_0…f_rest_23` 或 `f_rest_0…f_rest_44` 会分别识别为 1、2、3 阶 SH；其布局是每个基函数一个 RGB 三元组。其他未知或不完整的 `f_rest_*` 组保持未消费，兼容仅含 DC 或带额外标量的输入。解析器拒绝顶点列表属性、ASCII/大端格式、重复或缺失必填字段、截断数据、超过一百万项的数据，以及非有限值；不会猜测其他 PLY 变体的字段语义。
+恰好包含完整且连续的 `f_rest_0…f_rest_8`、`f_rest_0…f_rest_23` 或 `f_rest_0…f_rest_44` 时，分别识别为 1、2、3 阶 SH。原始 PLY 按颜色通道分块：先存所有非 DC 的 R 系数，再存 G，最后存 B；返回的 `shCoefficients` 才是每个基函数一个 RGB 三元组。令每通道非 DC 系数数目 `K = (degree + 1)² - 1`，单个顶点内的映射为：
+
+```text
+f_rest_(channel × K + basis) → shCoefficients[(basis + 1) × 3 + channel]
+```
+
+例如 1 阶的 `f_rest_1/4/7` 分别是 R/G/B 的 z 方向项，3 阶则对应 `f_rest_1/16/31`。字段在文件中的物理顺序可以不同，解析按名称定位。其他未知或不完整的 `f_rest_*` 组保持未消费，仅使用 DC；不能截取低阶前缀，否则会采用错误的通道跨度。普通额外标量字段仍可忽略。解析器拒绝顶点列表属性、ASCII/大端格式、重复或缺失必填字段、截断数据、超过一百万项的数据，以及已消费属性的非有限值；不会猜测其他 PLY 变体的字段语义。文件布局依据 [原始保存/加载实现](https://github.com/graphdeco-inria/gaussian-splatting/blob/182afc95b2bbe925f28de115dd8a0a594ea9826a/scene/gaussian_model.py)，未复制其代码。
 
 `scale_*` 按自然指数激活；`opacity` 使用数值稳定的 sigmoid；`rot_*` 按 `[w, x, y, z]` 归一化。Rust/WASM 在 f64 中构造 `R × diag(exp(scale)^2) × Rᵀ`，写回 f32 后再次检查三维协方差正定性，输出布局为 `[xx, xy, xz, yy, yz, zz]`。DC 颜色按 `0.28209479177387814 × f_dc + 0.5` 还原为线性 RGB，负值截为零以满足当前上传记录的非负颜色约束。`evaluateGaussianPlyShColors(source, modelCameraPosition)` 在 Rust/WASM 中使用同一约定求 0–3 阶实球谐，添加原始 3DGS 的 `+0.5` 偏置并截断负值；相机位置必须与模型空间 `centers` 使用同一坐标系。
 
@@ -378,6 +384,8 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
 ## 可复现结果
+
+`npx tsx --test tests/gaussian-ply-layout.test.ts` 检查 1–3 阶两个顶点的全部系数映射、乱序属性、字节输入不变及返回数组隔离，并覆盖缺项和额外字段的 DC 回退。`npm run test:e2e -- tests/browser/gaussian-ply-layout.spec.ts` 使用各通道独立的 z 方向系数，以正反相机位置生成视图，颜色对照 `0.5 ± sqrt(3/(4π)) × coefficient`。修复前全屏/瓦片各有 46–83 个 RGBA 通道与解析参考不同，修复后为零；中心预乘 RGBA 分别为 `[101, 39, 76, 128]` 与 `[26, 89, 51, 128]`，报告为 `test-results/**/gaussian-ply-layout.json`。该用例验证合成 PLY 的布局与颜色衔接，不代表真实模型画质或性能。
 
 `npm run test:e2e -- tests/browser/gaussian-depth-state.spec.ts` 用 32×32 重叠红绿高斯检查七组深度测试、写掩码、剔除与绕序配置。全屏和瓦片路径在修复前各有六组偏离标准合成，差异为 1,443–1,605 个通道；`LESS` 加深度写入还会覆盖 535 个深度像素。修复后颜色差异为零，用深度等值探针验证所有像素仍保持清除深度。测试也检查原有状态、提交后注入异常与重试，报告为 `test-results/**/gaussian-depth-state.json`。本项不验证高斯与 Mesh 的几何遮挡或性能。
 

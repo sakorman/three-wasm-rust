@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-31 · PLY 球谐颜色布局修正
+
+- 修复原始 3DGS PLY 的高阶球谐系数错位：文件中的 `f_rest_*` 按 R、G、B 分块，解码后转为 Rust 接口使用的逐系数 RGB。此前直接复制会混淆颜色通道与基函数，影响视角相关颜色；0 阶颜色和 Rust 求值接口保持不变。
+- 只识别完整的 9、24、45 个连续字段。不完整或未知系数组保留 DC 兼容行为，不再截取低阶前缀，因为不同阶数的通道跨度不同。
+- 验证：1–3 阶逐项检查两个顶点的全部系数、乱序字段和输入隔离；正反 z 视角的解析 RGB 经准备、上传、全屏/瓦片绘制后逐字节对齐。32×32 回归修复前有 46–83 个通道差异，修复后为零。109 项 Node、9 项相关 Chromium、strict、原生/wasm32 Clippy 和生产构建通过；复现见 `tests/gaussian-ply-layout.test.ts` 与 `tests/browser/gaussian-ply-layout.spec.ts`。
+- 范围：使用合成 PLY 验证格式与颜色，未测量真实模型的 PSNR/SSIM 或性能。布局依据 [原始 PLY 保存/加载约定](https://github.com/graphdeco-inria/gaussian-splatting/blob/182afc95b2bbe925f28de115dd8a0a594ea9826a/scene/gaussian_model.py)，背景见 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未引入外部代码或模型。
+
 ## 2026-10-30 · 高斯深度与剔除隔离
 
 - 独立高斯 pass 现关闭深度测试、深度写入和面剔除，按准备好的顺序合成；正常返回与绘制抛错后均恢复调用方开关和写掩码。此前继承 Mesh 状态会使高斯缺失，并可能覆盖目标深度。
