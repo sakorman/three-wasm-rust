@@ -1,7 +1,52 @@
 import { test, expect } from '@playwright/test';
+import { Matrix4, OrthographicCamera } from 'three';
 import type { EngineScene } from '../../web/engine/types.ts';
 
 for (const instanced of [false, true]) {
+  test(`visible shared edges remain pickable (${instanced ? 'instanced' : 'direct'})`, async ({ page }, testInfo) => {
+    const camera = new OrthographicCamera(-2e6, 2e6, 2e6, -2e6, 1, 4e6);
+    camera.position.set(-267333, -77067, 295176.5);
+    camera.lookAt(-10160, -24761, -81008.5);
+    camera.updateMatrixWorld();
+    await page.goto('/');
+    await expect(page.locator('#status')).toHaveText('引擎已就绪');
+    await page.getByRole('button', { name: '暂停动画' }).click();
+    const result = await page.evaluate(async ({ instanced, projection, view, viewProjection }) => {
+      const { Engine, ray_triangle_hits } = await import('../../web/engine/index.ts');
+      const positions = new Float32Array([780330, 626276, -102685, -800650, -675798, -59332,
+        -274359, -851746, 413331, 254039, 802224, -575348]);
+      const indices = new Uint32Array([0, 1, 2, 3, 1, 0]);
+      const data: EngineScene = {
+        name: 'Shared edge', scenario: 'city', seed: 0, extent: 2e6, parents: new Int32Array([-1]),
+        transforms: new Float32Array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1]),
+        meshNodes: new Uint32Array([0]), groups: new Uint32Array([0]), radii: new Float32Array([3e6]),
+        batchGeometries: new Uint32Array([0]), batchMaterials: new Uint32Array([0]), animatedNodes: new Uint32Array(),
+        geometries: [{ name: 'adjacent triangles', positions, indices, radius: 3e6 }],
+        materials: [{ name: 'surface', color: [0, 1, 0], unlit: true }],
+      };
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 127;
+      const engine = new Engine(canvas, data, instanced), gl = engine.gl;
+      try {
+        const p = new Float32Array(projection), v = new Float32Array(view);
+        engine.frame(0, { projection: p, view: v, viewProjection: new Float32Array(viewProjection) }, false);
+        const pixel = new Uint8Array(4);
+        gl.readPixels(63, 63, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        const resources = engine.resourceStats();
+        const hits = ray_triangle_hits(new Float32Array([-267333, -77067, 295176.5]),
+          new Float32Array([257173, 52306, -376185]), positions, indices, 0, 2, false);
+        return { pixel: Array.from(pixel), hits: Array.from(hits), resources,
+          after: engine.resourceStats(), error: gl.getError() };
+      } finally { engine.dispose(); }
+    }, { instanced, projection: camera.projectionMatrix.toArray(), view: camera.matrixWorldInverse.toArray(),
+      viewProjection: new Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).toArray() });
+    await testInfo.attach('shared-edge.json', { body: JSON.stringify(result, null, 2), contentType: 'application/json' });
+    expect(result.error).toBe(0);
+    expect(result.pixel).toEqual([0, 255, 0, 255]);
+    expect(result.hits[0] >= 0 || result.hits[4] >= 0).toBe(true);
+    for (const offset of [0, 4]) if (result.hits[offset] >= 0) expect(result.hits[offset]).toBeCloseTo(1, 12);
+    expect(result.after).toEqual(result.resources);
+  });
+
   test(`triangle queries select visible surfaces instead of empty box corners (${instanced ? 'instanced' : 'direct'})`, async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#status')).toHaveText('引擎已就绪');

@@ -37,9 +37,44 @@ fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a.iter().zip(b).map(|(a, b)| a * b).sum()
 }
 
-fn intersect_triangle(
+struct RayFrame {
     origin: [f64; 3],
     direction: [f64; 3],
+    axes: [usize; 3],
+    shear: [f64; 2],
+}
+
+impl RayFrame {
+    fn new(origin: [f64; 3], direction: [f64; 3]) -> Self {
+        let mut z = 0;
+        for axis in 1..3 {
+            if direction[axis].abs() > direction[z].abs() {
+                z = axis;
+            }
+        }
+        let x = (z + 1) % 3;
+        let y = (z + 2) % 3;
+        Self {
+            origin,
+            direction,
+            axes: [x, y, z],
+            shear: [direction[x] / direction[z], direction[y] / direction[z]],
+        }
+    }
+
+    fn project(&self, vertex: [f64; 3]) -> [f64; 3] {
+        let relative = subtract(vertex, self.origin);
+        let [x, y, z] = self.axes;
+        [
+            relative[x] - self.shear[0] * relative[z],
+            relative[y] - self.shear[1] * relative[z],
+            relative[z] / self.direction[z],
+        ]
+    }
+}
+
+fn intersect_triangle(
+    ray: &RayFrame,
     vertices: [[f64; 3]; 3],
     range: [f64; 2],
     cull_back_faces: bool,
@@ -47,26 +82,30 @@ fn intersect_triangle(
     let [a, b, c] = vertices;
     let ab = subtract(b, a);
     let ac = subtract(c, a);
-    let p = cross(direction, ac);
-    let determinant = dot(ab, p);
-    if determinant == 0. || (cull_back_faces && determinant < 0.) {
+    let facing = dot(cross(ab, ac), ray.direction);
+    if facing == 0. || (cull_back_faces && facing > 0.) {
         return MISS;
     }
-    let offset = subtract(origin, a);
-    let u = dot(offset, p) / determinant;
-    if !(0. ..=1.).contains(&u) {
+    let [a, b, c] = vertices.map(|vertex| ray.project(vertex));
+    // Reversing a shared edge only reverses its sign, independent of the third vertex.
+    let edges = [
+        b[0] * c[1] - b[1] * c[0],
+        c[0] * a[1] - c[1] * a[0],
+        a[0] * b[1] - a[1] * b[0],
+    ];
+    if edges.iter().any(|&edge| edge < 0.) && edges.iter().any(|&edge| edge > 0.) {
         return MISS;
     }
-    let q = cross(offset, ab);
-    let v = dot(direction, q) / determinant;
-    if v < 0. || u + v > 1. {
+    let determinant: f64 = edges.iter().sum();
+    if determinant == 0. {
         return MISS;
     }
-    let t = dot(ac, q) / determinant;
+    let weights = edges.map(|edge| edge / determinant);
+    let t = dot(weights, [a[2], b[2], c[2]]);
     if !t.is_finite() || t < range[0] || t > range[1] {
         return MISS;
     }
-    [t, 1. - (u + v), u, v]
+    [t, weights[0], weights[1], weights[2]]
 }
 
 /// Intersect one ray with indexed triangles in the same coordinate space.
@@ -99,12 +138,12 @@ pub fn ray_triangle_hits(
     let direction: [f32; 3] = direction.try_into().unwrap();
     let origin = origin.map(f64::from);
     let direction = direction.map(f64::from);
+    let ray = RayFrame::new(origin, direction);
     let mut hits = Vec::with_capacity(indices.len() / 3 * 4);
     for triangle in indices.as_chunks::<3>().0 {
         let vertices = triangle.map(|id| positions[id as usize].map(f64::from));
         hits.extend_from_slice(&intersect_triangle(
-            origin,
-            direction,
+            &ray,
             vertices,
             [t_min, t_max],
             cull_back_faces,
@@ -118,6 +157,62 @@ mod tests {
     use super::*;
 
     const TRIANGLE: [f32; 9] = [0., 0., 0., 1., 0., 0., 0., 1., 0.];
+
+    #[test]
+    fn shared_edges_do_not_fall_between_adjacent_triangles() {
+        let positions = [
+            780330., 626276., -102685., -800650., -675798., -59332., -274359., -851746., 413331.,
+            254039., 802224., -575348.,
+        ];
+        let first = [0, 1, 2];
+        let second = [3, 1, 0];
+        for shift_a in 0..3 {
+            for shift_b in 0..3 {
+                let indices: Vec<_> = (0..3)
+                    .map(|i| first[(i + shift_a) % 3])
+                    .chain((0..3).map(|i| second[(i + shift_b) % 3]))
+                    .collect();
+                let hits = ray_triangle_hits(
+                    &[-267333., -77067., 295176.5],
+                    &[257173., 52306., -376185.],
+                    &positions,
+                    &indices,
+                    0.,
+                    2.,
+                    false,
+                )
+                .unwrap();
+                assert!(hits[0] >= 0. || hits[4] >= 0., "{indices:?}: {hits:?}");
+                for hit in hits.as_chunks::<4>().0.iter().filter(|hit| hit[0] >= 0.) {
+                    assert!((hit[0] - 1.).abs() < 1e-14);
+                    assert!(hit[1..].iter().all(|&weight| weight >= 0.));
+                    assert!((hit[1..].iter().sum::<f64>() - 1.).abs() < 1e-14);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn oblique_collinear_and_parallel_triangles_remain_misses() {
+        for (positions, direction) in [
+            ([0., 0., 0., 1., 2., 3., 2., 4., 6.], [2., -3., 7.]),
+            ([0., 0., 0., 1., 2., 3., 2., -1., 4.], [3., 1., 7.]),
+        ] {
+            assert_eq!(
+                ray_triangle_hits(
+                    &[0.5, 0.5, 1.],
+                    &direction,
+                    &positions,
+                    &[0, 1, 2],
+                    0.,
+                    f64::INFINITY,
+                    false,
+                )
+                .unwrap(),
+                MISS
+            );
+        }
+    }
 
     #[test]
     fn triangle_hits_report_vertex_weights_and_surface_parameters() {

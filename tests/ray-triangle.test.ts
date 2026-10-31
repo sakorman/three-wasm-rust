@@ -6,6 +6,60 @@ import init, { ray_triangle_hits, ray_aabb_intervals } from '../pkg/three_wasm_r
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
+test('exact shared-edge rays retain a hit across 4096 coplanar triangle pairs', () => {
+  let seed = 73019, misses = 0;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % 2000001 - 1000000; };
+  const vector = () => [random(), random(), random()];
+  for (let i = 0; i < 4096; i++) {
+    const a = vector(), b = vector(), c = vector(), direction = vector();
+    const d = a.map((v, axis) => v + b[axis] - c[axis]);
+    const point = a.map((v, axis) => (v + b[axis]) / 2);
+    const origin = new Float32Array(point.map((v, axis) => v - direction[axis]));
+    // Integers and half-integers are exactly representable in f32 at this scale.
+    const ab = b.map((v, axis) => BigInt(v - a[axis])), ac = c.map((v, axis) => BigInt(v - a[axis]));
+    const normal = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]];
+    const facing = normal.reduce((sum, v, axis) => sum + v * BigInt(direction[axis]), 0n);
+    assert.notEqual(facing, 0n);
+    const positions = new Float32Array([...a, ...b, ...c, ...d]), indices = new Uint32Array([0, 1, 2, 3, 1, 0]);
+    const hits = ray_triangle_hits(origin, new Float32Array(direction), positions, indices, 0, 2, false);
+    if (hits[0] < 0 && hits[4] < 0) misses++;
+    for (let triangle = 0; triangle < 2; triangle++) {
+      const hit = hits.slice(triangle * 4, triangle * 4 + 4);
+      if (hit[0] < 0) continue;
+      assert.ok(Math.abs(hit[0] - 1) < 1e-11, `parameter at pair ${i}`);
+      assert.ok(hit.slice(1).every((weight) => weight >= 0));
+      assert.ok(Math.abs(hit[1] + hit[2] + hit[3] - 1) < 1e-14);
+      for (let axis = 0; axis < 3; axis++) {
+        const position = [0, 1, 2].reduce((sum, vertex) => sum + positions[indices[triangle * 3 + vertex] * 3 + axis] * hit[vertex + 1], 0);
+        assert.ok(Math.abs(position - point[axis]) < 1e-5, `position at pair ${i}`);
+      }
+    }
+    const culled = ray_triangle_hits(origin, new Float32Array(direction), positions, indices, 0, 2, true);
+    if (facing > 0n) assert.deepEqual(Array.from(culled), [-1, 0, 0, 0, -1, 0, 0, 0]);
+    else assert.deepEqual(culled, hits);
+  }
+  assert.equal(misses, 0, `${misses}/4096 exact shared-edge rays missed both triangles`);
+});
+
+test('shared-edge hits survive axis permutations, reflection, scale and cyclic vertex order', () => {
+  const base = [[780330, 626276, -102685], [-800650, -675798, -59332],
+    [-274359, -851746, 413331], [254039, 802224, -575348]];
+  for (const axes of [[0, 1, 2], [1, 2, 0], [2, 0, 1]]) for (const scale of [2 ** -80, 1, 2 ** 80]) {
+    for (const sign of [-1, 1]) for (let shift = 0; shift < 3; shift++) {
+      const transform = (v: number[]) => axes.map((axis, i) => v[axis] * scale * (i === 0 ? sign : 1));
+      const positions = new Float32Array(base.flatMap(transform));
+      const origin = new Float32Array(transform([-267333, -77067, 295176.5]));
+      const direction = new Float32Array(transform([257173, 52306, -376185]));
+      const indices = new Uint32Array([[0, 1, 2], [3, 1, 0]].flatMap((ids) => ids.map((_, i) => ids[(i + shift) % 3])));
+      const hits = ray_triangle_hits(origin, direction, positions, indices, 0, 2, false);
+      assert.ok(hits[0] >= 0 || hits[4] >= 0);
+      for (const [min, max] of [[0, 0.9], [1.1, 2]]) {
+        assert.deepEqual(Array.from(ray_triangle_hits(origin, direction, positions, indices, min, max, false)), [-1, 0, 0, 0, -1, 0, 0, 0]);
+      }
+    }
+  }
+});
+
 test('indexed triangle batches match Three.js intersections and barycentric coordinates', () => {
   const positions = new Float32Array(256 * 9), indices = new Uint32Array(256 * 3);
   for (let i = 0; i < 256; i++) {
