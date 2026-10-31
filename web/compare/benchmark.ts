@@ -119,7 +119,7 @@ export async function compareBackends(
   };
   const order: Backend[][] = [];
   const gpuDiagnostics = new Map(modes.map((mode) => [mode, {
-    allocationFailures: 0, queueLimitSkips: 0, invalidResults: 0, pendingQueries: 0,
+    allocationFailures: 0, queueLimitSkips: 0, invalidResults: 0, queryConflicts: 0, pendingQueries: 0,
     unsupportedRounds: 0, disjointRounds: 0,
   }]));
   const generations = backends.map((backend) => backend.context.generation);
@@ -179,6 +179,7 @@ export async function compareBackends(
         diagnostics.allocationFailures += snapshot.allocationFailures;
         diagnostics.queueLimitSkips += snapshot.queueLimitSkips;
         diagnostics.invalidResults += snapshot.invalidResults;
+        diagnostics.queryConflicts += snapshot.queryConflicts;
         diagnostics.pendingQueries += snapshot.pendingQueries;
         if (!timer.supported) diagnostics.unsupportedRounds++;
         if (timer.disjoint) diagnostics.disjointRounds++;

@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-31 · GPU 查询归属校验
+
+- 计时开始和结束时核对 `CURRENT_QUERY`。此前查询重叠会产生 `INVALID_OPERATION` 并误结束外部查询，已被提前结束的区间也会进入待读队列；现在被占用时跳过，本次查询被结束或替换时丢弃区间、删除自身句柄，`end()`、`dispose()` 和 disjoint 清理均保留外部查询。
+- JSON 新增 `gpuDiagnostics.queryConflicts`，跨轮累计占用或区间中断次数。逐对象与实例化对照均验证每四帧冲突一次时保留 72/96 个样本、记录 24 次冲突，GPU 中位数为 null，另一侧仍有完整 96 个样本；后续无冲突采样可恢复。
+- 验证：14 项计时器 Node、19 项相关 Chromium、strict、原生/wasm32 Clippy 和生产构建通过。复现见 `tests/gpu-timer.test.ts`、`tests/browser/gpu-query-ownership.spec.ts` 与 `tests/browser/gpu-sampling.spec.ts`；查询归属回归修复前出现错误码 1282，修复后为零。
+- 范围：浏览器未提供计时扩展时，归属回归使用原生遮挡查询验证同一查询机制，报告采样测试使用模拟时长，不代表 GPU 性能。边界检查无法识别同一查询句柄被结束后又重新启用的情况。参考 [WebGL 计时扩展](https://registry.khronos.org/webgl/extensions/EXT_disjoint_timer_query_webgl2/) 与 [Three.js 查询池接口](https://threejs.org/docs/pages/WebGLTimestampQueryPool.html)，未引入外部代码。
+
 ## 2026-10-31 · 高斯缓冲引用释放
 
 - 修复主动卸载或扩容失败后，绘制器 VAO 仍引用已删除 VBO 的问题。此前快照虽已归零，7 个顶点属性仍持有旧缓冲；现在 `update()` / `clear()` 临时绑定所属 VAO，使删除同步断开属性引用，正常或异常返回均恢复调用方绑定，保留原 program/VAO 供重用。
