@@ -329,6 +329,8 @@ const prepared = prepareGaussianRaster({
 
 `conic` 是返回的二维协方差的逆矩阵独立分量，片元可计算 `q = conicXX·dx² + 2·conicXY·dx·dy + conicYY·dy²`。`clipEnabled = 0` 时片元应跳过 CDF；启用后使用三个裁切系数。RGB 保持非预乘线性值，片元合成时与 alpha 相乘。函数再次校验数组长度、唯一源 ID、有限值、正定协方差、非负颜色和可表示的 f32 逆矩阵，并深拷贝源 ID 与瓦片数据，避免 CPU 数组在排队上传后被改写。
 
+逆矩阵三个分量转成 f32 后还必须保持正定；源协方差合法并不保证舍入后的逆矩阵合法。失去正定性的批次在打包阶段报错，包含记录索引，不返回部分结果、不修改输入，也不隐式增加滤波。有限且正定的次正规逆矩阵仍可返回；该检查不保证 GLSL 二次型求值在所有极端尺度下的精度。
+
 ```ts
 import { GAUSSIAN_RASTER_UPLOAD_STRIDE, packGaussianRasterUpload } from './web/engine/index.ts';
 
@@ -388,6 +390,8 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
 ## 可复现结果
+
+`npx tsx --test tests/gaussian-conic.test.ts` 覆盖两个正定源协方差：求逆并写回 f32 后，行列式分别为 `-11751291` 和 `0`。修复前两者都能通过打包；修复后在原尺寸、`2^-80`/`2^80` 缩放及交叉项正负翻转下均提前拒绝。有效输入另以解析逆矩阵核对，包含 `2^127` 方差对应的次正规逆矩阵。`npm run test:e2e -- tests/browser/gaussian-conic.spec.ts` 验证错误发生在打包而非上传阶段，原有资源/像素不变，后续有效更新与上下文恢复的全屏/瓦片差异均为零；报告为 `test-results/**/gaussian-conic.json`。本项不衡量速度或真实模型质量。
 
 `npm run test:e2e -- tests/browser/gaussian-tile-validation.spec.ts` 使用 32×32 半透明高斯和四个瓦片，在最后一个瓦片插入重复局部 ID。修复前中心 alpha 从 128 变为 192，276 个 RGBA 通道偏离全屏基线，恢复后仍保留错误结果；修复后无效更新被拒绝，上传调用数、资源快照不变，拒绝后及恢复后的像素差异均为零。合法跨瓦片复用也与全屏结果一致。报告为 `test-results/**/gaussian-tile-validation.json`，验证输入拒绝与资源保持，不衡量性能。
 

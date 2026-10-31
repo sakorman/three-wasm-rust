@@ -209,8 +209,8 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
  * Convert compact prepared arrays into one interleaved buffer for a Gaussian draw pass.
  *
  * The inverse screen covariance is computed from the f32 covariance returned by
- * preparation. The function copies every output so later source edits cannot change an
- * upload already queued for WebGL.
+ * preparation and must remain positive definite after f32 rounding. Every output is copied
+ * so later source edits cannot change an upload already queued for WebGL.
  */
 export function packGaussianRasterUpload(prepared: PreparedGaussianRaster): PackedGaussianRasterUpload {
   const count = prepared.originalIds.length;
@@ -243,6 +243,9 @@ export function packGaussianRasterUpload(prepared: PreparedGaussianRaster): Pack
     const conicXX = finiteF32(yy / determinant, 'conic', index);
     const conicXY = finiteF32(-xy / determinant, 'conic', index);
     const conicYY = finiteF32(xx / determinant, 'conic', index);
+    if (conicXX <= 0 || conicYY <= 0 || conicXX * conicYY - conicXY * conicXY <= 0) {
+      throw new Error(`Gaussian conic is not positive definite after f32 rounding at index ${index}`);
+    }
     result.set([centerX, centerY, halfWidth, halfHeight, conicXX, conicXY, conicYY, opacity], record);
     if (clipCoefficients) {
       const clipOffset = index * 3;
