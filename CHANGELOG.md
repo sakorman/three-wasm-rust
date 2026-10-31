@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-01 · 高斯片元二次型稳定性
+
+- 上传时以 Number 计算 Cholesky 因子，片元改用两个分量的平方和求值，实例属性以 `flat` 传递。此前直接展开二次型会在大交叉项下溢出、在细长方向上相消，产生错误透明度；现在避免这两类计算路径，记录仍为 60 字节，不增加常驻数组或 VBO。
+- 六组 32×32 数值参考回归中，大系数正负交叉项的绘制像素由 543、544 个恢复为正确的 1 个；细长对角与镜像输入各 8 个明显误差像素归零。修复后六组 alpha 字节误差均为零，全屏、瓦片和上下文恢复结果一致。复现：`tests/browser/gaussian-quadratic.spec.ts`，报告附像素误差、可见数量与资源检查。
+- 默认 `GaussianUploadBuffers` 仍上传原始逆协方差，绘制器内部选用 `cholesky`；`snapshot().conicEncoding` 标明偏移 4–6 的解释方式。输入与打包格式保持，外部直接读取绘制器 VBO 时须遵循该编码。验证：13 项相关 Node、41 项高斯 Chromium、strict、原生/wasm32 Clippy 和生产构建通过。
+- 限制：因子及片元乘加仍为 f32，不保证任意病态矩阵、超大屏幕坐标或阈值邻域的精确结果；未测量帧率或真实模型画质收益，主页面尚未接入高斯 pass。相关问题见 [Spark 2.4.0 细长高斯精度修复](https://github.com/sparkjsdev/spark/releases/tag/v2.4.0)，渲染背景见 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)。未引入外部代码或模型。
+
 ## 2026-11-01 · 高斯瓦片裁剪一致性
 
 - `drawTiles()` 现将每个瓦片与调用方已启用的 scissor 区域取交集，与 `draw()` 保持相同的外部裁剪语义。此前瓦片路径覆盖外部裁剪框，会写入区域外像素；现在跳过空交集，关闭 scissor 时仍绘制全部瓦片。
