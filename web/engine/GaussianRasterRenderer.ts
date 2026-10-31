@@ -162,7 +162,7 @@ export class GaussianRasterRenderer {
     });
   }
 
-  /** Draw tile-local records with scissor rectangles. Returns submitted references, not draw-call count. */
+  /** Intersect tile rectangles with the caller scissor. Returns submitted references, not draw-call count. */
   drawTiles(options: GaussianRasterDrawOptions): number {
     assertDrawOptions(options);
     const tiles = this.uploads.tileLayout();
@@ -170,12 +170,19 @@ export class GaussianRasterRenderer {
     if (tiles.columns !== Math.ceil(options.width / tiles.tileSize) || tiles.rows !== Math.ceil(options.height / tiles.tileSize)) {
       throw new Error('Gaussian raster tile grid does not match the draw viewport');
     }
-    return this.withDraw(options, () => {
+    return this.withDraw(options, (_, callerScissor) => {
       this.gl.enable(this.gl.SCISSOR_TEST);
       let references = 0;
       this.uploads.forEachTileBatch((column, row, tileSize, firstLocalId, count) => {
         const x = column * tileSize, y = row * tileSize;
-        this.gl.scissor(x, y, Math.min(tileSize, options.width - x), Math.min(tileSize, options.height - y));
+        const left = callerScissor ? Math.max(x, callerScissor[0]) : x;
+        const bottom = callerScissor ? Math.max(y, callerScissor[1]) : y;
+        const right = Math.min(x + tileSize, options.width,
+          callerScissor ? callerScissor[0] + callerScissor[2] : options.width);
+        const top = Math.min(y + tileSize, options.height,
+          callerScissor ? callerScissor[1] + callerScissor[3] : options.height);
+        if (right <= left || top <= bottom) return;
+        this.gl.scissor(left, bottom, right - left, top - bottom);
         this.bindAttributes(firstLocalId);
         this.gl.drawArraysInstanced(this.gl.TRIANGLES, 0, 6, count);
         references += count;
@@ -184,7 +191,8 @@ export class GaussianRasterRenderer {
     });
   }
 
-  private withDraw<T>(options: GaussianRasterDrawOptions, draw: (upload: GaussianUploadBufferSnapshot) => T): T {
+  private withDraw<T>(options: GaussianRasterDrawOptions,
+    draw: (upload: GaussianUploadBufferSnapshot, callerScissor: Int32Array | undefined) => T): T {
     if (this.disposed) throw new Error('Gaussian raster renderer is disposed');
     assertDrawOptions(options);
     this.context.assertReady();
@@ -222,7 +230,7 @@ export class GaussianRasterRenderer {
       this.gl.uniform2f(state.viewport, options.width, options.height);
       this.gl.uniform1f(state.cutoff, options.cutoff);
       this.gl.uniform1i(state.applyClip, options.applyClip === false ? 0 : 1);
-      return draw(upload);
+      return draw(upload, scissor ? previousScissor : undefined);
     } finally {
       this.gl.useProgram(previousProgram);
       this.gl.bindVertexArray(previousVao);
