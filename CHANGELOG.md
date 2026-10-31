@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-31 · 三角形共享边拾取
+
+- 射线求交改为沿主方向投影后检查有向边符号，再计算重心坐标。相邻三角形共用相同的顶点投影和边运算，避免分别计算 `u + v` 时舍入到边界外；射线变换按批次复用，不添加扩大三角形的容差。
+- 固定种子的 4,096 组共面相邻三角形中，射线穿过精确共享边中点，双侧漏判由 158 次降为零。另覆盖轴置换、镜像、循环绕序、极端尺度、背面剔除和参数裁剪；浏览器逐对象/实例化两种路径均修复“接缝可见但拾取为空”，查询前后 GPU 资源不变。
+- 验证：7 项相关 Rust、5 项 Node、4 项 Chromium、strict、原生/wasm32 Clippy 和生产构建通过。复现见 `tests/ray-triangle.test.ts`、`tests/browser/ray-triangle.spec.ts`；浏览器 JSON 保存中心像素、交点与资源快照。
+- 范围：改动适用于 Mesh 三角形查询，不是高斯拾取，也不包含 BVH；f64 仍有舍入误差，尚未保证任意近退化、近共面输入的精确判定或所有共享边的 watertight 性质，未测量速度收益。方法参考 [Watertight Ray/Triangle Intersection](https://jcgt.org/published/0002/01/05/)，近期相关进展见 [Spark 2.4.0](https://github.com/sparkjsdev/spark/releases/tag/v2.4.0) 的射线精度修复；未引入外部代码。
+
 ## 2026-10-31 · GPU 查询归属校验
 
 - 计时开始和结束时核对 `CURRENT_QUERY`。此前查询重叠会产生 `INVALID_OPERATION` 并误结束外部查询，已被提前结束的区间也会进入待读队列；现在被占用时跳过，本次查询被结束或替换时丢弃区间、删除自身句柄，`end()`、`dispose()` 和 disjoint 清理均保留外部查询。
