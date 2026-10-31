@@ -18,6 +18,8 @@ function context(supported = true) {
     isContextLost: () => lost,
     QUERY_RESULT_AVAILABLE: 1,
     QUERY_RESULT: 2,
+    CURRENT_QUERY: 5,
+    getQuery: () => active,
     getExtension: () => (supported ? { TIME_ELAPSED_EXT: 3, GPU_DISJOINT_EXT: 4 } : null),
     createQuery: () => allocationFails ? null : ({ id: ++created }),
     beginQuery: (_target: number, query: unknown) => {
@@ -73,6 +75,55 @@ test('GPU timer reads only available results and converts nanoseconds to millise
   timer.poll();
   assert.deepEqual(timer.samples, [2.5]);
   assert.equal(ctx.stats().deleted, 1);
+  timer.dispose();
+});
+
+test('overlapping GPU timers preserve the current query and retry after it ends', () => {
+  const ctx = context(), outer = new GpuTimer(ctx.gl), inner = new GpuTimer(ctx.gl);
+  outer.begin();
+  const query = ctx.active();
+  inner.begin(); inner.end(); inner.poll();
+  assert.equal(ctx.active(), query);
+  assert.deepEqual(ctx.stats(), { created: 1, deleted: 0, reads: 0 });
+  assert.equal(inner.diagnostics.queryConflicts, 1);
+  assert.deepEqual(inner.samples, []);
+  outer.end(); ctx.available(); outer.poll();
+  inner.begin(); inner.end(); inner.poll();
+  assert.deepEqual(outer.samples, [2.5]);
+  assert.deepEqual(inner.samples, [2.5]);
+  outer.dispose(); inner.dispose();
+});
+
+for (const stop of ['end', 'dispose', 'disjoint'] as const) {
+  test(`GPU timer ${stop} discards interrupted queries without ending an external query`, () => {
+    const ctx = context(), timer = new GpuTimer(ctx.gl);
+    timer.begin();
+    ctx.gl.endQuery(3);
+    const external = ctx.gl.createQuery();
+    ctx.gl.beginQuery(3, external!);
+    if (stop === 'disjoint') { ctx.disjoint(); timer.poll(); }
+    else timer[stop]();
+    assert.equal(ctx.active(), external);
+    assert.equal(timer.diagnostics.queryConflicts, 1);
+    assert.equal(timer.diagnostics.pendingQueries, 0);
+    ctx.available(); timer.poll();
+    assert.deepEqual(timer.samples, []);
+    timer.dispose();
+    assert.equal(ctx.active(), external);
+    assert.deepEqual(ctx.stats(), { created: 2, deleted: 1, reads: 0 });
+    ctx.gl.endQuery(3); ctx.gl.deleteQuery(external);
+  });
+}
+
+test('an externally ended GPU query is rejected and later sampling can recover', () => {
+  const ctx = context(), timer = new GpuTimer(ctx.gl);
+  timer.begin(); ctx.gl.endQuery(3); timer.end();
+  ctx.available(); timer.poll();
+  assert.deepEqual(timer.samples, []);
+  assert.equal(timer.diagnostics.queryConflicts, 1);
+  timer.begin(); timer.end(); timer.poll();
+  assert.deepEqual(timer.samples, [2.5]);
+  assert.deepEqual(ctx.stats(), { created: 2, deleted: 2, reads: 1 });
   timer.dispose();
 });
 
@@ -152,7 +203,7 @@ test('GPU timer supports missing extensions and caps outstanding queries', () =>
   timer.dispose();
   assert.equal(timer.supported, false);
   assert.equal(missing.stats().created, 0);
-  assert.deepEqual(timer.diagnostics, { allocationFailures: 0, queueLimitSkips: 0, invalidResults: 0, pendingQueries: 0 });
+  assert.deepEqual(timer.diagnostics, { allocationFailures: 0, queueLimitSkips: 0, invalidResults: 0, queryConflicts: 0, pendingQueries: 0 });
   const ctx = context(),
     pending = new GpuTimer(ctx.gl);
   for (let i = 0; i < 20; i++) {
@@ -160,7 +211,7 @@ test('GPU timer supports missing extensions and caps outstanding queries', () =>
     pending.end();
   }
   assert.equal(ctx.stats().created, 8);
-  assert.deepEqual(pending.diagnostics, { allocationFailures: 0, queueLimitSkips: 12, invalidResults: 0, pendingQueries: 8 });
+  assert.deepEqual(pending.diagnostics, { allocationFailures: 0, queueLimitSkips: 12, invalidResults: 0, queryConflicts: 0, pendingQueries: 8 });
   pending.dispose();
   assert.equal(ctx.stats().deleted, 8);
 });
@@ -192,7 +243,7 @@ test('GPU diagnostics distinguish allocation failure from unread results and ret
   ctx.failAllocation(false);
   timer.begin(); timer.end(); timer.poll();
   const snapshot = timer.diagnostics;
-  assert.deepEqual(snapshot, { allocationFailures: 1, queueLimitSkips: 0, invalidResults: 0, pendingQueries: 1 });
+  assert.deepEqual(snapshot, { allocationFailures: 1, queueLimitSkips: 0, invalidResults: 0, queryConflicts: 0, pendingQueries: 1 });
   assert.equal(ctx.stats().reads, 0);
   snapshot.allocationFailures = 99;
   assert.equal(timer.diagnostics.allocationFailures, 1);
@@ -207,7 +258,7 @@ test('pending diagnostics are captured before cleanup without waiting for GPU re
   const ctx = context(), timer = new GpuTimer(ctx.gl);
   for (let i = 0; i < 24; i++) { timer.begin(); timer.end(); timer.poll(); }
   const snapshot = timer.diagnostics;
-  assert.deepEqual(snapshot, { allocationFailures: 0, queueLimitSkips: 16, invalidResults: 0, pendingQueries: 8 });
+  assert.deepEqual(snapshot, { allocationFailures: 0, queueLimitSkips: 16, invalidResults: 0, queryConflicts: 0, pendingQueries: 8 });
   timer.dispose();
   assert.equal(timer.diagnostics.pendingQueries, 0);
   assert.equal(snapshot.pendingQueries, 8);

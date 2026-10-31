@@ -7,6 +7,7 @@ export interface GpuDiagnostics {
   allocationFailures: number;
   queueLimitSkips: number;
   invalidResults: number;
+  queryConflicts: number;
   pendingQueries: number;
 }
 
@@ -19,6 +20,7 @@ export class GpuTimer {
   private allocationFailures = 0;
   private queueLimitSkips = 0;
   private invalidResults = 0;
+  private queryConflicts = 0;
   readonly samples: number[] = [];
   disjoint = false;
   constructor(private readonly gl: WebGL2RenderingContext) {
@@ -34,6 +36,7 @@ export class GpuTimer {
       allocationFailures: this.allocationFailures,
       queueLimitSkips: this.queueLimitSkips,
       invalidResults: this.invalidResults,
+      queryConflicts: this.queryConflicts,
       pendingQueries: this.pending.length + (this.active ? 1 : 0),
     };
   }
@@ -44,6 +47,10 @@ export class GpuTimer {
       return;
     }
     if (!this.extension) return;
+    if (this.gl.getQuery(this.extension.TIME_ELAPSED_EXT, this.gl.CURRENT_QUERY) !== null) {
+      this.queryConflicts++;
+      return;
+    }
     if (this.pending.length >= 8) {
       this.queueLimitSkips++;
       return;
@@ -59,6 +66,13 @@ export class GpuTimer {
       return;
     }
     if (this.active && this.extension) {
+      // Another owner may have ended our interval and started its own query.
+      if (this.gl.getQuery(this.extension.TIME_ELAPSED_EXT, this.gl.CURRENT_QUERY) !== this.active) {
+        this.queryConflicts++;
+        this.gl.deleteQuery(this.active);
+        this.active = null;
+        return;
+      }
       this.gl.endQuery(this.extension.TIME_ELAPSED_EXT);
       this.pending.push(this.active);
       this.active = null;
