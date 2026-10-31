@@ -124,13 +124,26 @@ export class GaussianRasterRenderer {
 
   update(upload: PackedGaussianRasterUpload): void {
     if (this.disposed) throw new Error('Gaussian raster renderer is disposed');
-    this.uploads.update(upload);
+    this.withUploadVao(() => this.uploads.update(upload));
   }
 
   /** Release the active Gaussian view while retaining the renderer program and VAO for reuse. */
   clear(): void {
     if (this.disposed) throw new Error('Gaussian raster renderer is disposed');
-    this.uploads.clear();
+    this.withUploadVao(() => this.uploads.clear());
+  }
+
+  private withUploadVao(action: () => void): void {
+    const state = this.state;
+    if (!state || !this.context.ready) return action();
+    const previousVao = this.gl.getParameter(this.gl.VERTEX_ARRAY_BINDING) as WebGLVertexArrayObject | null;
+    try {
+      // Deleting a buffer detaches attributes only from the currently bound VAO.
+      this.gl.bindVertexArray(state.vao);
+      action();
+    } finally {
+      this.gl.bindVertexArray(previousVao);
+    }
   }
 
   snapshot(): GaussianUploadBufferSnapshot | undefined {
