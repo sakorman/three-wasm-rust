@@ -365,6 +365,8 @@ buffers.clear(); // 卸载当前视图；随后可调用 update(upload) 重新�
 
 上下文丢失时 `snapshot()` 返回 `undefined`，旧 WebGL 句柄不会再暴露；恢复后自动以内部副本新建缓冲并重传。调用方在恢复后的 `snapshot()` 中重新绑定 VAO 和属性即可。传入数组在 `update()` 后可以修改，不会影响恢复内容。该类尚未接入首页 Mesh 场景或完整高斯主渲染器；缓冲容量、上传次数和本节 WebGL 测试均不是 GPU 时间、帧率或显存收益结论。
 
+`GaussianUploadBuffers` 默认使用 `quadratic` 编码，GPU 偏移 4–6 仍为 `[a, b, c]` 逆协方差。第三个构造参数可选 `cholesky`，将内部副本的这三个值转换为 `[u, v, w]`：`u = sqrt(a)`、`v = b/u`、`w = sqrt((ac-b²)/a)`。输入始终使用原始二次型记录，`snapshot().conicEncoding` 标明 GPU 布局，记录步长仍为 60 字节；恢复重传已编码副本，不重复分解，不增加常驻数组或 VBO。
+
 ### 独立光栅 pass
 
 `GaussianRasterRenderer` 消费 `PackedGaussianRasterUpload`，创建自己的 program 与 VAO，并以记录中的中心、范围、逆协方差、不透明度、线性 RGB 和可选 CDF 系数执行一次 `drawArraysInstanced`。它使用预乘线性 RGB alpha、源列表的远到近顺序、`FUNC_ADD` 方程和 `ONE / ONE_MINUS_SRC_ALPHA` 混合。全屏与瓦片绘制都会显式设置 RGB/alpha 的加法方程；调用前的独立方程、混合因子和开关，以及 program、VAO、数组缓冲和 viewport 会在正常返回或抛出异常时恢复。
@@ -376,6 +378,10 @@ const renderer = new GaussianRasterRenderer(gl, lifecycle);
 renderer.update(upload);
 renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 ```
+
+绘制器内部选用 `cholesky` 编码，按 `q = (u·dx + v·dy)² + (w·dy)²` 求值，再计算 `opacity × exp(-q/2)`。上传层在 Number 中对已验证的 f32 系数求行列式和平方根，避免在片元阶段直接计算 `a·dx² + 2b·dx·dy + c·dy²` 时出现交叉项溢出或大数相消；实例属性使用 `flat` 传递，避免三角形插值改变常量系数与中心。直接消费 `renderer.snapshot()` 的调用方需按其编码解释偏移 4–6，不能将其当作原始逆协方差。
+
+因子仍会舍入到 f32，片元乘加也有限精度；这不是任意病态矩阵或超大屏幕坐标的精确算法，未保证所有阈值附近像素不变。输入正定性校验、支持范围、排序、CDF 裁切与混合语义保持。相关细长高斯数值问题可参照 [Spark 2.4.0](https://github.com/sparkjsdev/spark/releases/tag/v2.4.0)；此处使用独立的二次型分解，不采用其特征向量实现。
 
 绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。调用方已开启 scissor 时，瓦片与原裁剪框取交集；空交集不提交，返回值仅统计已提交的引用。`GaussianRasterRenderer.clear()` 会委托上传层卸载当前视图，保留 program/VAO；清空后 `draw()` 会拒绝，新的 `update()` 后可恢复绘制。`GaussianRasterRenderer.resourceStats()` 透传上传层快照，不计绘制器自身的 program 或 VAO。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。
 
@@ -392,6 +398,8 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
 ## 可复现结果
+
+`npm run test:e2e -- tests/browser/gaussian-quadratic.spec.ts` 用六组 32×32 合成输入逐像素对照 Number 二次型参考。大系数正负交叉项在修复前分别误绘制 543、544 个像素，正确结果均为 1 个；细长对角与镜像样例各有 8 个像素误差超过 1/255。修复后六组 alpha 字节误差均为零，包括次正规和普通协方差；全屏、瓦片、上下文恢复结果一致，资源数量与输入记录不变。报告为 `test-results/**/gaussian-quadratic.json`。Node 另覆盖 f32 极值、正定残差、默认编码兼容和无效更新后的恢复副本；这些结果不代表真实模型画质或帧率收益。
 
 `npm run test:e2e -- tests/browser/gaussian-buffer-references.spec.ts` 在 32×32 WebGL2 画布中重复主动卸载与静默扩容失败，各三次。修复前每次仍有 7 个属性引用旧 VBO，即使 `isBuffer` 已返回 false、快照 GPU 容量为零；修复后旧引用归零，原 VAO 不重建，调用方 VAO、顶点缓冲和索引绑定保持。重新上传及上下文恢复后的全屏/瓦片像素差异均为零，报告为 `test-results/**/gaussian-buffer-references.json`。该结果验证引用释放，不衡量驱动内存或速度；对象语义见 [WebGL 2](https://registry.khronos.org/webgl/specs/latest/2.0/)，资源管理可参考 [SparkRenderer.dispose](https://sparkjs.dev/docs/spark-renderer/#dispose)。
 
@@ -485,6 +493,7 @@ npm run test:e2e -- tests/browser/gaussian-viewport.spec.ts
 | 来源 | 与当前设计的关系 |
 | --- | --- |
 | [WebSplatter 论文](https://arxiv.org/abs/2602.03207) · [项目](https://websplatter.github.io/) · [代码版本 16bb06e](https://github.com/websplatter/WebSplatter/tree/16bb06e86b8fb12193d4bb4cd2b0b3d4f3ab62be) | 参考不透明度支持范围与完整 32-bit 稳定排序的设计。论文半径采用 exp(-r²) 坐标约定，这里以协方差写成 exp(-q/2)。实现为独立 Rust CPU/WASM 内核，不沿用论文的 GPU workgroup 同步或速度结论。 |
+| [TileGS，Pacific Graphics 2026](https://arxiv.org/abs/2609.03613) | 将瓦片内长列表组织为深度局部段，并修复粗排序造成的合成偏差。后续分组实验须同时验证合成结果、排序/光栅耗时与整帧耗时；当前未实现该策略，也不沿用其 CUDA 性能结论。 |
 | [Gaussian-Splat-Lite 1.4.2 更新](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/8576bb70d6f26884f7ca69ddf7f9b3b303e41484/CHANGELOG.md) · [仓库](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite) | 2026-10-24 的版本将随机渲染改为每高斯一个三角形，并调整慢速运动中的去噪细节。当前保留排序 alpha 混合基线，随机覆盖和去噪需另测噪声、时序稳定性及总开销。 |
 | [Gaussian-Splat-Lite RAD 缓存预算](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/d99a6294159c3b5cedcf610fd41ac875d7d29246) | 2026-10-25 的查看器分别设置 CPU/GPU 常驻缓存预算，修改后保留视角重载。后续流式资产管理应分别统计两类内存；当前尚无模型分页或淘汰机制。 |
 | [Gaussian-Splat-Lite 固定 RAD 槽位](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/commit/a1b86e002447d98059de0ef7b706ffdbad0f5c81) | 2026-10-25 改为每槽 65,536 个高斯，小块占整槽，超出单槽上限的块在初始化时拒绝。后续资源池复用可参考固定容量与完整槽位预算的取舍，当前尚未实现 RAD 加载。 |

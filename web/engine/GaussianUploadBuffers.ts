@@ -3,7 +3,11 @@ import { copyGaussianRasterTiles } from './gaussianTiles.ts';
 import type { PackedGaussianRasterUpload } from './gaussian.ts';
 import type { ContextLifecycle } from './ContextLifecycle.ts';
 
+export type GaussianConicEncoding = 'quadratic' | 'cholesky';
+
 export interface GaussianUploadBufferSnapshot {
+  /** Encoding of the three GPU values at record offsets 4–6. */
+  conicEncoding: GaussianConicEncoding;
   recordCount: number;
   splatBuffer: WebGLBuffer;
   splatBytes: number;
@@ -34,7 +38,7 @@ export interface GaussianUploadResourceStats {
   gpuBytes: number;
 }
 
-function cloneUpload(upload: PackedGaussianRasterUpload): PackedGaussianRasterUpload {
+function cloneUpload(upload: PackedGaussianRasterUpload, encoding: GaussianConicEncoding): PackedGaussianRasterUpload {
   const recordCount = upload.originalIds.length;
   if (upload.splatData.length !== recordCount * GAUSSIAN_RASTER_UPLOAD_STRIDE) {
     throw new Error('Gaussian upload records have inconsistent lengths');
@@ -63,8 +67,20 @@ function cloneUpload(upload: PackedGaussianRasterUpload): PackedGaussianRasterUp
     if (clipEnabled !== 0 && clipEnabled !== 1) throw new Error(`Gaussian upload clip flag is invalid at record ${index}`);
     if (red < 0 || green < 0 || blue < 0) throw new Error(`Gaussian upload color is invalid at record ${index}`);
   }
+  const splatData = upload.splatData.slice();
+  if (encoding === 'cholesky') {
+    for (let index = 0; index < recordCount; index++) {
+      const offset = index * GAUSSIAN_RASTER_UPLOAD_STRIDE + 4;
+      const a = splatData[offset], b = splatData[offset + 1], c = splatData[offset + 2];
+      const root = Math.sqrt(a);
+      // f32 products fit exactly in Number. Subtract before division to retain the residual.
+      splatData[offset] = root;
+      splatData[offset + 1] = b / root;
+      splatData[offset + 2] = Math.sqrt((a * c - b * b) / a);
+    }
+  }
   return {
-    splatData: upload.splatData.slice(),
+    splatData,
     originalIds: upload.originalIds.slice(),
     ...(upload.tiles && { tiles: copyGaussianRasterTiles(upload.tiles, recordCount) }),
   };
@@ -90,8 +106,10 @@ export class GaussianUploadBuffers {
   constructor(
     readonly gl: WebGL2RenderingContext,
     readonly context: ContextLifecycle,
+    readonly conicEncoding: GaussianConicEncoding = 'quadratic',
   ) {
     if (context.gl !== gl) throw new Error('Gaussian upload buffers require the lifecycle WebGL context');
+    if (conicEncoding !== 'quadratic' && conicEncoding !== 'cholesky') throw new Error('Unknown Gaussian conic encoding');
     this.unsubscribe = context.subscribe(() => this.onContextStateChange());
   }
 
@@ -103,10 +121,10 @@ export class GaussianUploadBuffers {
     return this.source?.originalIds.length ?? 0;
   }
 
-  /** Store a checked copy and upload immediately when the WebGL context is available. */
+  /** Accept quadratic coefficients, then copy and encode for upload and context restoration. */
   update(upload: PackedGaussianRasterUpload): void {
     if (this.disposed || this.context.state === 'disposed') throw new Error('Gaussian upload buffers are disposed');
-    this.source = cloneUpload(upload);
+    this.source = cloneUpload(upload, this.conicEncoding);
     this.currentError = undefined;
     if (this.context.ready) {
       try {
@@ -131,6 +149,7 @@ export class GaussianUploadBuffers {
   snapshot(): GaussianUploadBufferSnapshot | undefined {
     if (!this.context.ready || this.currentError || !this.source || !this.splatBuffer) return undefined;
     return {
+      conicEncoding: this.conicEncoding,
       recordCount: this.source.originalIds.length,
       splatBuffer: this.splatBuffer,
       splatBytes: this.source.splatData.byteLength,

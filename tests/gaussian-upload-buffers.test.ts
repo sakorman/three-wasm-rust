@@ -54,7 +54,7 @@ function fakeContext() {
     gl,
     failNextBufferData: () => { ignoreNextData = true; },
     stats: () => ({ creates, deletes, dataCalls, subDataCalls }),
-    floatAt: (buffer: WebGLBuffer) => new Float32Array(bytes.get(buffer as unknown as object)!.buffer)[0],
+    floatAt: (buffer: WebGLBuffer, offset = 0) => new Float32Array(bytes.get(buffer as unknown as object)!.buffer)[offset],
     lose: () => {
       lost = true;
       const event = new Event('webglcontextlost', { cancelable: true });
@@ -71,6 +71,8 @@ test('Gaussian upload buffers reuse capacity and recreate copied data after a co
   buffers.update(initial);
   const first = buffers.snapshot();
   assert.ok(first);
+  assert.equal(first.conicEncoding, 'quadratic');
+  assert.equal(fake.floatAt(first.splatBuffer, 4), initial.splatData[4]);
   assert.equal(first.recordCount, 3);
   assert.equal(first.splatBytes, 180);
   assert.equal(first.splatCapacityBytes, 180);
@@ -242,5 +244,61 @@ test('invalid duplicate tile uploads preserve the current view and restored CPU 
   const references: number[] = [];
   buffers.forEachTileReference((_x, _y, _size, id) => references.push(id));
   assert.deepEqual(references, [0, 1, 0, 2]);
+  buffers.dispose(); lifecycle.dispose();
+});
+
+test('Cholesky uploads retain finite factors across the f32 range without changing public records', () => {
+  const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl);
+  const buffers = new GaussianUploadBuffers(fake.gl, lifecycle, 'cholesky');
+  const conics = [
+    [3e38, 2e38, 3e38], [3e38, -2e38, 3e38], [1e8, -1e8, 100000008],
+    [2 ** -149, 0, 2 ** -149], [2 ** -149, 0, 3e38], [3e38, 0, 2 ** -149],
+    [1 + 2 ** -23, 1, 1 - 2 ** -24], [.08, -.025, .04],
+  ];
+  for (const conic of conics) {
+    const initial = upload(); initial.splatData.set(conic, 4);
+    const original = initial.splatData.slice();
+    buffers.update(initial);
+    const snapshot = buffers.snapshot()!;
+    assert.equal(snapshot.conicEncoding, 'cholesky');
+    assert.equal(snapshot.splatBytes, original.byteLength);
+    const [u, v, w] = [4, 5, 6].map(offset => fake.floatAt(snapshot.splatBuffer, offset));
+    assert.ok(Number.isFinite(u) && Number.isFinite(v) && Number.isFinite(w));
+    assert.ok(u > 0 && w > 0);
+    const [a, b, c] = original.slice(4, 7);
+    const relativeError = (actual: number, expected: number) => expected === 0 ? Math.abs(actual) : Math.abs(actual / expected - 1);
+    assert.ok(relativeError(u * u, a) < 2e-7);
+    assert.ok(relativeError(u * v, b) < 2e-7);
+    assert.ok(relativeError(v * v + w * w, c) < 2e-7);
+    assert.deepEqual(initial.splatData, original);
+  }
+  buffers.dispose(); lifecycle.dispose();
+});
+
+test('Cholesky encoding preserves narrow-direction energy and the recovery copy after rejection', () => {
+  const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl);
+  const buffers = new GaussianUploadBuffers(fake.gl, lifecycle, 'cholesky');
+  const initial = upload(); initial.splatData.set([1e8, -1e8, 100000008], 4);
+  buffers.update(initial);
+  const snapshot = buffers.snapshot()!, resources = buffers.resourceStats();
+  const factors = () => [4, 5, 6].map(offset => fake.floatAt(buffers.snapshot()!.splatBuffer, offset));
+  const expectedFactors = factors();
+  const [u, v, w] = expectedFactors;
+  for (const delta of [.375, -.625, 1.375, -7.625]) {
+    const transformedX = Math.fround(Math.fround(u * delta) + Math.fround(v * delta));
+    const transformedY = Math.fround(w * delta);
+    const quadratic = Math.fround(Math.fround(transformedX * transformedX) + Math.fround(transformedY * transformedY));
+    assert.ok(Math.abs(quadratic / (8 * delta * delta) - 1) < 2e-7);
+  }
+  initial.splatData.fill(0);
+  const invalid = upload(); invalid.splatData.set([1, 2, 1], 4);
+  assert.throws(() => buffers.update(invalid), /not positive definite/);
+  assert.deepEqual(buffers.snapshot(), snapshot);
+  assert.deepEqual(buffers.resourceStats(), resources);
+  fake.lose(); fake.restore();
+  assert.notEqual(buffers.snapshot()!.splatBuffer, snapshot.splatBuffer);
+  assert.equal(buffers.snapshot()!.conicEncoding, 'cholesky');
+  assert.deepEqual(factors(), expectedFactors);
+  assert.deepEqual(buffers.resourceStats(), resources);
   buffers.dispose(); lifecycle.dispose();
 });

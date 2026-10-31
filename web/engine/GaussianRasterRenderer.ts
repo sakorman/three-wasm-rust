@@ -16,18 +16,18 @@ const vertexSource = `#version 300 es
 precision highp float;
 layout(location=0) in vec2 center;
 layout(location=1) in vec2 extent;
-layout(location=2) in vec3 conic;
+layout(location=2) in vec3 factor;
 layout(location=3) in float opacity;
 layout(location=4) in vec3 clip;
 layout(location=5) in float clipEnabled;
 layout(location=6) in vec3 color;
 uniform vec2 viewport;
-out vec2 vCenter;
-out vec3 vConic;
-out float vOpacity;
-out vec3 vClip;
-out float vClipEnabled;
-out vec3 vColor;
+flat out vec2 vCenter;
+flat out vec3 vFactor;
+flat out float vOpacity;
+flat out vec3 vClip;
+flat out float vClipEnabled;
+flat out vec3 vColor;
 const vec2 corners[6] = vec2[6](
   vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0),
   vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0)
@@ -36,7 +36,7 @@ void main() {
   vec2 pixel = center + extent * corners[gl_VertexID];
   gl_Position = vec4(pixel / viewport * 2.0 - 1.0, 0.0, 1.0);
   vCenter = center;
-  vConic = conic;
+  vFactor = factor;
   vOpacity = opacity;
   vClip = clip;
   vClipEnabled = clipEnabled;
@@ -45,12 +45,12 @@ void main() {
 
 const fragmentSource = `#version 300 es
 precision highp float;
-in vec2 vCenter;
-in vec3 vConic;
-in float vOpacity;
-in vec3 vClip;
-in float vClipEnabled;
-in vec3 vColor;
+flat in vec2 vCenter;
+flat in vec3 vFactor;
+flat in float vOpacity;
+flat in vec3 vClip;
+flat in float vClipEnabled;
+flat in vec3 vColor;
 uniform float cutoff;
 uniform bool applyClip;
 out vec4 outputColor;
@@ -62,7 +62,8 @@ float normalCdf(float value) {
 }
 void main() {
   vec2 delta = gl_FragCoord.xy - vCenter;
-  float quadratic = vConic.x * delta.x * delta.x + 2.0 * vConic.y * delta.x * delta.y + vConic.z * delta.y * delta.y;
+  vec2 transformed = vec2(vFactor.x * delta.x + vFactor.y * delta.y, vFactor.z * delta.y);
+  float quadratic = dot(transformed, transformed);
   float clipFactor = applyClip && vClipEnabled > 0.5 ? normalCdf(dot(vClip.xy, -delta) + vClip.z) : 1.0;
   float alpha = vOpacity * exp(-0.5 * quadratic) * clipFactor;
   if (alpha < cutoff) discard;
@@ -103,7 +104,7 @@ export class GaussianRasterRenderer {
     readonly context: ContextLifecycle,
   ) {
     if (context.gl !== gl) throw new Error('Gaussian raster renderer requires the lifecycle WebGL context');
-    this.uploads = new GaussianUploadBuffers(gl, context);
+    this.uploads = new GaussianUploadBuffers(gl, context, 'cholesky');
     this.unsubscribe = context.subscribe(() => this.onContextStateChange());
     try {
       this.createState();
