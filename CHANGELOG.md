@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-01 · 高斯瓦片裁剪一致性
+
+- `drawTiles()` 现将每个瓦片与调用方已启用的 scissor 区域取交集，与 `draw()` 保持相同的外部裁剪语义。此前瓦片路径覆盖外部裁剪框，会写入区域外像素；现在跳过空交集，关闭 scissor 时仍绘制全部瓦片。
+- 35×27 的默认画布及离屏 framebuffer 回归覆盖局部裁剪、负坐标、边缘瓦片、零宽高、边界相切和屏外区域。修复前八组受限区域产生 2,031–2,792 个通道差异、679–935 个区域外像素改动；修复后均为零，与普通绘制逐字节一致。空区域由 6 次提交降为零；返回值只统计实际提交的引用，未测量帧耗时收益。
+- 验证：6 项上传 Node、12 项 Chromium、strict、原生/wasm32 Clippy 和生产构建通过。提交后注入异常仍恢复裁剪开关、裁剪框和 viewport，保留目标绑定，重试像素一致，资源数量保持；复现见 `tests/browser/gaussian-scissor.spec.ts` 及其 JSON 报告。
+- 范围：裁剪坐标使用目标 framebuffer 像素，仍需调用方配置 framebuffer、模板及颜色写入状态；主页面尚未接入高斯 pass。语义依据 [WebGL 视图与裁剪](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.4)，瓦片光栅化背景见 [3D Gaussian Splatting](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)；未引入外部代码或模型。
+
 ## 2026-10-31 · 三角形共享边拾取
 
 - 射线求交改为沿主方向投影后检查有向边符号，再计算重心坐标。相邻三角形共用相同的顶点投影和边运算，避免分别计算 `u + v` 时舍入到边界外；射线变换按批次复用，不添加扩大三角形的容差。

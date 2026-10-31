@@ -377,7 +377,7 @@ renderer.update(upload);
 renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 ```
 
-绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。`GaussianRasterRenderer.clear()` 会委托上传层卸载当前视图，保留 program/VAO；清空后 `draw()` 会拒绝，新的 `update()` 后可恢复绘制。`GaussianRasterRenderer.resourceStats()` 透传上传层快照，不计绘制器自身的 program 或 VAO。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。
+绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。调用方已开启 scissor 时，瓦片与原裁剪框取交集；空交集不提交，返回值仅统计已提交的引用。`GaussianRasterRenderer.clear()` 会委托上传层卸载当前视图，保留 program/VAO；清空后 `draw()` 会拒绝，新的 `update()` 后可恢复绘制。`GaussianRasterRenderer.resourceStats()` 透传上传层快照，不计绘制器自身的 program 或 VAO。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。
 
 使用绘制器的 `update()` / `clear()` 管理视图：两者在上下文可用时临时绑定所属 VAO，使卸载或上传失败时的缓冲删除同时断开其属性引用，随后恢复调用方 VAO。直接调用底层 `uploads` 对象不管理绘制器 VAO；若把 `snapshot()` 的句柄绑定到其他 VAO，也需自行解除引用。WebGL 删除句柄不等于立即释放仍被其他对象引用的底层资源，`resourceStats()` 仍只报告本对象可用容量，不测量实际显存。
 
@@ -387,7 +387,7 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 绘制器不提供球谐、纹理、Mesh 遮挡、逐像素透明度排序或主页面接入。因此该 pass 只验证已有几何、颜色与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
 
-调用方仍需配置目标 framebuffer、模板测试、颜色写入、采样状态及 rasterizer discard；`draw()` 遵循调用方 scissor，`drawTiles()` 临时接管 scissor 进行分箱绘制。这里不隔离全部 WebGL 状态。光栅状态见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3)，集成时应像 [SparkRenderer 的 depthTest/depthWrite 选项](https://sparkjs.dev/docs/spark-renderer/#optional-parameters)一样明确区分遮挡测试和深度写入；当前屏幕空间 pass 不采用其 Mesh 深度测试方案。
+调用方仍需配置目标 framebuffer、模板测试、颜色写入、采样状态及 rasterizer discard；`draw()` 和 `drawTiles()` 均遵循已启用的外部 scissor，坐标采用目标 framebuffer 像素。瓦片路径临时收紧裁剪范围，正常或异常返回均恢复原开关与裁剪框；外部 scissor 关闭时忽略其盒子。这里不隔离全部 WebGL 状态。光栅状态见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3)，集成时应像 [SparkRenderer 的 depthTest/depthWrite 选项](https://sparkjs.dev/docs/spark-renderer/#optional-parameters)一样明确区分遮挡测试和深度写入；当前屏幕空间 pass 不采用其 Mesh 深度测试方案。
 
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
@@ -436,6 +436,8 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 独立光栅 pass 回归以同一份 3 条上传记录分别执行裁切和未裁切绘制，二者产生 23,264 个不同 RGBA 通道；恢复前后裁切图像逐字节一致。回归还设置非默认混合因子并确认 draw 返回后恢复。另有两个非重叠记录的 RGB 回归：红色与青色记录在对应中心保持预乘颜色分量。该结果只检查着色器、属性布局、透明混合和恢复顺序，不比较瓦片调度、GPU 时间、帧率或真实模型质量。
 
 瓦片绘制回归将同一份 16 像素网格的 52 条局部引用送入 `drawTiles()`；每个 tile 以 scissor 限制像素区域，输出与一次全屏紧凑绘制逐字节一致。调用前关闭 scissor 并设为 `[2, 3, 4, 5]`，返回后状态和盒子保持不变。连续局部 ID 会以一条实例化调用提交，浏览器回归确认调用数小于引用数；逆序 ID 的单元测试确认会拆段并保持原顺序。该结果只检查提交语义，不代表 GPU 时间、帧率或端到端性能。
+
+`gaussian-scissor.spec.ts` 另在 35×27 默认画布和离屏 framebuffer 中比较十组外部裁剪设置。两条路径像素逐字节一致，裁剪外无写入；负坐标、零宽高、边界相切和部分边缘瓦片均有覆盖。返回引用数与实际提交匹配，空区域零次绘制，提交后抛错仍恢复原状态，重试画面一致。该优化只减少完全位于裁剪外的瓦片提交，不改变瓦片内混合顺序，也不代表实际性能测量。
 
 深度筛选以 65,537 项输入对照 JavaScript 的不透明度筛选、深度条件和稳定排序。浏览器用例的 8 个高斯中，7 个通过不透明度筛选，3 个通过 `[2, 10]` 深度范围；未经筛选的整批投影会因相机后方中心报错，筛选后正确保留近远边界项及其不透明度，绘制 2,074 个可见像素，与 f32 范围参考 RGBA 一致。报告保存为 `test-results/**/gaussian-clip.json`；这验证的是筛选规则和管线衔接，不代表裁剪前后的画面应当相同。
 
