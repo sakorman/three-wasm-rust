@@ -379,6 +379,8 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 绘制器和上传缓冲共同订阅同一个 `ContextLifecycle`：恢复时先重传 VBO，再重建 program/VAO。`draw()` 按全局紧凑顺序绘制；存在瓦片数据时，`drawTiles()` 验证网格与 viewport 一致，并按保存的行优先瓦片—局部 ID 顺序设置 scissor。`GaussianRasterRenderer.clear()` 会委托上传层卸载当前视图，保留 program/VAO；清空后 `draw()` 会拒绝，新的 `update()` 后可恢复绘制。`GaussianRasterRenderer.resourceStats()` 透传上传层快照，不计绘制器自身的 program 或 VAO。内部只迭代数值 ID，不暴露可修改的偏移/引用数组。
 
+使用绘制器的 `update()` / `clear()` 管理视图：两者在上下文可用时临时绑定所属 VAO，使卸载或上传失败时的缓冲删除同时断开其属性引用，随后恢复调用方 VAO。直接调用底层 `uploads` 对象不管理绘制器 VAO；若把 `snapshot()` 的句柄绑定到其他 VAO，也需自行解除引用。WebGL 删除句柄不等于立即释放仍被其他对象引用的底层资源，`resourceStats()` 仍只报告本对象可用容量，不测量实际显存。
+
 同一瓦片中连续递增的局部 ID 指向连续的交错 VBO 记录，可作为一条 `drawArraysInstanced` 提交；`forEachTileBatch()` 只合并这种最大连续段。遇到跳号或逆序 ID 会立即结束当前段，保持原有混合顺序。`drawTiles()` 的返回值仍是引用数量而非 draw call 数。该实现没有 GPU 级间接索引，不能合并任意稀疏 ID，也不把合并次数推断为 GPU 时间、帧率或端到端性能收益。瓦片内按深度排序、再 alpha 合成的流程可参照 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。
 
 上传记录只有屏幕位置，没有目标深度。全屏和瓦片绘制都会临时关闭深度测试、深度写入和面剔除，按准备后的顺序合成，不修改目标的深度缓冲。原有测试/剔除开关与深度写掩码在正常返回或绘制抛错时恢复；深度函数、范围、剔除面和绕序不作修改。不能直接借助 Mesh 遗留的深度状态实现遮挡，后续需要显式的高斯深度映射。
@@ -390,6 +392,8 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
 ## 可复现结果
+
+`npm run test:e2e -- tests/browser/gaussian-buffer-references.spec.ts` 在 32×32 WebGL2 画布中重复主动卸载与静默扩容失败，各三次。修复前每次仍有 7 个属性引用旧 VBO，即使 `isBuffer` 已返回 false、快照 GPU 容量为零；修复后旧引用归零，原 VAO 不重建，调用方 VAO、顶点缓冲和索引绑定保持。重新上传及上下文恢复后的全屏/瓦片像素差异均为零，报告为 `test-results/**/gaussian-buffer-references.json`。该结果验证引用释放，不衡量驱动内存或速度；对象语义见 [WebGL 2](https://registry.khronos.org/webgl/specs/latest/2.0/)，资源管理可参考 [SparkRenderer.dispose](https://sparkjs.dev/docs/spark-renderer/#dispose)。
 
 `npx tsx --test tests/gaussian-conic.test.ts` 覆盖两个正定源协方差：求逆并写回 f32 后，行列式分别为 `-11751291` 和 `0`。修复前两者都能通过打包；修复后在原尺寸、`2^-80`/`2^80` 缩放及交叉项正负翻转下均提前拒绝。有效输入另以解析逆矩阵核对，包含 `2^127` 方差对应的次正规逆矩阵。`npm run test:e2e -- tests/browser/gaussian-conic.spec.ts` 验证错误发生在打包而非上传阶段，原有资源/像素不变，后续有效更新与上下文恢复的全屏/瓦片差异均为零；报告为 `test-results/**/gaussian-conic.json`。本项不衡量速度或真实模型质量。
 

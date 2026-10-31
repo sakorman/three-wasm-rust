@@ -2,6 +2,12 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-10-31 · 高斯缓冲引用释放
+
+- 修复主动卸载或扩容失败后，绘制器 VAO 仍引用已删除 VBO 的问题。此前快照虽已归零，7 个顶点属性仍持有旧缓冲；现在 `update()` / `clear()` 临时绑定所属 VAO，使删除同步断开属性引用，正常或异常返回均恢复调用方绑定，保留原 program/VAO 供重用。
+- 验证：两种路径各重复三次，旧引用从每次 7 个降至零；调用方 VAO、顶点和索引绑定保持，重新上传及上下文恢复后的全屏/瓦片像素差异均为零。6 项相关 Node、13 项相关 Chromium、strict、原生/wasm32 Clippy 与生产构建通过；复现见 `tests/browser/gaussian-buffer-references.spec.ts`。
+- 范围：清理绘制器自身引用；直接使用底层上传对象或把快照句柄绑定到外部 VAO 时，由调用方管理这些引用。未测量驱动显存或性能收益。参考 [WebGL 2 对象语义](https://registry.khronos.org/webgl/specs/latest/2.0/) 与 [SparkRenderer 资源释放](https://sparkjs.dev/docs/spark-renderer/#dispose)，未引入外部代码。
+
 ## 2026-10-31 · 高斯逆协方差舍入校验
 
 - `packGaussianRasterUpload()` 现检查逆协方差在 f32 舍入后仍为正定。此前两个合法协方差会产生行列式为 `-11751291` 和 `0` 的上传记录，直到上传层才被拒绝；现在打包阶段整批报错并给出记录索引，不返回无效缓冲。
