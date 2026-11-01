@@ -2,6 +2,45 @@
 
 Rust/WASM 高斯准备接口包含原始训练 PLY 的受限解码、0–3 阶球谐颜色求值、模型到相机空间的仿射变换、三维协方差投影、仿射半空间裁切系数、屏幕低通滤波与不透明度补偿、屏幕支持范围、不透明度/中心或支持范围深度/视口筛选、稳定排序、瓦片分箱和范围打包。候选可先在模型坐标系求值视角颜色，再转换到相机空间，按不透明度与相机深度筛选，投影、滤波并重算范围后按视口范围筛选、排序和分箱。GPU 着色和主场景接入仍需继续。
 
+## 持有 PLY 的绘制入口
+
+`GaussianPlyRenderer` 将解码、视图准备、上传和绘制组织为一个可复用对象。先完成 `init()`，再用 `loadPly()` 加载原始训练 PLY；后续每帧传入最新的模型矩阵、Three.js 视图矩阵、世界相机位置与光栅参数。该入口不导入 Three.js，也不自动订阅其对象。
+
+```ts
+import { init, ContextLifecycle, GaussianPlyRenderer } from './web/engine/index.ts';
+
+await init();
+const lifecycle = new ContextLifecycle(gl);
+const renderer = new GaussianPlyRenderer(gl, lifecycle);
+renderer.loadPly(plyBuffer);
+
+// 每帧更新输入数值；调用方绑定绘制目标并按需要清屏。
+const frame = renderer.render({
+  modelToWorld: new Float32Array(mesh.matrixWorld.elements),
+  threeWorldToView: new Float32Array(camera.matrixWorldInverse.elements),
+  threeCameraWorldPosition: new Float32Array([cameraPosition.x, cameraPosition.y, cameraPosition.z]),
+  camera: { focalX, focalY, principalX, principalY, near, far, width, height },
+  cutoff: 1 / 255,
+  filterVariance: 0.3,
+  tileSize: 16,
+});
+// frame.viewUpdated：本帧是否重新准备和上传。
+// frame.recordCount：紧凑视图中的高斯数。
+// frame.submittedReferences：提交的引用数，瓦片间可能重复，不是 draw call 数。
+
+renderer.clear();   // 卸载源属性和上传数据，保留 program/VAO 供重载。
+renderer.dispose();
+lifecycle.dispose(); // 仅当调用方不再使用该生命周期对象时释放。
+```
+
+缓存键复制准备所需的数值：模型/视图矩阵、世界相机位置、投影与近远平面、视口、阈值、滤波、裁切平面和瓦片尺寸。数组原地修改会触发更新，换成同值数组则继续复用。参数完全相同时跳过 SH、变换、筛选、投影、排序、分箱、打包和上传，仍执行绘制；任何准备参数变化都全量重算。`applyClip: false` 仅关闭已准备的 CDF 裁切，不重建视图。省略 `tileSize` 使用全屏路径。
+
+`loadPly()` 先解码再替换；无效文件保留原模型与视图，成功后不保留调用方的 PLY 原始缓冲。准备阶段拒绝的参数不影响已有缓存；上传失败会使缓存失效，重试时重新准备。正常上下文恢复由底层重传上传副本，无需再次准备；丢失期间可以加载或卸载模型，但不能绘制。`dispose()` 可重复调用，释放后加载、绘制与卸载均拒绝。
+
+`resourceStats()` 的 `sourceCount` / `sourceBytes` 只统计持有的解码属性，`upload` 单独报告恢复副本与可用 VBO 容量。它们不包含 PLY 原文、临时数组、JS 对象、WASM 堆或实际显存。该入口同步管理单模型、单视图，不提供流式加载、移动视角增量排序、Mesh 遮挡或主页面接入。
+
+64 帧合成视图回归中，全屏缓冲写入由 64 次降为 1 次，瓦片由 128 次降为 2 次，与每帧重算逐像素一致；这不是帧率测试。冗余排序处理可参考 [Spark 2.4.0](https://github.com/sparkjsdev/spark/releases/tag/v2.4.0)，时序排序复用研究见 [Neo](https://jinuhwang.github.io/papers/2026-asplos-neo.pdf)。此处只跳过完全不变的输入，未实现论文中的移动视角复用与更新，也未采用其代码、硬件或性能结果。
+
 ## 训练 PLY 输入
 
 `parseGaussianSplatPly(buffer)` 解码原始 3D Gaussian Splatting 训练代码写出的 `binary_little_endian 1.0` PLY 顶点记录。调用前需完成 `init()`；函数返回独立的 `centers`、`covariances`、`opacities`、DC `colors`，以及系数主序 RGB 的 `shCoefficients` 和 `shDegree`，不创建 GPU 资源。它要求顶点元素排在其他元素之前，并要求下列字段都是 f32：

@@ -26,6 +26,8 @@ export { GaussianUploadBuffers } from './GaussianUploadBuffers.ts';
 export type { GaussianConicEncoding, GaussianUploadBufferSnapshot, GaussianUploadResourceStats, GaussianUploadTileLayout } from './GaussianUploadBuffers.ts';
 export { GaussianRasterRenderer } from './GaussianRasterRenderer.ts';
 export type { GaussianRasterDrawOptions } from './GaussianRasterRenderer.ts';
+export { GaussianPlyRenderer } from './GaussianPlyRenderer.ts';
+export type { GaussianPlyFrameStats, GaussianPlyRenderOptions, GaussianPlyResourceStats } from './GaussianPlyRenderer.ts';
 export { Engine } from './Engine.ts';
 export { ContextLifecycle } from './ContextLifecycle.ts';
 export { OrbitCamera } from './camera.ts';
