@@ -436,7 +436,15 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
+### 代理矩形与视口
+
+顶点阶段将轴对齐代理矩形与 `[0, width] × [0, height]` 求交，避免把超大坐标直接交给 GPU 裁剪。每个轴先算 `halfPixel = center / 2 ± extent / 2`，再将 `halfPixel / viewport` 限制到 `[0, 0.5]`，最后映射为 `[-1, 1]` 裁剪坐标；半尺度相加避免两个有限 f32 端点分量之和溢出。完全离屏的矩形退化为零面积。
+
+裁剪只影响覆盖几何，传给片元的原中心、Cholesky 因子、不透明度、颜色和 CDF 系数不变。输入格式、排序、分箱和 VBO 容量保持，单像素视口也使用同一路径。这不解决三维 EWA 投影近似或所有极端片元精度问题；代理边界与求值的区别可参考 [Radix 渲染管线](https://sparkjs.dev/radix/docs/pipeline.html)，本实现没有采用其投影方法或代码。
+
 ## 可复现结果
+
+`npm run test:e2e -- tests/browser/gaussian-proxy.spec.ts` 在 32×32、1×1 视口各检查 10 组输入。32×32 修复前，范围为 `1e10` 的代理矩形仅绘制 275 个像素，正确结果为 543；正负 `1e19` 中心的宽高斯各丢失 512/1,024 个像素，`3e38` 范围的三组输入完全空白。裁至视口后，全部案例的 alpha 字节误差为零，全屏/瓦片/上下文恢复逐字节一致。另检查细条、离屏输入和 `prepareGaussianRaster()` → `packGaussianRasterUpload()` 生成的宽高斯，输入与资源快照保持。报告为 `test-results/**/gaussian-proxy.json`；这些是合成输入的正确性结果，不代表真实模型画质或速度。
 
 `npm run test:e2e -- tests/browser/gaussian-quadratic.spec.ts` 用六组 32×32 合成输入逐像素对照 Number 二次型参考。大系数正负交叉项在修复前分别误绘制 543、544 个像素，正确结果均为 1 个；细长对角与镜像样例各有 8 个像素误差超过 1/255。修复后六组 alpha 字节误差均为零，包括次正规和普通协方差；全屏、瓦片、上下文恢复结果一致，资源数量与输入记录不变。报告为 `test-results/**/gaussian-quadratic.json`。Node 另覆盖 f32 极值、正定残差、默认编码兼容和无效更新后的恢复副本；这些结果不代表真实模型画质或帧率收益。
 

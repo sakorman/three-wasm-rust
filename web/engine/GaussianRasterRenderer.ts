@@ -33,8 +33,10 @@ const vec2 corners[6] = vec2[6](
   vec2(-1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0)
 );
 void main() {
-  vec2 pixel = center + extent * corners[gl_VertexID];
-  gl_Position = vec4(pixel / viewport * 2.0 - 1.0, 0.0, 1.0);
+  // Clip the proxy before hardware clipping. Half-scaled endpoints avoid f32 addition overflow.
+  vec2 halfPixel = center * 0.5 + extent * (corners[gl_VertexID] * 0.5);
+  vec2 normalized = clamp(halfPixel / viewport, vec2(0.0), vec2(0.5));
+  gl_Position = vec4(normalized * 4.0 - 1.0, 0.0, 1.0);
   vCenter = center;
   vFactor = factor;
   vOpacity = opacity;
