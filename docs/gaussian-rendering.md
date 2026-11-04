@@ -430,9 +430,13 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 上传记录只有屏幕位置，没有目标深度。全屏和瓦片绘制都会临时关闭深度测试、深度写入和面剔除，按准备后的顺序合成，不修改目标的深度缓冲。原有测试/剔除开关与深度写掩码在正常返回或绘制抛错时恢复；深度函数、范围、剔除面和绕序不作修改。不能直接借助 Mesh 遗留的深度状态实现遮挡，后续需要显式的高斯深度映射。
 
+多重采样目标上的透明度只由预乘 alpha 混合决定。绘制期间临时关闭 `SAMPLE_ALPHA_TO_COVERAGE` 与 `SAMPLE_COVERAGE`，避免前一 pass 的样本掩码再次削弱高斯贡献；正常返回和抛出异常都恢复两个开关。覆盖比例和反转参数不作修改，framebuffer 的 MSAA 样本数量也保持不变。这个 pass 不支持调用方通过样本覆盖掩码调整高斯透明度，区域裁剪仍使用 scissor 或模板测试。
+
+`tests/browser/gaussian-msaa.spec.ts` 使用 32×32 RGBA8 多重采样 framebuffer 与单采样 resolve 目标，检查全屏/瓦片路径、八组采样状态、提交后异常及上下文恢复。与关闭样本掩码的同目标基线逐字节比较，同时检查调用方状态、framebuffer 绑定和上传资源快照；不将单采样与 MSAA 的边缘差异视为错误。
+
 绘制器不提供球谐、纹理、Mesh 遮挡、逐像素透明度排序或主页面接入。因此该 pass 只验证已有几何、颜色与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
 
-调用方仍需配置目标 framebuffer、模板测试、颜色写入、采样状态及 rasterizer discard；`draw()` 和 `drawTiles()` 均遵循已启用的外部 scissor，坐标采用目标 framebuffer 像素。瓦片路径临时收紧裁剪范围，正常或异常返回均恢复原开关与裁剪框；外部 scissor 关闭时忽略其盒子。这里不隔离全部 WebGL 状态。光栅状态见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3)，集成时应像 [SparkRenderer 的 depthTest/depthWrite 选项](https://sparkjs.dev/docs/spark-renderer/#optional-parameters)一样明确区分遮挡测试和深度写入；当前屏幕空间 pass 不采用其 Mesh 深度测试方案。
+调用方仍需配置目标 framebuffer、模板测试、颜色写入及 rasterizer discard；`draw()` 和 `drawTiles()` 均遵循已启用的外部 scissor，坐标采用目标 framebuffer 像素。瓦片路径临时收紧裁剪范围，正常或异常返回均恢复原开关与裁剪框；外部 scissor 关闭时忽略其盒子。这里不隔离全部 WebGL 状态。光栅状态见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3)，集成时应像 [SparkRenderer 的 depthTest/depthWrite 选项](https://sparkjs.dev/docs/spark-renderer/#optional-parameters)一样明确区分遮挡测试和深度写入；当前屏幕空间 pass 不采用其 Mesh 深度测试方案。
 
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
