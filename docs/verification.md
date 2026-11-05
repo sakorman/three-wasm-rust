@@ -1,6 +1,6 @@
 # 测试说明
 
-当前测试集共 **353 项**：92 项 Rust、122 项 Node、139 项 Chromium。高斯多重采样合成覆盖八组采样状态、像素差分、异常退出与上下文恢复；高斯光栅 pass 另覆盖调用方启用 `RASTERIZER_DISCARD` 时的全屏/瓦片绘制、异常重试与状态恢复。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
+当前测试集共 **351 项**：92 项 Rust、122 项 Node、137 项 Chromium。高斯多重采样合成覆盖八组采样状态、像素差分、异常退出与上下文恢复；高斯光栅 pass 另覆盖调用方启用 `RASTERIZER_DISCARD` 时的全屏/瓦片绘制、异常重试与状态恢复。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
 
 ## 覆盖范围
 
