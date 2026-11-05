@@ -16,6 +16,7 @@ for (const tiled of [false, true]) {
       const record = (color: number[]) => [16.5, 16.5, 12, 12, .04, 0, .04, .5, 0, 0, 0, 0, ...color];
       const readBlendState = () => ({
         enabled: gl.isEnabled(gl.BLEND),
+        rasterizerDiscard: gl.isEnabled(gl.RASTERIZER_DISCARD),
         equations: [gl.getParameter(gl.BLEND_EQUATION_RGB), gl.getParameter(gl.BLEND_EQUATION_ALPHA)] as number[],
         factors: [gl.BLEND_SRC_RGB, gl.BLEND_DST_RGB, gl.BLEND_SRC_ALPHA, gl.BLEND_DST_ALPHA].map((name) => gl.getParameter(name) as number),
       });
@@ -23,7 +24,12 @@ for (const tiled of [false, true]) {
         ? renderer.drawTiles({ width, height, cutoff: .01, applyClip: false })
         : renderer.draw({ width, height, cutoff: .01, applyClip: false });
       const render = () => {
+        // Keep the target clear independent from the caller's rasterizer state so
+        // the comparison isolates the renderer pass itself.
+        const discard = gl.isEnabled(gl.RASTERIZER_DISCARD);
+        if (discard) gl.disable(gl.RASTERIZER_DISCARD);
         gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+        if (discard) gl.enable(gl.RASTERIZER_DISCARD);
         draw();
         const pixels = new Uint8Array(width * height * 4);
         gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
@@ -58,13 +64,18 @@ for (const tiled of [false, true]) {
           const pixels = render();
           return { before, after: readBlendState(), differingChannels: difference(baseline, pixels) };
         });
+        gl.enable(gl.RASTERIZER_DISCARD);
+        const beforeDiscard = readBlendState();
+        const discardPixels = render();
+        const afterDiscard = readBlendState();
         const beforeFailure = readBlendState();
         failNextDraw = true;
         let failure = '';
         try { draw(); } catch (error) { failure = String(error); }
         const afterFailure = readBlendState();
         const retryDifference = difference(baseline, render());
-        return { center, cases, beforeFailure, afterFailure, failure, retryDifference, error: gl.getError() };
+        return { center, cases, beforeDiscard, afterDiscard,
+          discardDifference: difference(baseline, discardPixels), beforeFailure, afterFailure, failure, retryDifference, error: gl.getError() };
       } finally { renderer.dispose(); lifecycle.dispose(); }
     }, tiled);
     const path = info.outputPath('gaussian-blending.json');
@@ -76,6 +87,9 @@ for (const tiled of [false, true]) {
     }
     expect(result.cases.map((entry) => entry.differingChannels)).toEqual([0, 0, 0, 0, 0]);
     for (const entry of result.cases) expect(entry.after).toEqual(entry.before);
+    expect(result.afterDiscard).toEqual(result.beforeDiscard);
+    expect(result.beforeDiscard.rasterizerDiscard).toBe(true);
+    expect(result.discardDifference).toBe(0);
     expect(result.failure).toContain('Injected draw failure');
     expect(result.afterFailure).toEqual(result.beforeFailure);
     expect(result.retryDifference).toBe(0);

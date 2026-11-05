@@ -92,7 +92,8 @@ function assertDrawOptions({ width, height, cutoff }: GaussianRasterDrawOptions)
  *
  * This renderer uses the same compact order as `prepareGaussianRaster()`: callers retain
  * responsibility for camera preparation, tile dispatch, SH evaluation and targets.
- * Screen-space splats ignore depth tests, face culling and sample coverage masks.
+ * Screen-space splats ignore depth tests, face culling, sample coverage masks and
+ * rasterizer discard.
  * Target depth and caller raster state are preserved.
  */
 export class GaussianRasterRenderer {
@@ -210,6 +211,7 @@ export class GaussianRasterRenderer {
     const depthTest = this.gl.isEnabled(this.gl.DEPTH_TEST);
     const depthWrite = this.gl.getParameter(this.gl.DEPTH_WRITEMASK) as boolean;
     const cullFace = this.gl.isEnabled(this.gl.CULL_FACE);
+    const rasterizerDiscard = this.gl.isEnabled(this.gl.RASTERIZER_DISCARD);
     const alphaToCoverage = this.gl.isEnabled(this.gl.SAMPLE_ALPHA_TO_COVERAGE);
     const sampleCoverage = this.gl.isEnabled(this.gl.SAMPLE_COVERAGE);
     const blend = this.gl.isEnabled(this.gl.BLEND);
@@ -229,6 +231,7 @@ export class GaussianRasterRenderer {
       this.gl.disable(this.gl.DEPTH_TEST);
       this.gl.depthMask(false);
       this.gl.disable(this.gl.CULL_FACE);
+      this.gl.disable(this.gl.RASTERIZER_DISCARD);
       // Opacity is already applied by blending; coverage masks would attenuate it again.
       this.gl.disable(this.gl.SAMPLE_ALPHA_TO_COVERAGE);
       this.gl.disable(this.gl.SAMPLE_COVERAGE);
@@ -250,6 +253,8 @@ export class GaussianRasterRenderer {
       this.gl.depthMask(depthWrite);
       if (cullFace) this.gl.enable(this.gl.CULL_FACE);
       else this.gl.disable(this.gl.CULL_FACE);
+      if (rasterizerDiscard) this.gl.enable(this.gl.RASTERIZER_DISCARD);
+      else this.gl.disable(this.gl.RASTERIZER_DISCARD);
       if (alphaToCoverage) this.gl.enable(this.gl.SAMPLE_ALPHA_TO_COVERAGE);
       else this.gl.disable(this.gl.SAMPLE_ALPHA_TO_COVERAGE);
       if (sampleCoverage) this.gl.enable(this.gl.SAMPLE_COVERAGE);
