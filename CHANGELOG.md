@@ -5,8 +5,8 @@
 ## 2026-11-05 · 高斯光栅丢弃状态隔离
 
 - 高斯全屏与瓦片绘制现在临时关闭 WebGL2 `RASTERIZER_DISCARD`，正常返回或抛错后恢复调用方开关。此前该状态会在光栅阶段直接丢弃高斯图元，结果可能为空；现在与深度、剔除和样本覆盖状态一样由绘制器独立管理。
-- 新增全屏/瓦片浏览器回归：调用方预先启用 `RASTERIZER_DISCARD` 时，输出与正常基线逐字节一致；混合方程、光栅开关和异常重试后的状态均保持，覆盖 2 项 Chromium 用例。
-- 验证：`npm run typecheck`、47 项高斯 Chromium 回归通过（其中新增 2 项）；未测量性能收益或真实模型画质，测试清屏时显式绕开丢弃状态以隔离光栅 pass。
+- 扩展全屏/瓦片浏览器回归：调用方预先启用 `RASTERIZER_DISCARD` 时，输出与正常基线逐字节一致；混合方程、光栅开关和异常重试后的状态均保持，覆盖两条用例。
+- 验证：`npm run typecheck`、47 项高斯 Chromium 回归通过；完整 CI 保持 92 项 Rust、122 项 Node、137 项 Chromium 全部通过。未测量性能收益或真实模型画质，测试清屏时显式绕开丢弃状态以隔离光栅 pass。
 - 依据 [WebGL 2.0 规范](https://registry.khronos.org/webgl/specs/latest/2.0/) 的 `RASTERIZER_DISCARD` 语义，参考 [Spark 2.4.0 的资源与光栅状态修复](https://github.com/sparkjsdev/spark/releases/tag/v2.4.0)。[TileGS](https://arxiv.org/abs/2609.03613) 仅作为保持基线合成结果的研究参考，未采用其 CUDA 算法、代码或模型。
 
 ## 2026-11-04 · 高斯多重采样合成
