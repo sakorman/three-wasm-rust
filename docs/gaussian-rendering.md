@@ -428,7 +428,7 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 同一瓦片中连续递增的局部 ID 指向连续的交错 VBO 记录，可作为一条 `drawArraysInstanced` 提交；`forEachTileBatch()` 只合并这种最大连续段。遇到跳号或逆序 ID 会立即结束当前段，保持原有混合顺序。`drawTiles()` 的返回值仍是引用数量而非 draw call 数。该实现没有 GPU 级间接索引，不能合并任意稀疏 ID，也不把合并次数推断为 GPU 时间、帧率或端到端性能收益。瓦片内按深度排序、再 alpha 合成的流程可参照 [`gsplat` rasterization](https://github.com/nerfstudio-project/gsplat/blob/main/docs/source/apis/rasterization.rst)。
 
-上传记录只有屏幕位置，没有目标深度。全屏和瓦片绘制都会临时关闭深度测试、深度写入和面剔除，按准备后的顺序合成，不修改目标的深度缓冲。原有测试/剔除开关与深度写掩码在正常返回或绘制抛错时恢复；深度函数、范围、剔除面和绕序不作修改。不能直接借助 Mesh 遗留的深度状态实现遮挡，后续需要显式的高斯深度映射。
+上传记录只有屏幕位置，没有目标深度。全屏和瓦片绘制都会临时关闭深度测试、深度写入、面剔除和 `RASTERIZER_DISCARD`，按准备后的顺序合成，不修改目标的深度缓冲。原有测试/剔除/光栅丢弃开关与深度写掩码在正常返回或绘制抛错时恢复；深度函数、范围、剔除面和绕序不作修改。不能直接借助 Mesh 遗留的深度状态实现遮挡，后续需要显式的高斯深度映射。
 
 多重采样目标上的透明度只由预乘 alpha 混合决定。绘制期间临时关闭 `SAMPLE_ALPHA_TO_COVERAGE` 与 `SAMPLE_COVERAGE`，避免前一 pass 的样本掩码再次削弱高斯贡献；正常返回和抛出异常都恢复两个开关。覆盖比例和反转参数不作修改，framebuffer 的 MSAA 样本数量也保持不变。这个 pass 不支持调用方通过样本覆盖掩码调整高斯透明度，区域裁剪仍使用 scissor 或模板测试。
 
@@ -436,7 +436,7 @@ renderer.draw({ width: 1280, height: 720, cutoff: 0.01, applyClip: true });
 
 绘制器不提供球谐、纹理、Mesh 遮挡、逐像素透明度排序或主页面接入。因此该 pass 只验证已有几何、颜色与裁切数据的 GPU 执行，不是完整 3DGS 渲染器，也不用于性能、画质或显存结论。
 
-调用方仍需配置目标 framebuffer、模板测试、颜色写入及 rasterizer discard；`draw()` 和 `drawTiles()` 均遵循已启用的外部 scissor，坐标采用目标 framebuffer 像素。瓦片路径临时收紧裁剪范围，正常或异常返回均恢复原开关与裁剪框；外部 scissor 关闭时忽略其盒子。这里不隔离全部 WebGL 状态。光栅状态见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.3)，集成时应像 [SparkRenderer 的 depthTest/depthWrite 选项](https://sparkjs.dev/docs/spark-renderer/#optional-parameters)一样明确区分遮挡测试和深度写入；当前屏幕空间 pass 不采用其 Mesh 深度测试方案。
+调用方仍需配置目标 framebuffer、模板测试和颜色写入；`draw()` 和 `drawTiles()` 均遵循已启用的外部 scissor，坐标采用目标 framebuffer 像素。绘制器会临时关闭 `RASTERIZER_DISCARD`，但在返回或抛错后恢复调用方开关。瓦片路径临时收紧裁剪范围，正常或异常返回均恢复原开关与裁剪框；外部 scissor 关闭时忽略其盒子。这里不隔离全部 WebGL 状态。光栅状态见 [WebGL 规范](https://registry.khronos.org/webgl/specs/latest/2.0/)，集成时应像 [SparkRenderer 的 depthTest/depthWrite 选项](https://sparkjs.dev/docs/spark-renderer/#optional-parameters)一样明确区分遮挡测试和深度写入；当前屏幕空间 pass 不采用其 Mesh 深度测试方案。
 
 程序创建会在失败时删除已分配的 program，并在成功或失败时将临时 shader 标记为删除，包括第二个 shader 无法分配或编译的情况。构造失败会移除订阅；恢复失败时保留上传数据、通过 `error` 暴露原因并拒绝绘制，下一次上下文恢复可重建程序。正常链接后 shader 仍可能由 program 引用，其实际释放遵循 [WebGL 生命周期](https://registry.khronos.org/webgl/specs/latest/1.0/#5.14.9)。
 
