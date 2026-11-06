@@ -1,8 +1,10 @@
 # 测试说明
 
-当前测试集共 **351 项**：92 项 Rust、122 项 Node、137 项 Chromium。高斯多重采样合成覆盖八组采样状态、像素差分、异常退出与上下文恢复；高斯光栅 pass 另覆盖调用方启用 `RASTERIZER_DISCARD` 时的全屏/瓦片绘制、异常重试与状态恢复。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
+当前测试集共 **353 项**：92 项 Rust、124 项 Node、137 项 Chromium。PLY 解码新增全部 SH 阶数的乱序/非对齐字段与非法值拒绝回归；加载耗时使用独立基准记录，不在 CI 中断言速度。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
 
 ## 覆盖范围
+
+PLY 加载基准：`npx tsx tests/benchmarks/ply-decode.ts 0858abf 100000 9`。基准从指定提交读取旧解析器，使用同一个当前 WASM 内核；三轮预热后按 AB/BA 交替采样，比较五组完整输出字节并检查输入不变。只计解码函数耗时，数据生成和比较在计时外；不强制 GC，不设置性能通过阈值。[2026-11-06 原始报告](benchmarks/2026-11-06-ply-decode.json)包含 10 万、50 万项结果及同实现对照，不能作为 GPU、帧率或峰值内存结论。
 
 | 模块 | 检查内容 |
 | --- | --- |

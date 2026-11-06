@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import init from '../pkg/three_wasm_rust.js';
+import { gaussianPlyFixture, plyValue } from './fixtures/gaussian-ply.ts';
 import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianPlyForThreeCamera, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
@@ -119,6 +120,58 @@ test('trained PLY parser rejects truncated, unsupported and invalid source recor
   const source = parseGaussianSplatPly(valid);
   const singularAffine = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
   assert.throws(() => transformGaussianPlyToCameraSpace(source, singularAffine), /invertible/);
+});
+
+test('PLY row decoding preserves unaligned reordered fields across all SH degrees', () => {
+  for (const degree of [0, 1, 2, 3] as const) for (const count of [0, 1, 257]) {
+    const { buffer } = gaussianPlyFixture(count, degree), before = new Uint8Array(buffer).slice();
+    const source = parseGaussianSplatPly(buffer), coefficients = (degree + 1) ** 2;
+    assert.equal(source.shDegree, degree);
+    assert.equal(source.centers.length, count * 3);
+    assert.equal(source.covariances.length, count * 6);
+    assert.equal(source.shCoefficients.length, count * coefficients * 3);
+    for (let row = 0; row < count; row++) {
+      for (let channel = 0; channel < 3; channel++) {
+        assert.equal(source.centers[row * 3 + channel], plyValue(['x', 'y', 'z'][channel], row));
+        const dc = plyValue(`f_dc_${channel}`, row);
+        assert.equal(source.shCoefficients[row * coefficients * 3 + channel], dc);
+        assert.equal(source.colors[row * 3 + channel], Math.fround(Math.max(0, dc * .28209479177387814 + .5)));
+        for (let basis = 1; basis < coefficients; basis++) {
+          assert.equal(source.shCoefficients[(row * coefficients + basis) * 3 + channel],
+            plyValue(`f_rest_${channel * (coefficients - 1) + basis - 1}`, row));
+        }
+      }
+      const logit = plyValue('opacity', row), exp = Math.exp(logit);
+      assert.equal(source.opacities[row], Math.fround(logit >= 0 ? 1 / (1 + Math.exp(-logit)) : exp / (1 + exp)));
+      const covariance = source.covariances.subarray(row * 6, row * 6 + 6);
+      for (const [component, axis] of [[0, 0], [3, 1], [5, 2]]) {
+        close(covariance[component], Math.exp(2 * plyValue(`scale_${axis}`, row)));
+      }
+      assert.deepEqual([covariance[1], covariance[2], covariance[4]], [0, 0, 0]);
+    }
+    assert.deepEqual(new Uint8Array(buffer), before);
+  }
+});
+
+test('PLY row decoding rejects non-finite fields without retaining scratch values', () => {
+  const { buffer, fields, bodyOffset, stride } = gaussianPlyFixture(3, 3), view = new DataView(buffer);
+  const reference = parseGaussianSplatPly(buffer);
+  for (const { name, offset } of fields) {
+    const address = bodyOffset + 2 * stride + offset, value = view.getFloat32(address, true);
+    for (const invalid of [NaN, Infinity, -Infinity]) {
+      view.setFloat32(address, invalid, true);
+      assert.throws(() => parseGaussianSplatPly(buffer), {
+        message: `Gaussian PLY ${name} must be finite at vertex 2`,
+      });
+    }
+    view.setFloat32(address, value, true);
+  }
+  assert.deepEqual(parseGaussianSplatPly(buffer), reference);
+  const xOffset = fields.find(field => field.name === 'x')!.offset;
+  view.setFloat32(bodyOffset + xOffset, -0, true);
+  assert.ok(Object.is(parseGaussianSplatPly(buffer).centers[0], -0));
+  new Uint8Array(buffer).fill(0);
+  assert.equal(reference.centers[0], -.5);
 });
 
 test('Three.js model and view matrices compose into the positive-z Gaussian camera convention', () => {

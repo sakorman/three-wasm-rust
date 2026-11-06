@@ -248,28 +248,35 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
   const rotations = new Float32Array(header.count * 4);
   const opacities = new Float32Array(header.count);
   const colors = new Float32Array(header.count * 3);
-  const shCoefficients = new Float32Array(header.count * (sh.degree + 1) ** 2 * 3);
+  const coefficientStride = (sh.degree + 1) ** 2 * 3;
+  const shCoefficients = new Float32Array(header.count * coefficientStride);
+  // Reuse one row of scalar scratch space instead of allocating arrays per vertex.
+  const values = new Float32Array(required.length);
+  const colorLabels = ['degree-zero red', 'degree-zero green', 'degree-zero blue'];
   for (let index = 0; index < header.count; index++) {
     const record = header.bodyOffset + index * header.stride;
-    const value = (property: PlyProperty) => finiteF32(view.getFloat32(record + property.offset, true), property.name, index);
-    const [x, y, z, red, green, blue, opacity, scaleX, scaleY, scaleZ, rotationW, rotationX, rotationY, rotationZ] = required.map(value);
-    centers.set([x, y, z], index * 3);
-    logScales.set([scaleX, scaleY, scaleZ], index * 3);
-    rotations.set([rotationW, rotationX, rotationY, rotationZ], index * 4);
-    opacities[index] = finiteF32(sigmoid(opacity), 'activated opacity', index);
-    const coefficientOffset = index * (sh.degree + 1) ** 2 * 3;
-    shCoefficients.set([red, green, blue], coefficientOffset);
+    for (let field = 0; field < required.length; field++) {
+      const property = required[field];
+      values[field] = finiteF32(view.getFloat32(record + property.offset, true), property.name, index);
+    }
+    const vectorOffset = index * 3, coefficientOffset = index * coefficientStride;
+    for (let channel = 0; channel < 3; channel++) {
+      centers[vectorOffset + channel] = values[channel];
+      logScales[vectorOffset + channel] = values[7 + channel];
+      const dc = values[3 + channel];
+      shCoefficients[coefficientOffset + channel] = dc;
+      colors[vectorOffset + channel] = finiteF32(Math.max(0, dc * SH_C0 + .5), colorLabels[channel], index);
+    }
+    for (let component = 0; component < 4; component++) rotations[index * 4 + component] = values[10 + component];
+    opacities[index] = finiteF32(sigmoid(values[6]), 'activated opacity', index);
     // Trained PLY stores all red coefficients, then green, then blue (excluding DC).
     for (let basis = 0; basis < coefficientsPerChannel; basis++) {
       for (let channel = 0; channel < 3; channel++) {
-        shCoefficients[coefficientOffset + (basis + 1) * 3 + channel] = value(sh.rest[channel * coefficientsPerChannel + basis]);
+        const property = sh.rest[channel * coefficientsPerChannel + basis];
+        shCoefficients[coefficientOffset + (basis + 1) * 3 + channel]
+          = finiteF32(view.getFloat32(record + property.offset, true), property.name, index);
       }
     }
-    colors.set([
-      finiteF32(Math.max(0, red * SH_C0 + .5), 'degree-zero red', index),
-      finiteF32(Math.max(0, green * SH_C0 + .5), 'degree-zero green', index),
-      finiteF32(Math.max(0, blue * SH_C0 + .5), 'degree-zero blue', index),
-    ], index * 3);
   }
   const covariances = gaussian_covariances_from_log_scales_rotations(logScales, rotations);
   return { centers, covariances, opacities, colors, shDegree: sh.degree, shCoefficients };
