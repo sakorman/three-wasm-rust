@@ -14,6 +14,10 @@ import {
 
 const MAX_HEADER_BYTES = 1 << 20;
 const MAX_SPLATS = 1_000_000;
+// Keep the WASM covariance working set bounded while retaining one synchronous decode API.
+// The chunk is large enough to avoid per-row calls, but caps log-scale/rotation temporaries
+// at 65,536 splats instead of scaling with the input model.
+export const GAUSSIAN_PLY_COVARIANCE_CHUNK_SIZE = 1 << 16;
 const SH_C0 = 0.28209479177387814;
 
 type PlyScalarType = 'char' | 'int8' | 'uchar' | 'uint8' | 'short' | 'int16' | 'ushort' | 'uint16' | 'int' | 'int32' | 'uint' | 'uint32' | 'float' | 'float32' | 'double' | 'float64';
@@ -244,12 +248,15 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
   if (!Number.isSafeInteger(requiredBytes) || requiredBytes > buffer.byteLength) throw new Error('Gaussian PLY vertex data is truncated');
   const view = new DataView(buffer);
   const centers = new Float32Array(header.count * 3);
-  const logScales = new Float32Array(header.count * 3);
-  const rotations = new Float32Array(header.count * 4);
+  const covariances = new Float32Array(header.count * 6);
   const opacities = new Float32Array(header.count);
   const colors = new Float32Array(header.count * 3);
   const coefficientStride = (sh.degree + 1) ** 2 * 3;
   const shCoefficients = new Float32Array(header.count * coefficientStride);
+  const covarianceChunkSize = Math.min(header.count, GAUSSIAN_PLY_COVARIANCE_CHUNK_SIZE);
+  const logScales = new Float32Array(covarianceChunkSize * 3);
+  const rotations = new Float32Array(covarianceChunkSize * 4);
+  let covarianceChunkStart = 0, covarianceChunkCount = 0;
   // Reuse one row of scalar scratch space instead of allocating arrays per vertex.
   const values = new Float32Array(required.length);
   const colorLabels = ['degree-zero red', 'degree-zero green', 'degree-zero blue'];
@@ -260,14 +267,16 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
       values[field] = finiteF32(view.getFloat32(record + property.offset, true), property.name, index);
     }
     const vectorOffset = index * 3, coefficientOffset = index * coefficientStride;
+    const chunkOffset = covarianceChunkCount * 3;
     for (let channel = 0; channel < 3; channel++) {
       centers[vectorOffset + channel] = values[channel];
-      logScales[vectorOffset + channel] = values[7 + channel];
+      logScales[chunkOffset + channel] = values[7 + channel];
       const dc = values[3 + channel];
       shCoefficients[coefficientOffset + channel] = dc;
       colors[vectorOffset + channel] = finiteF32(Math.max(0, dc * SH_C0 + .5), colorLabels[channel], index);
     }
-    for (let component = 0; component < 4; component++) rotations[index * 4 + component] = values[10 + component];
+    const rotationOffset = covarianceChunkCount * 4;
+    for (let component = 0; component < 4; component++) rotations[rotationOffset + component] = values[10 + component];
     opacities[index] = finiteF32(sigmoid(values[6]), 'activated opacity', index);
     // Trained PLY stores all red coefficients, then green, then blue (excluding DC).
     for (let basis = 0; basis < coefficientsPerChannel; basis++) {
@@ -277,8 +286,27 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
           = finiteF32(view.getFloat32(record + property.offset, true), property.name, index);
       }
     }
+    covarianceChunkCount++;
+    if (covarianceChunkCount === covarianceChunkSize || index + 1 === header.count) {
+      try {
+        const chunk = gaussian_covariances_from_log_scales_rotations(
+          logScales.subarray(0, covarianceChunkCount * 3),
+          rotations.subarray(0, covarianceChunkCount * 4),
+        );
+        if (chunk.length !== covarianceChunkCount * 6) throw new Error('Gaussian covariance helper returned an invalid length');
+        covariances.set(chunk, covarianceChunkStart * 6);
+      } catch (error) {
+        // The WASM helper reports the local chunk index. Preserve the previous public
+        // error location after splitting the input into bounded working sets.
+        const message = error instanceof Error ? error.message : String(error);
+        const adjusted = message.replace(/splat (\d+)/g, (_, local: string) => `splat ${covarianceChunkStart + Number(local)}`);
+        if (error instanceof Error) throw new Error(adjusted, { cause: error });
+        throw new Error(adjusted);
+      }
+      covarianceChunkStart += covarianceChunkCount;
+      covarianceChunkCount = 0;
+    }
   }
-  const covariances = gaussian_covariances_from_log_scales_rotations(logScales, rotations);
   return { centers, covariances, opacities, colors, shDegree: sh.degree, shCoefficients };
 }
 

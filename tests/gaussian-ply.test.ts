@@ -174,6 +174,20 @@ test('PLY row decoding rejects non-finite fields without retaining scratch value
   assert.equal(reference.centers[0], -.5);
 });
 
+test('PLY covariance decoding keeps chunk boundaries and reports global error indices', () => {
+  const count = (1 << 16) + 1, { buffer, fields, stride, bodyOffset } = gaussianPlyFixture(count, 0);
+  const source = parseGaussianSplatPly(buffer);
+  assert.equal(source.centers.length, count * 3);
+  assert.equal(source.covariances.length, count * 6);
+  for (const row of [0, count - 2, count - 1]) {
+    assert.equal(source.centers[row * 3], plyValue('x', row));
+    assert.equal(source.covariances[row * 6], Math.fround(Math.exp(2 * plyValue('scale_0', row))));
+  }
+  const rotation = fields.find(field => field.name === 'rot_0')!;
+  new DataView(buffer).setFloat32(bodyOffset + (count - 1) * stride + rotation.offset, 0, true);
+  assert.throws(() => parseGaussianSplatPly(buffer), new RegExp(`rotation must be non-zero at splat ${count - 1}`));
+});
+
 test('Three.js model and view matrices compose into the positive-z Gaussian camera convention', () => {
   const model = new THREE.Matrix4().compose(
     new THREE.Vector3(1, -2, -3),
