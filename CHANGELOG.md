@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-07 · PLY 协方差分块解码
+
+- 解码训练 PLY 时将尺度/旋转参数按 65,536 个高斯分块交给 WASM，协方差直接写入最终数组；此前临时参数随模型数量线性增长。500,000 个高斯的参数临时上界由 14,000,000 降为 1,835,008 字节，100,000 个由 2,800,000 降为 1,835,008 字节；文件格式、源属性和协方差输出保持不变。
+- Apple M5、Node 20.20.2 下与 `0858abf` 交替运行：100,000 项 SH0/SH3 解码中位数分别为 38.42/53.19 ms 与 9.67/22.28 ms；500,000 项为 198.16/269.08 ms 与 47.24/106.92 ms。四组输出逐字节相同；计时包含同步解码、输出分配和分块 WASM 协方差，不含 I/O、初始化、视图准备或 GPU。
+- 验证：12 项 PLY Node、乱序非对齐字段、跨 65,536 边界和末项非法旋转的全局错误索引、TypeScript strict 通过；样本见 [分块基准](docs/benchmarks/2026-11-07-ply-covariance-chunks.json)，复现 `npx tsx tests/benchmarks/ply-decode.ts 0858abf 500000 5`。实际 JS/WASM 堆峰值与 GC 尚未测量。
+- 研究参考：[web-splat 的 PLY 分块读取](https://github.com/KeKsBoTer/web-splat/blob/7dbdc6d609e1ec4e28569c560a86769b4d08ccd3/src/io/ply.rs)、[Niantic SPZ 的压缩与 smallest-three 四元数](https://github.com/nianticlabs/spz)、[StreamSplat 的有界缓存](https://arxiv.org/abs/2608.01659)。本项只采用分块工作集边界，未引入外部代码、压缩格式或训练算法。
+
 ## 2026-11-06 · PLY 解码减少临时分配
 
 - 解码循环复用 14 个 f32 的行缓存，直接写入输出数组，移除每个顶点的 `map`、六组临时数组和读取闭包。保持字段按名称定位、非对齐读取、0–3 阶 SH 排列、非法值拒绝和 Rust 协方差计算。

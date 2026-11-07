@@ -20,7 +20,7 @@ export { gaussian_compose_three_camera } from '../../pkg/three_wasm_rust.js';
 export { gaussian_transform_camera_space } from '../../pkg/three_wasm_rust.js';
 export { GAUSSIAN_RASTER_UPLOAD_STRIDE, packGaussianRasterUpload, prepareGaussianRaster } from './gaussian.ts';
 export type { GaussianClipPlane, GaussianRasterCamera, GaussianRasterPreparationOptions, GaussianRasterTiles, PackedGaussianRasterUpload, PreparedGaussianRaster } from './gaussian.ts';
-export { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianPlyForThreeCamera, transformGaussianPlyToCameraSpace } from './GaussianPly.ts';
+export { GAUSSIAN_PLY_COVARIANCE_CHUNK_SIZE, composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianPlyForThreeCamera, transformGaussianPlyToCameraSpace } from './GaussianPly.ts';
 export type { GaussianCameraSource, GaussianPlySource, GaussianPlyThreeCameraOptions, GaussianShDegree } from './GaussianPly.ts';
 export { GaussianUploadBuffers } from './GaussianUploadBuffers.ts';
 export type { GaussianConicEncoding, GaussianUploadBufferSnapshot, GaussianUploadResourceStats, GaussianUploadTileLayout } from './GaussianUploadBuffers.ts';

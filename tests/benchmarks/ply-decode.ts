@@ -5,7 +5,7 @@ import { tmpdir, cpus } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import init from '../../pkg/three_wasm_rust.js';
-import { parseGaussianSplatPly, type GaussianPlySource } from '../../web/engine/GaussianPly.ts';
+import { GAUSSIAN_PLY_COVARIANCE_CHUNK_SIZE, parseGaussianSplatPly, type GaussianPlySource } from '../../web/engine/GaussianPly.ts';
 import { gaussianPlyFixture } from '../fixtures/gaussian-ply.ts';
 
 // Usage: npx tsx tests/benchmarks/ply-decode.ts <baseline-commit> [count=100000] [rounds=9]
@@ -52,7 +52,12 @@ try {
       else { after.push(run(parseGaussianSplatPly)); before.push(run(baseline)); }
     }
     assert.deepEqual(new Uint8Array(buffer), inputBefore);
-    results.push({ degree, count, inputBytes: buffer.byteLength, before, after,
+    results.push({ degree, count, inputBytes: buffer.byteLength,
+      covarianceParameterBytes: {
+        baseline: count * 7 * Float32Array.BYTES_PER_ELEMENT,
+        current: Math.min(count, GAUSSIAN_PLY_COVARIANCE_CHUNK_SIZE) * 7 * Float32Array.BYTES_PER_ELEMENT,
+      },
+      before, after,
       baselineMedianMs: median(before), currentMedianMs: median(after), identicalBytes: true });
   }
   process.stdout.write(JSON.stringify({ baselineSha, node: process.version, platform: process.platform,
