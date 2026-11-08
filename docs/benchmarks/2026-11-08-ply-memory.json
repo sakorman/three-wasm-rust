@@ -1,0 +1,2809 @@
+{
+  "memory": {
+    "baseline": {
+      "commit": "38493d8d5cd14d27fadf45b6e9ee0a686512fb3c",
+      "parserSha256": "8be0576ef63d4af8c2a9185ea80b04d3fedbdd60f4d6c2a7f16d0344fb64741e"
+    },
+    "current": {
+      "head": "c45437de7653ed41dcbaa0ef91b7ce796ff1100a",
+      "parserSha256": "146faf71cdb763cee77ab58bc362b106e59a126f377ba0f6b7611e012564708d"
+    },
+    "wasmSha256": "3c387916d6763fcdf2d098eb64026b4661f80737f4c15c04f8417f03a97254cf",
+    "node": "v20.20.2",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5",
+    "scope": "Cold synchronous decode; each sample uses a new process and WASM instance. Historical parser uses current dependencies.",
+    "accounting": "Stage snapshots, not JS heap peaks. WASM capacity is linear-memory capacity, not live allocations. ArrayBuffers is included in external; fields must not be summed. GC runs before decode, after retaining outputs, and after release; none is forced during decode. Covariance probes affect execution; no timing or GPU claims.",
+    "rounds": 3,
+    "results": [
+      {
+        "count": 500000,
+        "degree": 0,
+        "outputDigestsMatch": true,
+        "runs": [
+          {
+            "round": 0,
+            "order": [
+              "baseline",
+              "current"
+            ],
+            "pair": [
+              {
+                "variant": "baseline",
+                "count": 500000,
+                "degree": 0,
+                "inputBytes": 32500420,
+                "inputSha256": "22019869cf138ea7194216ecbefb18eba1bfbaec3042c524527747446f820a11",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 6000000,
+                    "sha256": "45a01adbdc95ca62ba62e97df1c8c955829e403aefad2142da9041faf226694f"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 500000,
+                    "inputViewBytes": 14000000,
+                    "inputBackingBytes": 14000000,
+                    "resultBytes": 12000000
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 119865344,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7370480,
+                    "external": 37404007,
+                    "arrayBuffers": 32566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 154206208,
+                    "heapTotal": 17891328,
+                    "heapUsed": 10090840,
+                    "external": 71403627,
+                    "arrayBuffers": 66566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 192479232,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7539616,
+                    "external": 109552491,
+                    "arrayBuffers": 78566378,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 192495616,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7542352,
+                    "external": 109552491,
+                    "arrayBuffers": 78566378,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 192512000,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7288552,
+                    "external": 109552491,
+                    "arrayBuffers": 64566378,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 192512000,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7286392,
+                    "external": 95552491,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 27262976
+                  }
+                ]
+              },
+              {
+                "variant": "current",
+                "count": 500000,
+                "degree": 0,
+                "inputBytes": 32500420,
+                "inputSha256": "22019869cf138ea7194216ecbefb18eba1bfbaec3042c524527747446f820a11",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 6000000,
+                    "sha256": "45a01adbdc95ca62ba62e97df1c8c955829e403aefad2142da9041faf226694f"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 41248,
+                    "inputViewBytes": 1154944,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 989952
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 119930880,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7391504,
+                    "external": 37404007,
+                    "arrayBuffers": 32566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 125222912,
+                    "heapTotal": 17891328,
+                    "heapUsed": 10654920,
+                    "external": 71238635,
+                    "arrayBuffers": 66401386,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 130482176,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7462568,
+                    "external": 76415979,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 135905280,
+                    "heapTotal": 17891328,
+                    "heapUsed": 11147920,
+                    "external": 76415979,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 137478144,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7678360,
+                    "external": 77988843,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 141672448,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7679120,
+                    "external": 77988843,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 141672448,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7680104,
+                    "external": 77988843,
+                    "arrayBuffers": 69547114,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 145850368,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7680864,
+                    "external": 77988843,
+                    "arrayBuffers": 69547114,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 147439616,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7681848,
+                    "external": 79561707,
+                    "arrayBuffers": 71119978,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 151633920,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7682608,
+                    "external": 79561707,
+                    "arrayBuffers": 71119978,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 153206784,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7683528,
+                    "external": 81134571,
+                    "arrayBuffers": 72692842,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 157401088,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7684400,
+                    "external": 81134571,
+                    "arrayBuffers": 72692842,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 158990336,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7685416,
+                    "external": 82707435,
+                    "arrayBuffers": 74265706,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 163184640,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7686208,
+                    "external": 82707435,
+                    "arrayBuffers": 74265706,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 164757504,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7687224,
+                    "external": 84280299,
+                    "arrayBuffers": 75838570,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 168034304,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7688016,
+                    "external": 84280299,
+                    "arrayBuffers": 75838570,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 169033728,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7689032,
+                    "external": 85270251,
+                    "arrayBuffers": 76828522,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 170033152,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7690320,
+                    "external": 85270251,
+                    "arrayBuffers": 76828522,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 170049536,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7307928,
+                    "external": 85270251,
+                    "arrayBuffers": 64566378,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 170049536,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7302456,
+                    "external": 73008107,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "round": 1,
+            "order": [
+              "current",
+              "baseline"
+            ],
+            "pair": [
+              {
+                "variant": "current",
+                "count": 500000,
+                "degree": 0,
+                "inputBytes": 32500420,
+                "inputSha256": "22019869cf138ea7194216ecbefb18eba1bfbaec3042c524527747446f820a11",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 6000000,
+                    "sha256": "45a01adbdc95ca62ba62e97df1c8c955829e403aefad2142da9041faf226694f"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 41248,
+                    "inputViewBytes": 1154944,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 989952
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 119357440,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7254048,
+                    "external": 37404007,
+                    "arrayBuffers": 32566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 124682240,
+                    "heapTotal": 17629184,
+                    "heapUsed": 10670752,
+                    "external": 71238635,
+                    "arrayBuffers": 66401386,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 129859584,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7387592,
+                    "external": 76415979,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 135036928,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7527440,
+                    "external": 76415979,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 136626176,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7777368,
+                    "external": 77988843,
+                    "arrayBuffers": 69547114,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 140820480,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7778128,
+                    "external": 77988843,
+                    "arrayBuffers": 69547114,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 142409728,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7779112,
+                    "external": 79561707,
+                    "arrayBuffers": 71119978,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 146587648,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7779872,
+                    "external": 79561707,
+                    "arrayBuffers": 71119978,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 148160512,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7780856,
+                    "external": 81134571,
+                    "arrayBuffers": 72692842,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 152354816,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7781616,
+                    "external": 81134571,
+                    "arrayBuffers": 72692842,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 153944064,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7782536,
+                    "external": 82707435,
+                    "arrayBuffers": 74265706,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 158138368,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7783408,
+                    "external": 82707435,
+                    "arrayBuffers": 74265706,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 159711232,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7784424,
+                    "external": 84280299,
+                    "arrayBuffers": 75838570,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 163905536,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7785216,
+                    "external": 84280299,
+                    "arrayBuffers": 75838570,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 165494784,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7786232,
+                    "external": 85853163,
+                    "arrayBuffers": 77411434,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 168771584,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7787024,
+                    "external": 85853163,
+                    "arrayBuffers": 77411434,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 169771008,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7788040,
+                    "external": 86843115,
+                    "arrayBuffers": 78401386,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 170770432,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7789328,
+                    "external": 86843115,
+                    "arrayBuffers": 78401386,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 170786816,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7304440,
+                    "external": 86843115,
+                    "arrayBuffers": 64566378,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 170786816,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7302280,
+                    "external": 73008107,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              },
+              {
+                "variant": "baseline",
+                "count": 500000,
+                "degree": 0,
+                "inputBytes": 32500420,
+                "inputSha256": "22019869cf138ea7194216ecbefb18eba1bfbaec3042c524527747446f820a11",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 6000000,
+                    "sha256": "45a01adbdc95ca62ba62e97df1c8c955829e403aefad2142da9041faf226694f"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 500000,
+                    "inputViewBytes": 14000000,
+                    "inputBackingBytes": 14000000,
+                    "resultBytes": 12000000
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 119111680,
+                    "heapTotal": 17367040,
+                    "heapUsed": 7247240,
+                    "external": 37404007,
+                    "arrayBuffers": 32566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 153468928,
+                    "heapTotal": 17367040,
+                    "heapUsed": 10038160,
+                    "external": 71403627,
+                    "arrayBuffers": 66566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 191725568,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7540336,
+                    "external": 109552491,
+                    "arrayBuffers": 78566378,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 191741952,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7543072,
+                    "external": 109552491,
+                    "arrayBuffers": 78566378,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 191741952,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7289272,
+                    "external": 109552491,
+                    "arrayBuffers": 64566378,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 191741952,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7287112,
+                    "external": 95552491,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 27262976
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "round": 2,
+            "order": [
+              "baseline",
+              "current"
+            ],
+            "pair": [
+              {
+                "variant": "baseline",
+                "count": 500000,
+                "degree": 0,
+                "inputBytes": 32500420,
+                "inputSha256": "22019869cf138ea7194216ecbefb18eba1bfbaec3042c524527747446f820a11",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 6000000,
+                    "sha256": "45a01adbdc95ca62ba62e97df1c8c955829e403aefad2142da9041faf226694f"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 500000,
+                    "inputViewBytes": 14000000,
+                    "inputBackingBytes": 14000000,
+                    "resultBytes": 12000000
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 120094720,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7250768,
+                    "external": 37404007,
+                    "arrayBuffers": 32566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 154484736,
+                    "heapTotal": 17891328,
+                    "heapUsed": 10079296,
+                    "external": 71403627,
+                    "arrayBuffers": 66566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 192757760,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7540344,
+                    "external": 109552491,
+                    "arrayBuffers": 78566378,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 192774144,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7543080,
+                    "external": 109552491,
+                    "arrayBuffers": 78566378,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 192774144,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7289344,
+                    "external": 109552491,
+                    "arrayBuffers": 64566378,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 192774144,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7287184,
+                    "external": 95552491,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 27262976
+                  }
+                ]
+              },
+              {
+                "variant": "current",
+                "count": 500000,
+                "degree": 0,
+                "inputBytes": 32500420,
+                "inputSha256": "22019869cf138ea7194216ecbefb18eba1bfbaec3042c524527747446f820a11",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 6000000,
+                    "sha256": "45a01adbdc95ca62ba62e97df1c8c955829e403aefad2142da9041faf226694f"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 41248,
+                    "inputViewBytes": 1154944,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 989952
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 118898688,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7254320,
+                    "external": 37404007,
+                    "arrayBuffers": 32566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 124190720,
+                    "heapTotal": 17891328,
+                    "heapUsed": 10747352,
+                    "external": 71238635,
+                    "arrayBuffers": 66401386,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 129351680,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7358400,
+                    "external": 76415979,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 134955008,
+                    "heapTotal": 17891328,
+                    "heapUsed": 11260424,
+                    "external": 76415979,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 134955008,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7586568,
+                    "external": 76415979,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 139149312,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7587328,
+                    "external": 76415979,
+                    "arrayBuffers": 67974250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 140722176,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7588312,
+                    "external": 77988843,
+                    "arrayBuffers": 69547114,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 144900096,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7589072,
+                    "external": 77988843,
+                    "arrayBuffers": 69547114,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 146489344,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7590056,
+                    "external": 79561707,
+                    "arrayBuffers": 71119978,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 150683648,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7590816,
+                    "external": 79561707,
+                    "arrayBuffers": 71119978,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 152256512,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7591736,
+                    "external": 81134571,
+                    "arrayBuffers": 72692842,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 156450816,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7592608,
+                    "external": 81134571,
+                    "arrayBuffers": 72692842,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 158040064,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7593624,
+                    "external": 82707435,
+                    "arrayBuffers": 74265706,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 162234368,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7594416,
+                    "external": 82707435,
+                    "arrayBuffers": 74265706,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 163807232,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7595432,
+                    "external": 84280299,
+                    "arrayBuffers": 75838570,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 167084032,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7601560,
+                    "external": 84280299,
+                    "arrayBuffers": 75838570,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 168083456,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7602576,
+                    "external": 85270251,
+                    "arrayBuffers": 76828522,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 169082880,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7603864,
+                    "external": 85270251,
+                    "arrayBuffers": 76828522,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 169082880,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7307928,
+                    "external": 85270251,
+                    "arrayBuffers": 64566378,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 169099264,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7302456,
+                    "external": 73008107,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "count": 500000,
+        "degree": 3,
+        "outputDigestsMatch": true,
+        "runs": [
+          {
+            "round": 0,
+            "order": [
+              "baseline",
+              "current"
+            ],
+            "pair": [
+              {
+                "variant": "baseline",
+                "count": 500000,
+                "degree": 3,
+                "inputBytes": 122501535,
+                "inputSha256": "2fee61e9f74835093019994c7789c403e5f0854f77dfc8bd9bb52a8cd7ab0055",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 96000000,
+                    "sha256": "7311acd7d45d99f12f7feb1c425656ce7298735a4bbaea82a63688b7abcaddde"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 500000,
+                    "inputViewBytes": 14000000,
+                    "inputBackingBytes": 14000000,
+                    "resultBytes": 12000000
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 213123072,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7496984,
+                    "external": 127406237,
+                    "arrayBuffers": 122567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 336904192,
+                    "heapTotal": 17629184,
+                    "heapUsed": 11439416,
+                    "external": 251404742,
+                    "arrayBuffers": 246567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 375111680,
+                    "heapTotal": 17629184,
+                    "heapUsed": 11443040,
+                    "external": 289553606,
+                    "arrayBuffers": 258567493,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 375128064,
+                    "heapTotal": 17629184,
+                    "heapUsed": 11444296,
+                    "external": 289553606,
+                    "arrayBuffers": 258567493,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 375128064,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7292896,
+                    "external": 289553606,
+                    "arrayBuffers": 244567493,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 375144448,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7291232,
+                    "external": 275553606,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 27262976
+                  }
+                ]
+              },
+              {
+                "variant": "current",
+                "count": 500000,
+                "degree": 3,
+                "inputBytes": 122501535,
+                "inputSha256": "2fee61e9f74835093019994c7789c403e5f0854f77dfc8bd9bb52a8cd7ab0055",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 96000000,
+                    "sha256": "7311acd7d45d99f12f7feb1c425656ce7298735a4bbaea82a63688b7abcaddde"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 41248,
+                    "inputViewBytes": 1154944,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 989952
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 212860928,
+                    "heapTotal": 17367040,
+                    "heapUsed": 7500608,
+                    "external": 127406237,
+                    "arrayBuffers": 122567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 228835328,
+                    "heapTotal": 17629184,
+                    "heapUsed": 8228608,
+                    "external": 251239750,
+                    "arrayBuffers": 246402501,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 234045440,
+                    "heapTotal": 17629184,
+                    "heapUsed": 8232232,
+                    "external": 256417094,
+                    "arrayBuffers": 247975365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 249872384,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9601680,
+                    "external": 256417094,
+                    "arrayBuffers": 247975365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 251445248,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9602664,
+                    "external": 257989958,
+                    "arrayBuffers": 249548229,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 267436032,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9603424,
+                    "external": 257989958,
+                    "arrayBuffers": 249548229,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 269025280,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9604408,
+                    "external": 259562822,
+                    "arrayBuffers": 251121093,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 284999680,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9605168,
+                    "external": 259562822,
+                    "arrayBuffers": 251121093,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 286572544,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9606152,
+                    "external": 261135686,
+                    "arrayBuffers": 252693957,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 302563328,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9606912,
+                    "external": 261135686,
+                    "arrayBuffers": 252693957,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 304152576,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9607832,
+                    "external": 262708550,
+                    "arrayBuffers": 254266821,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 320143360,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9608704,
+                    "external": 262708550,
+                    "arrayBuffers": 254266821,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 321716224,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9609720,
+                    "external": 264281414,
+                    "arrayBuffers": 255839685,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 337707008,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9610512,
+                    "external": 264281414,
+                    "arrayBuffers": 255839685,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 339296256,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9611528,
+                    "external": 265854278,
+                    "arrayBuffers": 257412549,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 349995008,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9612320,
+                    "external": 265854278,
+                    "arrayBuffers": 257412549,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 350994432,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9613336,
+                    "external": 266844230,
+                    "arrayBuffers": 258402501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 351993856,
+                    "heapTotal": 17629184,
+                    "heapUsed": 9614624,
+                    "external": 266844230,
+                    "arrayBuffers": 258402501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 352010240,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7309312,
+                    "external": 266844230,
+                    "arrayBuffers": 244567493,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 352026624,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7307744,
+                    "external": 253009222,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "round": 1,
+            "order": [
+              "current",
+              "baseline"
+            ],
+            "pair": [
+              {
+                "variant": "current",
+                "count": 500000,
+                "degree": 3,
+                "inputBytes": 122501535,
+                "inputSha256": "2fee61e9f74835093019994c7789c403e5f0854f77dfc8bd9bb52a8cd7ab0055",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 96000000,
+                    "sha256": "7311acd7d45d99f12f7feb1c425656ce7298735a4bbaea82a63688b7abcaddde"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 41248,
+                    "inputViewBytes": 1154944,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 989952
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 213106688,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7500608,
+                    "external": 127406237,
+                    "arrayBuffers": 122567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 228966400,
+                    "heapTotal": 17891328,
+                    "heapUsed": 8059616,
+                    "external": 251239750,
+                    "arrayBuffers": 246402501,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 234143744,
+                    "heapTotal": 17891328,
+                    "heapUsed": 8063240,
+                    "external": 256417094,
+                    "arrayBuffers": 247975365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 250118144,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9118560,
+                    "external": 256417094,
+                    "arrayBuffers": 247975365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 251691008,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9119544,
+                    "external": 257989958,
+                    "arrayBuffers": 249548229,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 267681792,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9120304,
+                    "external": 257989958,
+                    "arrayBuffers": 249548229,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 269271040,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9121288,
+                    "external": 259562822,
+                    "arrayBuffers": 251121093,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 285245440,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9122048,
+                    "external": 259562822,
+                    "arrayBuffers": 251121093,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 286818304,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9123032,
+                    "external": 261135686,
+                    "arrayBuffers": 252693957,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 302809088,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9123792,
+                    "external": 261135686,
+                    "arrayBuffers": 252693957,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 304398336,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9124712,
+                    "external": 262708550,
+                    "arrayBuffers": 254266821,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 320389120,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9125584,
+                    "external": 262708550,
+                    "arrayBuffers": 254266821,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 321961984,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9126600,
+                    "external": 264281414,
+                    "arrayBuffers": 255839685,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 337952768,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9127392,
+                    "external": 264281414,
+                    "arrayBuffers": 255839685,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 339542016,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9128408,
+                    "external": 265854278,
+                    "arrayBuffers": 257412549,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 350240768,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9129200,
+                    "external": 265854278,
+                    "arrayBuffers": 257412549,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 351240192,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9130216,
+                    "external": 266844230,
+                    "arrayBuffers": 258402501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 352239616,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9131504,
+                    "external": 266844230,
+                    "arrayBuffers": 258402501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 352239616,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7309312,
+                    "external": 266844230,
+                    "arrayBuffers": 244567493,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 352256000,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7307744,
+                    "external": 253009222,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              },
+              {
+                "variant": "baseline",
+                "count": 500000,
+                "degree": 3,
+                "inputBytes": 122501535,
+                "inputSha256": "2fee61e9f74835093019994c7789c403e5f0854f77dfc8bd9bb52a8cd7ab0055",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 96000000,
+                    "sha256": "7311acd7d45d99f12f7feb1c425656ce7298735a4bbaea82a63688b7abcaddde"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 500000,
+                    "inputViewBytes": 14000000,
+                    "inputBackingBytes": 14000000,
+                    "resultBytes": 12000000
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 212549632,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7246352,
+                    "external": 127406237,
+                    "arrayBuffers": 122567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 336789504,
+                    "heapTotal": 17629184,
+                    "heapUsed": 11153136,
+                    "external": 251404742,
+                    "arrayBuffers": 246567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 375013376,
+                    "heapTotal": 17629184,
+                    "heapUsed": 11156760,
+                    "external": 289553606,
+                    "arrayBuffers": 258567493,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 375013376,
+                    "heapTotal": 17629184,
+                    "heapUsed": 11158016,
+                    "external": 289553606,
+                    "arrayBuffers": 258567493,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 375013376,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7292896,
+                    "external": 289553606,
+                    "arrayBuffers": 244567493,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 375013376,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7291232,
+                    "external": 275553606,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 27262976
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "round": 2,
+            "order": [
+              "baseline",
+              "current"
+            ],
+            "pair": [
+              {
+                "variant": "baseline",
+                "count": 500000,
+                "degree": 3,
+                "inputBytes": 122501535,
+                "inputSha256": "2fee61e9f74835093019994c7789c403e5f0854f77dfc8bd9bb52a8cd7ab0055",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 96000000,
+                    "sha256": "7311acd7d45d99f12f7feb1c425656ce7298735a4bbaea82a63688b7abcaddde"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 500000,
+                    "inputViewBytes": 14000000,
+                    "inputBackingBytes": 14000000,
+                    "resultBytes": 12000000
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 213303296,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7252672,
+                    "external": 127406237,
+                    "arrayBuffers": 122567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 337051648,
+                    "heapTotal": 17629184,
+                    "heapUsed": 11368752,
+                    "external": 251404742,
+                    "arrayBuffers": 246567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 375291904,
+                    "heapTotal": 17629184,
+                    "heapUsed": 11372376,
+                    "external": 289553606,
+                    "arrayBuffers": 258567493,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 375291904,
+                    "heapTotal": 17629184,
+                    "heapUsed": 11373632,
+                    "external": 289553606,
+                    "arrayBuffers": 258567493,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 375324672,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7292896,
+                    "external": 289553606,
+                    "arrayBuffers": 244567493,
+                    "wasmCapacityBytes": 27262976
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 375324672,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7291232,
+                    "external": 275553606,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 27262976
+                  }
+                ]
+              },
+              {
+                "variant": "current",
+                "count": 500000,
+                "degree": 3,
+                "inputBytes": 122501535,
+                "inputSha256": "2fee61e9f74835093019994c7789c403e5f0854f77dfc8bd9bb52a8cd7ab0055",
+                "outputs": {
+                  "centers": {
+                    "bytes": 6000000,
+                    "sha256": "5c0abf85aeedeb7f69bdbae4a18fcecbb0001ee36f50aef16e6091fefe20e21c"
+                  },
+                  "covariances": {
+                    "bytes": 12000000,
+                    "sha256": "3b27679713e3beb4cc71cb65eee7da93f694b99cbf32151705fb26536ee8f188"
+                  },
+                  "opacities": {
+                    "bytes": 2000000,
+                    "sha256": "7c8ea3fb0557ee58b2230aac2290ef3ea559914147ff5564c1957ad1afac9cfd"
+                  },
+                  "colors": {
+                    "bytes": 6000000,
+                    "sha256": "e51bad76389752f847c7ee2841c4f945b4b6c397a8b83d6502e2564980a72186"
+                  },
+                  "shCoefficients": {
+                    "bytes": 96000000,
+                    "sha256": "7311acd7d45d99f12f7feb1c425656ce7298735a4bbaea82a63688b7abcaddde"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 41248,
+                    "inputViewBytes": 1154944,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 989952
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 213188608,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7500608,
+                    "external": 127406237,
+                    "arrayBuffers": 122567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 229179392,
+                    "heapTotal": 17891328,
+                    "heapUsed": 8234096,
+                    "external": 251239750,
+                    "arrayBuffers": 246402501,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 234422272,
+                    "heapTotal": 17891328,
+                    "heapUsed": 8237720,
+                    "external": 256417094,
+                    "arrayBuffers": 247975365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 250249216,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9583728,
+                    "external": 256417094,
+                    "arrayBuffers": 247975365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 251822080,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9584712,
+                    "external": 257989958,
+                    "arrayBuffers": 249548229,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 267812864,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9585472,
+                    "external": 257989958,
+                    "arrayBuffers": 249548229,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 269402112,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9586456,
+                    "external": 259562822,
+                    "arrayBuffers": 251121093,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 285376512,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9587216,
+                    "external": 259562822,
+                    "arrayBuffers": 251121093,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 286949376,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9588200,
+                    "external": 261135686,
+                    "arrayBuffers": 252693957,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 302940160,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9588960,
+                    "external": 261135686,
+                    "arrayBuffers": 252693957,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 304529408,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9589880,
+                    "external": 262708550,
+                    "arrayBuffers": 254266821,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 320520192,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9590752,
+                    "external": 262708550,
+                    "arrayBuffers": 254266821,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 322093056,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9591768,
+                    "external": 264281414,
+                    "arrayBuffers": 255839685,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 338083840,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9592560,
+                    "external": 264281414,
+                    "arrayBuffers": 255839685,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 339673088,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9593576,
+                    "external": 265854278,
+                    "arrayBuffers": 257412549,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 350371840,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9594368,
+                    "external": 265854278,
+                    "arrayBuffers": 257412549,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 351371264,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9595384,
+                    "external": 266844230,
+                    "arrayBuffers": 258402501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 352370688,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9596672,
+                    "external": 266844230,
+                    "arrayBuffers": 258402501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 352370688,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7309312,
+                    "external": 266844230,
+                    "arrayBuffers": 244567493,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 352387072,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7307744,
+                    "external": 253009222,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "sameParserControl": {
+    "baseline": {
+      "commit": "c45437de7653ed41dcbaa0ef91b7ce796ff1100a",
+      "parserSha256": "146faf71cdb763cee77ab58bc362b106e59a126f377ba0f6b7611e012564708d"
+    },
+    "current": {
+      "head": "c45437de7653ed41dcbaa0ef91b7ce796ff1100a",
+      "parserSha256": "146faf71cdb763cee77ab58bc362b106e59a126f377ba0f6b7611e012564708d"
+    },
+    "wasmSha256": "3c387916d6763fcdf2d098eb64026b4661f80737f4c15c04f8417f03a97254cf",
+    "node": "v20.20.2",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5",
+    "scope": "Cold synchronous decode; each sample uses a new process and WASM instance. Historical parser uses current dependencies.",
+    "accounting": "Stage snapshots, not JS heap peaks. WASM capacity is linear-memory capacity, not live allocations. ArrayBuffers is included in external; fields must not be summed. GC runs before decode, after retaining outputs, and after release; none is forced during decode. Covariance probes affect execution; no timing or GPU claims.",
+    "rounds": 1,
+    "results": [
+      {
+        "count": 100000,
+        "degree": 0,
+        "outputDigestsMatch": true,
+        "runs": [
+          {
+            "round": 0,
+            "order": [
+              "baseline",
+              "current"
+            ],
+            "pair": [
+              {
+                "variant": "baseline",
+                "count": 100000,
+                "degree": 0,
+                "inputBytes": 6500420,
+                "inputSha256": "a329159b070386932c3a8300d3dd1a0a7d2f06c08585a63dc9f6cc29060b21de",
+                "outputs": {
+                  "centers": {
+                    "bytes": 1200000,
+                    "sha256": "33aa4fd4c08c83ba33b7ffa56a374fd1d19140fbc67af391764dabc8de18e9c0"
+                  },
+                  "covariances": {
+                    "bytes": 2400000,
+                    "sha256": "9465c3e7790f9c2a2b1ff77a4c98a42bc6f2cfe5eba5ed1cf70869a4208267ca"
+                  },
+                  "opacities": {
+                    "bytes": 400000,
+                    "sha256": "a3b72a6bb7844ff6c61e7c7121b2963606a8b7c4245cf4e7f836da211c3d7359"
+                  },
+                  "colors": {
+                    "bytes": 1200000,
+                    "sha256": "c4df1aef5467a9c0ae4b70d028c5b58dc00b20c3916beb751a3b2985847aca54"
+                  },
+                  "shCoefficients": {
+                    "bytes": 1200000,
+                    "sha256": "942c23b7ded0ec91314af340a7087e28c74bbb65a949459f96fda01d8973ba0a"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 34464,
+                    "inputViewBytes": 964992,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 827136
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 93388800,
+                    "heapTotal": 17367040,
+                    "heapUsed": 7248696,
+                    "external": 11404007,
+                    "arrayBuffers": 6566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 98566144,
+                    "heapTotal": 17367040,
+                    "heapUsed": 10794432,
+                    "external": 19638635,
+                    "arrayBuffers": 14801386,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 103743488,
+                    "heapTotal": 17367040,
+                    "heapUsed": 10796576,
+                    "external": 24815979,
+                    "arrayBuffers": 16374250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 108363776,
+                    "heapTotal": 17367040,
+                    "heapUsed": 10654040,
+                    "external": 24815979,
+                    "arrayBuffers": 16374250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 109215744,
+                    "heapTotal": 17367040,
+                    "heapUsed": 10655024,
+                    "external": 25643115,
+                    "arrayBuffers": 17201386,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 110067712,
+                    "heapTotal": 17367040,
+                    "heapUsed": 10656280,
+                    "external": 25643115,
+                    "arrayBuffers": 17201386,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 110084096,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7302160,
+                    "external": 25643115,
+                    "arrayBuffers": 12966378,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 110084096,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7296624,
+                    "external": 21408107,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              },
+              {
+                "variant": "current",
+                "count": 100000,
+                "degree": 0,
+                "inputBytes": 6500420,
+                "inputSha256": "a329159b070386932c3a8300d3dd1a0a7d2f06c08585a63dc9f6cc29060b21de",
+                "outputs": {
+                  "centers": {
+                    "bytes": 1200000,
+                    "sha256": "33aa4fd4c08c83ba33b7ffa56a374fd1d19140fbc67af391764dabc8de18e9c0"
+                  },
+                  "covariances": {
+                    "bytes": 2400000,
+                    "sha256": "9465c3e7790f9c2a2b1ff77a4c98a42bc6f2cfe5eba5ed1cf70869a4208267ca"
+                  },
+                  "opacities": {
+                    "bytes": 400000,
+                    "sha256": "a3b72a6bb7844ff6c61e7c7121b2963606a8b7c4245cf4e7f836da211c3d7359"
+                  },
+                  "colors": {
+                    "bytes": 1200000,
+                    "sha256": "c4df1aef5467a9c0ae4b70d028c5b58dc00b20c3916beb751a3b2985847aca54"
+                  },
+                  "shCoefficients": {
+                    "bytes": 1200000,
+                    "sha256": "942c23b7ded0ec91314af340a7087e28c74bbb65a949459f96fda01d8973ba0a"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 34464,
+                    "inputViewBytes": 964992,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 827136
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 94060544,
+                    "heapTotal": 17629184,
+                    "heapUsed": 7248696,
+                    "external": 11404007,
+                    "arrayBuffers": 6566378,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 99155968,
+                    "heapTotal": 17629184,
+                    "heapUsed": 10717952,
+                    "external": 19638635,
+                    "arrayBuffers": 14801386,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 104349696,
+                    "heapTotal": 17629184,
+                    "heapUsed": 10720096,
+                    "external": 24815979,
+                    "arrayBuffers": 16374250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 108675072,
+                    "heapTotal": 17629184,
+                    "heapUsed": 10267376,
+                    "external": 24815979,
+                    "arrayBuffers": 16374250,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 109527040,
+                    "heapTotal": 17629184,
+                    "heapUsed": 10268360,
+                    "external": 25643115,
+                    "arrayBuffers": 17201386,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 110379008,
+                    "heapTotal": 17629184,
+                    "heapUsed": 10269616,
+                    "external": 25643115,
+                    "arrayBuffers": 17201386,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 110395392,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7302160,
+                    "external": 25643115,
+                    "arrayBuffers": 12966378,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 110395392,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7296624,
+                    "external": 21408107,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "count": 100000,
+        "degree": 3,
+        "outputDigestsMatch": true,
+        "runs": [
+          {
+            "round": 0,
+            "order": [
+              "baseline",
+              "current"
+            ],
+            "pair": [
+              {
+                "variant": "baseline",
+                "count": 100000,
+                "degree": 3,
+                "inputBytes": 24501535,
+                "inputSha256": "6167c10123c9082e962bdc62578b91ec7aa4d08381e79a541b99f02bb225d7b3",
+                "outputs": {
+                  "centers": {
+                    "bytes": 1200000,
+                    "sha256": "33aa4fd4c08c83ba33b7ffa56a374fd1d19140fbc67af391764dabc8de18e9c0"
+                  },
+                  "covariances": {
+                    "bytes": 2400000,
+                    "sha256": "9465c3e7790f9c2a2b1ff77a4c98a42bc6f2cfe5eba5ed1cf70869a4208267ca"
+                  },
+                  "opacities": {
+                    "bytes": 400000,
+                    "sha256": "a3b72a6bb7844ff6c61e7c7121b2963606a8b7c4245cf4e7f836da211c3d7359"
+                  },
+                  "colors": {
+                    "bytes": 1200000,
+                    "sha256": "c4df1aef5467a9c0ae4b70d028c5b58dc00b20c3916beb751a3b2985847aca54"
+                  },
+                  "shCoefficients": {
+                    "bytes": 19200000,
+                    "sha256": "81c5dbd15d76b6a16d8935e99f82f17a1551e1f9d10186c088eefbda76b1191b"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 34464,
+                    "inputViewBytes": 964992,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 827136
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 114786304,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7500608,
+                    "external": 29406237,
+                    "arrayBuffers": 24567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 130498560,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7731544,
+                    "external": 55639750,
+                    "arrayBuffers": 50802501,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 135675904,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7735168,
+                    "external": 60817094,
+                    "arrayBuffers": 52375365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 144834560,
+                    "heapTotal": 18153472,
+                    "heapUsed": 9194632,
+                    "external": 60817094,
+                    "arrayBuffers": 52375365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 145670144,
+                    "heapTotal": 18153472,
+                    "heapUsed": 9195616,
+                    "external": 61644230,
+                    "arrayBuffers": 53202501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 146505728,
+                    "heapTotal": 18153472,
+                    "heapUsed": 9196872,
+                    "external": 61644230,
+                    "arrayBuffers": 53202501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 146505728,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7303448,
+                    "external": 61644230,
+                    "arrayBuffers": 48967493,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 146505728,
+                    "heapTotal": 18153472,
+                    "heapUsed": 7301784,
+                    "external": 57409222,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              },
+              {
+                "variant": "current",
+                "count": 100000,
+                "degree": 3,
+                "inputBytes": 24501535,
+                "inputSha256": "6167c10123c9082e962bdc62578b91ec7aa4d08381e79a541b99f02bb225d7b3",
+                "outputs": {
+                  "centers": {
+                    "bytes": 1200000,
+                    "sha256": "33aa4fd4c08c83ba33b7ffa56a374fd1d19140fbc67af391764dabc8de18e9c0"
+                  },
+                  "covariances": {
+                    "bytes": 2400000,
+                    "sha256": "9465c3e7790f9c2a2b1ff77a4c98a42bc6f2cfe5eba5ed1cf70869a4208267ca"
+                  },
+                  "opacities": {
+                    "bytes": 400000,
+                    "sha256": "a3b72a6bb7844ff6c61e7c7121b2963606a8b7c4245cf4e7f836da211c3d7359"
+                  },
+                  "colors": {
+                    "bytes": 1200000,
+                    "sha256": "c4df1aef5467a9c0ae4b70d028c5b58dc00b20c3916beb751a3b2985847aca54"
+                  },
+                  "shCoefficients": {
+                    "bytes": 19200000,
+                    "sha256": "81c5dbd15d76b6a16d8935e99f82f17a1551e1f9d10186c088eefbda76b1191b"
+                  }
+                },
+                "calls": [
+                  {
+                    "count": 65536,
+                    "inputViewBytes": 1835008,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 1572864
+                  },
+                  {
+                    "count": 34464,
+                    "inputViewBytes": 964992,
+                    "inputBackingBytes": 1835008,
+                    "resultBytes": 827136
+                  }
+                ],
+                "samples": [
+                  {
+                    "stage": "before-decode",
+                    "rss": 114769920,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7256336,
+                    "external": 29406237,
+                    "arrayBuffers": 24567493,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 130367488,
+                    "heapTotal": 17891328,
+                    "heapUsed": 8156936,
+                    "external": 55639750,
+                    "arrayBuffers": 50802501,
+                    "wasmCapacityBytes": 1114112
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 135577600,
+                    "heapTotal": 17891328,
+                    "heapUsed": 8159080,
+                    "external": 60817094,
+                    "arrayBuffers": 52375365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-before",
+                    "rss": 144703488,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9752184,
+                    "external": 60817094,
+                    "arrayBuffers": 52375365,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "covariance-after",
+                    "rss": 145539072,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9753168,
+                    "external": 61644230,
+                    "arrayBuffers": 53202501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "after-decode",
+                    "rss": 146374656,
+                    "heapTotal": 17891328,
+                    "heapUsed": 9754424,
+                    "external": 61644230,
+                    "arrayBuffers": 53202501,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "retained-after-gc",
+                    "rss": 146407424,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7307296,
+                    "external": 61644230,
+                    "arrayBuffers": 48967493,
+                    "wasmCapacityBytes": 4718592
+                  },
+                  {
+                    "stage": "released-after-gc",
+                    "rss": 146407424,
+                    "heapTotal": 17891328,
+                    "heapUsed": 7301984,
+                    "external": 57409222,
+                    "arrayBuffers": 65958,
+                    "wasmCapacityBytes": 4718592
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "unprofiledTiming": {
+    "baselineSha": "38493d8d5cd14d27fadf45b6e9ee0a686512fb3c",
+    "baselineParserSha256": "8be0576ef63d4af8c2a9185ea80b04d3fedbdd60f4d6c2a7f16d0344fb64741e",
+    "currentParserSha256": "146faf71cdb763cee77ab58bc362b106e59a126f377ba0f6b7611e012564708d",
+    "wasmSha256": "3c387916d6763fcdf2d098eb64026b4661f80737f4c15c04f8417f03a97254cf",
+    "node": "v20.20.2",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5",
+    "warmup": 3,
+    "rounds": 9,
+    "scope": "Synchronous PLY decode including output allocation and WASM covariance; excludes I/O, WASM init, view preparation and GPU. Shared warmed WASM instance; not a memory benchmark",
+    "results": [
+      {
+        "degree": 0,
+        "count": 500000,
+        "inputBytes": 32500420,
+        "before": [
+          48.06887500000005,
+          50.41154100000006,
+          52.40625,
+          50.57954199999995,
+          49.46912499999996,
+          45.61958300000015,
+          46.734624999999824,
+          46.25737499999991,
+          45.79549999999995
+        ],
+        "after": [
+          47.39770800000008,
+          47.547207999999955,
+          52.11820799999998,
+          47.441958,
+          54.47033299999998,
+          57.37808299999995,
+          47.03712499999983,
+          46.44479200000001,
+          47.24695799999995
+        ],
+        "baselineMedianMs": 48.06887500000005,
+        "currentMedianMs": 47.441958,
+        "identicalBytes": true
+      },
+      {
+        "degree": 3,
+        "count": 500000,
+        "inputBytes": 122501535,
+        "before": [
+          111.28783300000032,
+          116.65220799999997,
+          108.73579199999995,
+          108.87091699999974,
+          109.28462500000023,
+          109.78379099999984,
+          109.77350000000024,
+          108.70491599999968,
+          109.01383400000032
+        ],
+        "after": [
+          119.79649999999992,
+          105.63958400000001,
+          104.50345900000002,
+          104.83012500000041,
+          106.22445799999969,
+          105.6775419999999,
+          105.46099999999933,
+          105.24199999999928,
+          107.83437499999945
+        ],
+        "baselineMedianMs": 109.28462500000023,
+        "currentMedianMs": 105.63958400000001,
+        "identicalBytes": true
+      }
+    ]
+  }
+}

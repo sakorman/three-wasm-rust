@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir, cpus } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readFile } from 'node:fs/promises';
+import { cpus } from 'node:os';
 import init from '../../pkg/three_wasm_rust.js';
-import { GAUSSIAN_PLY_COVARIANCE_CHUNK_SIZE, parseGaussianSplatPly, type GaussianPlySource } from '../../web/engine/GaussianPly.ts';
+import { parseGaussianSplatPly, type GaussianPlySource } from '../../web/engine/GaussianPly.ts';
 import { gaussianPlyFixture } from '../fixtures/gaussian-ply.ts';
+import { preparePlyParser, root, sha256, sourceKeys as keys } from './ply-parser.ts';
 
 // Usage: npx tsx tests/benchmarks/ply-decode.ts <baseline-commit> [count=100000] [rounds=9]
 const [revision, countArg = '100000', roundsArg = '9'] = process.argv.slice(2);
@@ -14,23 +12,14 @@ if (!revision || !/^[a-f\d]{7,40}$/i.test(revision)) throw new Error('Supply a b
 const count = Number(countArg), rounds = Number(roundsArg);
 if (!Number.isSafeInteger(count) || count < 1 || count > 1_000_000
   || !Number.isSafeInteger(rounds) || rounds < 3 || rounds > 101) throw new Error('Invalid count or rounds');
-const root = new URL('../../', import.meta.url);
-const baselineSha = execFileSync('git', ['rev-parse', revision], { cwd: fileURLToPath(root), encoding: 'utf8' }).trim();
-const source = execFileSync('git', ['show', `${baselineSha}:web/engine/GaussianPly.ts`], {
-  cwd: fileURLToPath(root), encoding: 'utf8',
-}).replace(/from '([^']+)'/g, (match: string, specifier: string) => specifier.startsWith('.')
-  ? `from '${new URL(specifier, new URL('web/engine/GaussianPly.ts', root)).href}'` : match);
-const temporary = await mkdtemp(join(tmpdir(), 'ply-decode-'));
-await init({ module_or_path: await readFile(new URL('pkg/three_wasm_rust_bg.wasm', root)) });
-const keys = ['centers', 'covariances', 'opacities', 'colors', 'shCoefficients'] as const;
 const median = (samples: number[]) => {
   const sorted = [...samples].sort((a, b) => a - b), mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
+const historical = await preparePlyParser(revision);
 try {
-  const baselinePath = join(temporary, 'baseline.mts');
-  await writeFile(baselinePath, source);
-  const { parseGaussianSplatPly: baseline } = await import(pathToFileURL(baselinePath).href) as {
+  await init({ module_or_path: await readFile(new URL('pkg/three_wasm_rust_bg.wasm', root)) });
+  const { parseGaussianSplatPly: baseline } = await import(historical.url) as {
     parseGaussianSplatPly: typeof parseGaussianSplatPly;
   };
   const results = [];
@@ -53,15 +42,13 @@ try {
     }
     assert.deepEqual(new Uint8Array(buffer), inputBefore);
     results.push({ degree, count, inputBytes: buffer.byteLength,
-      covarianceParameterBytes: {
-        baseline: count * 7 * Float32Array.BYTES_PER_ELEMENT,
-        current: Math.min(count, GAUSSIAN_PLY_COVARIANCE_CHUNK_SIZE) * 7 * Float32Array.BYTES_PER_ELEMENT,
-      },
       before, after,
       baselineMedianMs: median(before), currentMedianMs: median(after), identicalBytes: true });
   }
-  process.stdout.write(JSON.stringify({ baselineSha, node: process.version, platform: process.platform,
+  process.stdout.write(JSON.stringify({ baselineSha: historical.commit, baselineParserSha256: historical.sourceSha256,
+    currentParserSha256: sha256(await readFile(new URL('web/engine/GaussianPly.ts', root))),
+    wasmSha256: sha256(await readFile(new URL('pkg/three_wasm_rust_bg.wasm', root))), node: process.version, platform: process.platform,
     arch: process.arch, cpu: cpus()[0]?.model, warmup: 3, rounds,
-    scope: 'Synchronous PLY decode including output allocation and WASM covariance; excludes I/O, WASM init, view preparation and GPU',
+    scope: 'Synchronous PLY decode including output allocation and WASM covariance; excludes I/O, WASM init, view preparation and GPU. Shared warmed WASM instance; not a memory benchmark',
     results }, null, 2) + '\n');
-} finally { await rm(temporary, { recursive: true, force: true }); }
+} finally { await historical.dispose(); }
