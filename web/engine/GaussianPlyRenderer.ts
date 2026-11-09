@@ -1,6 +1,6 @@
 import type { ContextLifecycle } from './ContextLifecycle.ts';
 import { GaussianRasterRenderer } from './GaussianRasterRenderer.ts';
-import { parseGaussianSplatPly, prepareGaussianPlyForThreeCamera } from './GaussianPly.ts';
+import { GaussianPlyDecoder, prepareGaussianPlyForThreeCamera } from './GaussianPly.ts';
 import { packGaussianRasterUpload } from './gaussian.ts';
 import type { GaussianPlySource, GaussianPlyThreeCameraOptions } from './GaussianPly.ts';
 import type { GaussianUploadResourceStats } from './GaussianUploadBuffers.ts';
@@ -22,6 +22,8 @@ export interface GaussianPlyResourceStats {
   sourceCount: number;
   /** Decoded model attributes retained by this owner, excluding the original PLY bytes. */
   sourceBytes: number;
+  /** Reusable parser scratch retained between loads; cleared by `clear()` and `dispose()`. */
+  decoderScratchBytes: number;
   upload: GaussianUploadResourceStats;
 }
 
@@ -47,6 +49,7 @@ function viewKey(options: GaussianPlyRenderOptions): number[] {
 /** Own one decoded PLY and reuse its prepared GPU view while model/camera inputs are unchanged. */
 export class GaussianPlyRenderer {
   private readonly raster: GaussianRasterRenderer;
+  private readonly decoder = new GaussianPlyDecoder();
   private source: GaussianPlySource | undefined;
   private key: number[] | undefined;
   private disposed = false;
@@ -66,7 +69,7 @@ export class GaussianPlyRenderer {
   /** Decode before replacing the active model. Invalid files leave the current view intact. */
   loadPly(buffer: ArrayBuffer): void {
     this.assertActive();
-    const source = parseGaussianSplatPly(buffer);
+    const source = this.decoder.decode(buffer);
     this.raster.clear();
     this.source = source;
     this.key = undefined;
@@ -102,6 +105,7 @@ export class GaussianPlyRenderer {
       sourceCount: source?.opacities.length ?? 0,
       sourceBytes: source ? source.centers.byteLength + source.covariances.byteLength + source.opacities.byteLength
         + source.colors.byteLength + source.shCoefficients.byteLength : 0,
+      decoderScratchBytes: this.decoder.scratchBytes,
       upload: this.raster.resourceStats(),
     };
   }
@@ -111,6 +115,7 @@ export class GaussianPlyRenderer {
     this.raster.clear();
     this.source = undefined;
     this.key = undefined;
+    this.decoder.clear();
   }
 
   private assertActive(): void {
@@ -123,5 +128,6 @@ export class GaussianPlyRenderer {
     this.raster.dispose();
     this.source = undefined;
     this.key = undefined;
+    this.decoder.clear();
   }
 }

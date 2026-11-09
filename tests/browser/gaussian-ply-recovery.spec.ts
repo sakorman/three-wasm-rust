@@ -110,9 +110,11 @@ for (const tiled of [false, true]) {
     expect(result.replacement.viewUpdated).toBe(true); expect(result.replacement.difference).toBeGreaterThan(0);
     expect(result.loadedWhileLost.viewUpdated).toBe(true); expect(result.loadedWhileLost.difference).toBe(0);
     expect(result.cleared.sourceBytes).toBe(0); expect(result.cleared.upload.cpuBytes).toBe(0); expect(result.cleared.upload.gpuBytes).toBe(0);
+    expect(result.cleared.decoderScratchBytes).toBe(0);
     expect(result.emptyReady).toBe(false); expect(result.emptyError).toMatch(/not loaded/);
     expect(result.reloaded.viewUpdated).toBe(true); expect(result.reloaded.difference).toBe(0);
     expect(result.disposed.sourceBytes).toBe(0); expect(result.disposed.upload.cpuBytes).toBe(0); expect(result.disposed.upload.gpuBytes).toBe(0);
+    expect(result.disposed.decoderScratchBytes).toBe(0);
     expect(result.disposedReady).toBe(false); expect(result.disposedErrors.every(error => /disposed/.test(error))).toBe(true);
     expect(result.error).toBe(0);
   });

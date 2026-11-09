@@ -238,8 +238,24 @@ function shProperties(header: GaussianPlyHeader): { degree: GaussianShDegree; re
  * Call `init()` before this function. The result is model-space source data, not a prepared
  * camera view; callers must transform centers and covariances into camera space first.
  */
-export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
-  const header = parseHeader(buffer);
+export class GaussianPlyDecoder {
+  private values = new Float32Array(14);
+  private logScales = new Float32Array(0);
+  private rotations = new Float32Array(0);
+
+  /** Bytes retained for the next decode; decoded model arrays are not included. */
+  get scratchBytes(): number {
+    return this.values.byteLength + this.logScales.byteLength + this.rotations.byteLength;
+  }
+
+  private ensureScratch(count: number): void {
+    if (this.values.length < 14) this.values = new Float32Array(14);
+    if (this.logScales.length < count * 3) this.logScales = new Float32Array(count * 3);
+    if (this.rotations.length < count * 4) this.rotations = new Float32Array(count * 4);
+  }
+
+  decode(buffer: ArrayBuffer): GaussianPlySource {
+    const header = parseHeader(buffer);
   const required = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3']
     .map(name => requiredFloat(header, name));
   const sh = shProperties(header);
@@ -254,11 +270,10 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
   const coefficientStride = (sh.degree + 1) ** 2 * 3;
   const shCoefficients = new Float32Array(header.count * coefficientStride);
   const covarianceChunkSize = Math.min(header.count, GAUSSIAN_PLY_COVARIANCE_CHUNK_SIZE);
-  const logScales = new Float32Array(covarianceChunkSize * 3);
-  const rotations = new Float32Array(covarianceChunkSize * 4);
+  this.ensureScratch(covarianceChunkSize);
+  const { values, logScales, rotations } = this;
   let covarianceChunkStart = 0, covarianceChunkCount = 0;
   // Reuse one row of scalar scratch space instead of allocating arrays per vertex.
-  const values = new Float32Array(required.length);
   const colorLabels = ['degree-zero red', 'degree-zero green', 'degree-zero blue'];
   for (let index = 0; index < header.count; index++) {
     const record = header.bodyOffset + index * header.stride;
@@ -308,6 +323,19 @@ export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
     }
   }
   return { centers, covariances, opacities, colors, shDegree: sh.degree, shCoefficients };
+}
+
+  /** Release reusable decode scratch while leaving the decoder usable for later loads. */
+  clear(): void {
+    this.values = new Float32Array(0);
+    this.logScales = new Float32Array(0);
+    this.rotations = new Float32Array(0);
+  }
+}
+
+/** Decode one PLY without retaining a reusable workspace. */
+export function parseGaussianSplatPly(buffer: ArrayBuffer): GaussianPlySource {
+  return new GaussianPlyDecoder().decode(buffer);
 }
 
 /**

@@ -1,12 +1,14 @@
 # 测试说明
 
-当前测试集共 **356 项**：92 项 Rust、127 项 Node、137 项 Chromium。PLY 基准新增独立进程内存探针与同实现对照；加载耗时使用独立基准记录，不在 CI 中断言速度。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
+当前测试集共 **357 项**：92 项 Rust、128 项 Node、137 项 Chromium。PLY 基准新增独立进程内存探针与同实现对照；加载耗时使用独立基准记录，不在 CI 中断言速度。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
 
 ## 覆盖范围
 
 PLY 解码计时：`npx tsx tests/benchmarks/ply-decode.ts 38493d8 500000 9`。指定提交只替换 PLY 解析器，依赖和 WASM 使用当前构建；报告保存解析器与 WASM 的 SHA-256。三轮预热后按 AB/BA 交替采样，比较五组完整输出字节并检查输入不变。仅计解码函数耗时，不强制 GC，不设置速度断言。两版共享已预热的 WASM，该脚本不测内存；旧版按顶点数推算的 `covarianceParameterBytes` 已移除，避免分块版本与自己比较仍显示减少。
 
 PLY 内存探针：`npx tsx tests/benchmarks/ply-memory.ts 38493d8 500000 3`。每个版本、SH 阶数和轮次各启一个独立 Node 进程与全新 WASM，顺序执行；协方差调用前后记录 `process.memoryUsage()` 和 WASM 线性内存容量，同时记录实际参数视图、底层缓冲和返回数组的字节数。输入与五组输出逐项比较 SHA-256；输入生成在解码前完成。显式 GC 只发生在解码前、保留输入/输出时和释放后，解码过程中不强制 GC；探针有额外开销，不能用此运行测耗时。
+
+PLY 重复加载：`GaussianPlyDecoder` 在 `GaussianPlyRenderer` 内复用行、尺度和旋转工作区；`resourceStats().decoderScratchBytes` 显示保留容量，`clear()` / `dispose()` 后归零。Node 用例以 65,537 与 1 项输入交替解码，要求容量不继续增长且输出保持一致；浏览器恢复用例另检查模型清空后的 scratch 归零。
 
 [2026-11-08 报告](benchmarks/2026-11-08-ply-memory.json)含 50 万项 SH0/SH3 的三轮探针、10 万项同实现对照和无探针计时。`samples` 是阶段快照，不能称作 JS 堆或 RSS 峰值；WASM 容量不是有效分配量，释放数组后不会缩小；`arrayBuffers` 已包含在 `external` 中，禁止相加。验证的是 Node 下同步加载，未包含浏览器、GPU 或真实模型画质。此前 [11-07 报告](benchmarks/2026-11-07-ply-covariance-chunks.json)对照 `0858abf`，包含行缓存与分块两项改动，其速度差不能单独归因于分块；该历史报告没有同实现对照。
 

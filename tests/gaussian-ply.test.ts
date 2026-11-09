@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import init from '../pkg/three_wasm_rust.js';
 import { gaussianPlyFixture, plyValue } from './fixtures/gaussian-ply.ts';
-import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianPlyForThreeCamera, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
+import { composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, GaussianPlyDecoder, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianPlyForThreeCamera, prepareGaussianRaster, transformGaussianPlyToCameraSpace } from '../web/engine/index.ts';
 
 await init({ module_or_path: await readFile(new URL('../pkg/three_wasm_rust_bg.wasm', import.meta.url)) });
 
@@ -186,6 +186,22 @@ test('PLY covariance decoding keeps chunk boundaries and reports global error in
   const rotation = fields.find(field => field.name === 'rot_0')!;
   new DataView(buffer).setFloat32(bodyOffset + (count - 1) * stride + rotation.offset, 0, true);
   assert.throws(() => parseGaussianSplatPly(buffer), new RegExp(`rotation must be non-zero at splat ${count - 1}`));
+});
+
+test('reusable PLY decoder keeps one bounded scratch capacity across replacement loads', () => {
+  const decoder = new GaussianPlyDecoder();
+  const large = gaussianPlyFixture((1 << 16) + 1, 0).buffer;
+  const small = gaussianPlyFixture(1, 0).buffer;
+  assert.equal(decoder.scratchBytes, 14 * 4);
+  decoder.decode(large);
+  const retained = decoder.scratchBytes;
+  assert.equal(retained, (14 + 3 * (1 << 16) + 4 * (1 << 16)) * 4);
+  decoder.decode(small);
+  assert.equal(decoder.scratchBytes, retained);
+  decoder.clear();
+  assert.equal(decoder.scratchBytes, 0);
+  decoder.decode(small);
+  assert.equal(decoder.scratchBytes, 14 * 4 + 7 * 4);
 });
 
 test('Three.js model and view matrices compose into the positive-z Gaussian camera convention', () => {
