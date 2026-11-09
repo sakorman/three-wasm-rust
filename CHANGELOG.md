@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-09 · PLY 解码工作区复用
+
+- `GaussianPlyRenderer` 现在持有可复用的 `GaussianPlyDecoder`。替换模型时复用行、尺度和旋转工作区，避免每次加载都重新申请最多 65,536 项的临时缓冲；`resourceStats()` 单独报告 scratch 容量，`clear()` / `dispose()` 后归零。一次性 `parseGaussianSplatPly()` 的行为保持不变。
+- 65,537 项与 1 项输入交替解码时，scratch 容量保持在 `(14 + 7 × 65,536) × 4 = 1,835,064` 字节；输出字段和协方差边界保持一致。浏览器上下文恢复及清空模型后 scratch 归零。
+- 验证：128 项 Node、7 项 PLY Chromium、TypeScript strict 和生产构建通过；未宣称端到端加载速度或 JS 堆峰值收益，输出数组仍按模型重新分配。复现 Node 用例：`npx tsx --test tests/gaussian-ply.test.ts`。
+- 设计参考 [Gaussian-Splat-Lite](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite)（Apache-2.0，2026-11-06 的 streaming/LOD 更新）对大场景分阶段资源管理的公开实现；本项只采用可复用工作区边界，未引入其代码、格式或 WebGPU 实现。
+
 ## 2026-11-08 · PLY 内存基准修正
 
 - 移除计时脚本写死的基线内存公式。此前以 `c45437d` 和自身比较，10 万项仍报告 2,800,000 → 1,835,008 字节；现在内存探针直接观测协方差调用参数，同版本两边均为 1,835,008 字节。每个样本使用独立进程和全新 WASM，并记录解析器与 WASM 摘要，避免共享实例已增长的容量污染结果。
