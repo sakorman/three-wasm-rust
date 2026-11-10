@@ -179,12 +179,13 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
       candidateCenters, candidateCovariances, camera.focalX, camera.focalY, clipPlane.normal, clipPlane.offset,
     )
     : undefined;
+  const originalIds = Uint32Array.from(order, index => supported[index]);
   const prepared: PreparedGaussianRaster = {
-    originalIds: Uint32Array.from(order, index => supported[index]),
+    originalIds,
     screenCenters: gather(screenCenters, 2, order),
     screenCovariances: gather(filteredCovariances, 3, order),
     opacities: gather(filteredOpacities, 1, order),
-    colors: gather(colors, 3, order),
+    colors: gather(colors, 3, originalIds),
     depths: gather(depths, 1, order),
     halfExtents: gather(halfExtents, 2, order),
     ...(clipCoefficients && { clipCoefficients: gather(clipCoefficients, 3, order) }),

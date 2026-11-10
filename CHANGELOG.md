@@ -2,6 +2,12 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-10 · 修复高斯剔除后的串色
+
+- `prepareGaussianRaster` 按源高斯 ID 读取 RGB。此前，不透明度或深度筛选移除前面的高斯后，后续高斯的位置和排序正确，却可能取到已剔除项的颜色。瓦片仍使用紧凑的局部索引。
+- 32×32 的五点场景中，三点分别因透明、超出远平面和离屏被剔除，留下远蓝、近绿两点。以只含蓝绿两点的同视角图像为参考，修复前整幅和瓦片绘制各有 567 个 RGBA 通道值不同，修复后两者均为 0。复现：`npx playwright test tests/browser/gaussian-color-culling.spec.ts`。
+- 15 项 Node、4 项 Chromium、类型检查和生产构建通过。本例验证颜色归属与透明合成，未测帧率或真实模型画质。索引约定可对照 [gsplat 的紧凑 RGB/SH 读取](https://github.com/nerfstudio-project/gsplat/blob/v1.5.3/gsplat/rendering.py#L470-L505)和[项目论文](https://arxiv.org/abs/2409.06765)。
+
 ## 2026-11-09 · PLY 解码工作区复用
 
 - `GaussianPlyRenderer` 现在持有可复用的 `GaussianPlyDecoder`。替换模型时复用行、尺度和旋转工作区，避免每次加载都重新申请最多 65,536 项的临时缓冲；`resourceStats()` 单独报告 scratch 容量，`clear()` / `dispose()` 后归零。一次性 `parseGaussianSplatPly()` 的行为保持不变。
