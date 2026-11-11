@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-11 · 相机穿过高斯模型时保留有效视图
+
+- 支持范围筛选接受有限的零深度和负深度，并在投影前剔除这些候选。此前只要一项处于相机平面或后方，就会拒绝整批数据；现在其余前方高斯继续绘制。非有限坐标、非法协方差和不透明度仍做整批校验。
+- 三点 PLY 的相机路径覆盖完整可见、部分可见、全部在后方和返回原视角，保留数量为 3 → 1 → 0 → 3；修复前整幅/瓦片路径均在第二视角抛错，修复后与手工选取前方点的参考图 RGBA 完全一致，空帧无残影，静止帧继续复用。复现：`npx playwright test tests/browser/gaussian-camera-crossing.spec.ts`。
+- 验证：3 项 Rust 深度支持测试、18 项 Node、6 项 Chromium、TypeScript strict、双目标 Clippy 和生产构建通过；4,097 项差分加入混合正负与零深度。没有测量速度收益。中心在后方但支持范围伸入前方的高斯仍被剔除，尚未实现跨相机平面的精确投影；相机恰好与中心重合时的 SH 求值仍会拒绝，待单独处理。
+- 参考 [gsplat 投影前的深度剔除](https://github.com/nerfstudio-project/gsplat/blob/512d366b67073d77ca099ede742683c165dfc23b/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu#L97-L105)（Apache-2.0）。近期相关研究 [Gaussian Point Splatting，SIGGRAPH 2026](https://www.momentsingraphics.de/Siggraph2026.html)采用随机点与层级剔除；本项只修正当前 EWA 路径的输入与可见性边界，未移植外部代码或改变排序算法。
+
 ## 2026-11-10 · 修复高斯剔除后的串色
 
 - `prepareGaussianRaster` 按源高斯 ID 读取 RGB。此前，不透明度或深度筛选移除前面的高斯后，后续高斯的位置和排序正确，却可能取到已剔除项的颜色。瓦片仍使用紧凑的局部索引。

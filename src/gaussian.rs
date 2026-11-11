@@ -1339,6 +1339,8 @@ fn depth_support_radius(variance_z: f32, opacity: f32, cutoff: f32) -> f64 {
 /// `sqrt(2 * Sigma_zz * ln(opacity / cutoff))`. This retains a positive-depth
 /// center when its support reaches the near or far plane; it does not clip the
 /// Gaussian geometry or make the perspective projection exact near the camera.
+/// Finite centers at or behind the camera plane are discarded before projection,
+/// even when their support reaches in front of it. All attributes remain validated.
 #[wasm_bindgen]
 pub fn gaussian_clip_depth_support_indices(
     centers: &[f32],
@@ -1372,7 +1374,6 @@ pub fn gaussian_clip_depth_support_indices(
         .enumerate()
     {
         if !center.iter().all(|value| value.is_finite())
-            || center[2] <= 0.
             || !valid_camera_covariance(covariance)
             || !opacity.is_finite()
             || !(0. ..=1.).contains(&opacity)
@@ -1391,7 +1392,7 @@ pub fn gaussian_clip_depth_support_indices(
         .filter(|&id| {
             let index = id as usize;
             let opacity = opacities[index];
-            if opacity < cutoff {
+            if opacity < cutoff || centers[index * 3 + 2] <= 0. {
                 return false;
             }
             let depth = f64::from(centers[index * 3 + 2]);
@@ -2159,6 +2160,48 @@ mod tests {
     }
 
     #[test]
+    fn depth_support_clipping_discards_nonpositive_depths() {
+        let depths = [-2., 0., -0., 0.5, 2.];
+        let centers: Vec<f32> = depths.iter().flat_map(|&z| [0., 0., z]).collect();
+        let mut covariances = [1., 0., 0., 1., 0., 100.].repeat(depths.len());
+        let opacities = [1.; 5];
+        let selected = gaussian_clip_depth_support_indices(
+            &centers,
+            &covariances,
+            &opacities,
+            &[4, 2, 0, 3, 1],
+            0.01,
+            1.,
+            4.,
+        )
+        .unwrap();
+        assert_eq!(selected, [4, 3]);
+        assert!(gaussian_clip_depth_support_indices(
+            &centers,
+            &covariances,
+            &opacities,
+            &[0, 1, 2],
+            0.01,
+            1.,
+            4.,
+        )
+        .unwrap()
+        .is_empty());
+        // Behind-camera data still participates in complete-batch validation.
+        covariances[5] = -1.;
+        assert!(gaussian_clip_depth_support_indices(
+            &centers,
+            &covariances,
+            &opacities,
+            &[4],
+            0.01,
+            1.,
+            4.,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn depth_support_clipping_validates_complete_batches() {
         let centers = [0., 0., 2., 0., 0., 2.];
         let covariances = [1., 0., 0., 1., 0., 1., 1., 0., 0., 1., 0., 1.];
@@ -2186,7 +2229,7 @@ mod tests {
         )
         .is_err());
         assert!(gaussian_clip_depth_support_indices(
-            &[0., 0., 2., 0., 0., 0.],
+            &[0., 0., 2., 0., 0., f32::NAN],
             &covariances,
             &opacities,
             &[0],
