@@ -36,7 +36,8 @@ test('support-depth clipping contains analytical intersections over 4097 finite 
     const radius = alpha > cutoff ? Math.sqrt(2 * zz * Math.log(alpha / cutoff)) : 0;
     const position = [near - radius, near - radius * 1.01, near + radius * .5,
       far + radius, far + radius * 1.01, 96][i % 6];
-    centers.set([Math.fround((i % 13) - 6), Math.fround((i % 17) - 8), Math.fround(position)], i * 3);
+    const depth = i % 13 === 0 ? -position : i % 13 === 1 ? 0 : position;
+    centers.set([Math.fround((i % 13) - 6), Math.fround((i % 17) - 8), Math.fround(depth)], i * 3);
   }
   const candidates = Uint32Array.from({ length: count }, (_, i) => count - i - 1);
   const expected = Array.from(candidates).filter(id => {
@@ -44,7 +45,7 @@ test('support-depth clipping contains analytical intersections over 4097 finite 
     if (alpha < cutoff) return false;
     const radius = alpha === cutoff ? 0 : Math.sqrt(2 * covariance[id * 6 + 5] * Math.log(alpha / cutoff));
     const z = centers[id * 3 + 2];
-    return z - radius <= far && z + radius >= near;
+    return z > 0 && z - radius <= far && z + radius >= near;
   });
   const actual = Array.from(gaussian_clip_depth_support_indices(centers, covariance, opacity, candidates, cutoff, near, far));
   const retained = new Set(actual);
@@ -60,6 +61,6 @@ test('support-depth clipping rejects invalid complete batches without partial ou
   assert.throws(() => gaussian_clip_depth_support_indices(centers, covariance, opacity, new Uint32Array([0, 0]), .01, 1, 4), /duplicate/);
   assert.throws(() => gaussian_clip_depth_support_indices(centers, covariance, opacity, new Uint32Array([2]), .01, 1, 4), /out of range/);
   assert.throws(() => gaussian_clip_depth_support_indices(centers, covariance, new Float32Array([1, NaN]), new Uint32Array([0]), .01, 1, 4), /opacity/);
-  assert.throws(() => gaussian_clip_depth_support_indices(new Float32Array([0, 0, 2, 0, 0, 0]), covariance, opacity, new Uint32Array([0]), .01, 1, 4), /depth/);
+  assert.throws(() => gaussian_clip_depth_support_indices(new Float32Array([0, 0, 2, 0, 0, NaN]), covariance, opacity, new Uint32Array([0]), .01, 1, 4), /depth/);
   assert.throws(() => gaussian_clip_depth_support_indices(centers, covariance, opacity, new Uint32Array(), .01, 1, NaN), /near/);
 });
