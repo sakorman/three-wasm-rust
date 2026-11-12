@@ -394,8 +394,8 @@ export function transformGaussianPlyToCameraSpace(source: GaussianPlySource, wor
 /**
  * Prepare one trained PLY view from copied Three.js model and camera state.
  *
- * SH colors are evaluated with the camera position transformed back into model space, while
- * centers and covariances use the matching positive-z camera transform. The returned compact
+ * Only retained splats have SH evaluated, using the camera position in model space.
+ * Centers and covariances use the matching positive-z camera transform. The returned compact
  * raster view is independent from the source and all input matrix/position arrays.
  */
 export function prepareGaussianPlyForThreeCamera({
@@ -410,8 +410,17 @@ export function prepareGaussianPlyForThreeCamera({
   tileSize,
 }: GaussianPlyThreeCameraOptions): PreparedGaussianRaster {
   const modelCameraPosition = modelCameraPositionFromThreeWorld(modelToWorld, threeCameraWorldPosition);
-  const colors = evaluateGaussianPlyShColors(source, modelCameraPosition);
   const worldToCamera = composeThreeModelToPositiveZCamera(modelToWorld, threeWorldToView);
   const cameraSource = transformGaussianPlyToCameraSpace(source, worldToCamera);
-  return prepareGaussianRaster({ ...cameraSource, colors, cutoff, camera, filterVariance, clipPlane, tileSize });
+  const prepared = prepareGaussianRaster({ ...cameraSource, cutoff, camera, filterVariance, clipPlane, tileSize });
+  // Geometry culling precedes direction normalization: a culled center may coincide with the camera.
+  const count = prepared.originalIds.length, stride = 3 * (source.shDegree + 1) ** 2;
+  const centers = new Float32Array(count * 3), coefficients = new Float32Array(count * stride);
+  for (let index = 0; index < count; index++) {
+    const id = prepared.originalIds[index];
+    centers.set(source.centers.subarray(id * 3, (id + 1) * 3), index * 3);
+    coefficients.set(source.shCoefficients.subarray(id * stride, (id + 1) * stride), index * stride);
+  }
+  prepared.colors = gaussian_sh_colors(centers, coefficients, source.shDegree, modelCameraPosition);
+  return prepared;
 }

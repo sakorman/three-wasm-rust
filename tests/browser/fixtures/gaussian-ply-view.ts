@@ -1,8 +1,8 @@
 import type { GaussianPlyRenderOptions } from '../../../web/engine/index.ts';
 
-export function syntheticPly(shift = 0): ArrayBuffer {
+export function syntheticPly(shift = 0, degree = 1): ArrayBuffer {
   const fields = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2',
-    'rot_0', 'rot_1', 'rot_2', 'rot_3', ...Array.from({ length: 9 }, (_, index) => `f_rest_${index}`)];
+    'rot_0', 'rot_1', 'rot_2', 'rot_3', ...Array.from({ length: 3 * ((degree + 1) ** 2 - 1) }, (_, index) => `f_rest_${index}`)];
   const rows = [
     [-.25 + shift, 0, 2, 1, -.5, -.5, 1, -2, -2, -2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
     [.2 + shift, .1, 3, -.5, 1, -.5, 1, -2, -1.8, -2, 1, 0, 0, 0, 0, .5, 0, 0, 0, 0, 0, 0, 0],
@@ -13,7 +13,8 @@ export function syntheticPly(shift = 0): ArrayBuffer {
   const buffer = new ArrayBuffer(header.length + rows.length * fields.length * 4);
   new Uint8Array(buffer).set(header);
   const data = new DataView(buffer);
-  rows.forEach((row, index) => row.forEach((value, column) => data.setFloat32(header.length + (index * fields.length + column) * 4, value, true)));
+  rows.forEach((row, index) => fields.forEach((_, column) =>
+    data.setFloat32(header.length + (index * fields.length + column) * 4, row[column] ?? .1 * (index + 1) / (column - 13), true)));
   return buffer;
 }
 
