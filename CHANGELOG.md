@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-12 · 可见高斯筛选先于 SH 求值
+
+- PLY 视图先完成几何筛选，再按源 ID 收集模型空间中心与 SH 系数，由 Rust/WASM 求保留项的颜色。此前相机恰好位于某个高斯中心时，即使该点应被剔除，也会因方向归一化失败中断整帧；现在其余可见点继续绘制。独立 SH 求值接口仍拒绝零方向，没有为高阶 SH 虚设观察方向。
+- 0–3 阶 PLY 各覆盖整幅和瓦片路径，相机经过两个高斯中心、移到模型前方再返回，保留数量为 3 → 2 → 1 → 0 → 3。40 组视角输出与手工选取可见项的参考图 RGBA 完全一致；静止帧复用、空帧和返回视角均正常。Node 另验证非连续源 ID 的颜色对应、输入不变，以及已剔除项的非法 SH/坐标仍被拒绝。
+- 16 项相关 Node、13 项 Chromium、TypeScript strict 和生产构建通过。复现：`npx playwright test tests/browser/gaussian-camera-crossing.spec.ts`。收集可见子集仍需临时数组与 JS/WASM 复制，未测端到端耗时或内存峰值，不宣称提速。
+- 参考 [gsplat 的 SH 可见性掩码](https://github.com/nerfstudio-project/gsplat/blob/512d366b67073d77ca099ede742683c165dfc23b/gsplat/cuda/csrc/SphericalHarmonicsCUDA.cu#L476-L487)（Apache-2.0）及 [Neo，ASPLOS 2026，图 2 的筛选/特征阶段](https://jinuhwang.github.io/papers/2026-asplos-neo.pdf)。本项只调整阶段顺序，未引入其 CUDA 代码、专用硬件或排序算法。
+
 ## 2026-11-11 · 相机穿过高斯模型时保留有效视图
 
 - 支持范围筛选接受有限的零深度和负深度，并在投影前剔除这些候选。此前只要一项处于相机平面或后方，就会拒绝整批数据；现在其余前方高斯继续绘制。非有限坐标、非法协方差和不透明度仍做整批校验。

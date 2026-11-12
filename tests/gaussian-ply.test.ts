@@ -108,6 +108,35 @@ test('complete degree-one PLY coefficients produce view-dependent linear RGB in 
   }
 });
 
+test('PLY preparation evaluates retained SH in source order and still rejects invalid culled attributes', () => {
+  for (const degree of [0, 1, 2, 3] as const) {
+    const source = parseGaussianSplatPly(gaussianPlyFixture(5, degree).buffer);
+    source.centers.set([0, 0, 0, 0, 0, -2, 0, 0, -4, 0, 0, 2, 100, 0, -3]);
+    const coefficientStride = 3 * (degree + 1) ** 2;
+    const saved = source.shCoefficients.slice(), centers = source.centers.slice();
+    const model = new THREE.Matrix4(), view = new THREE.Matrix4();
+    const options = {
+      source, modelToWorld: new Float32Array(model.elements), threeWorldToView: new Float32Array(view.elements),
+      threeCameraWorldPosition: new Float32Array([0, 0, 0]), cutoff: .01, tileSize: 16,
+      camera: { focalX: 32, focalY: 32, principalX: 16, principalY: 16, near: .1, far: 10, width: 32, height: 32 },
+    };
+    const subset = (data: Float32Array, stride: number) => data.slice(stride, stride * 3);
+    const selected = { ...source, centers: subset(source.centers, 3), covariances: subset(source.covariances, 6),
+      opacities: subset(source.opacities, 1), colors: subset(source.colors, 3), shCoefficients: subset(source.shCoefficients, coefficientStride) };
+    const expected = evaluateGaussianPlyShColors(selected, options.threeCameraWorldPosition);
+    const prepared = prepareGaussianPlyForThreeCamera(options);
+    assert.deepEqual(Array.from(prepared.originalIds), [2, 1]);
+    assert.deepEqual(prepared.colors, new Float32Array([...expected.slice(3), ...expected.slice(0, 3)]));
+    assert.deepEqual(source.shCoefficients, saved);
+    assert.deepEqual(source.centers, centers);
+    source.shCoefficients[0] = NaN;
+    assert.throws(() => prepareGaussianPlyForThreeCamera(options), /SH coefficient/);
+    source.shCoefficients.set(saved);
+    source.centers[0] = NaN;
+    assert.throws(() => prepareGaussianPlyForThreeCamera(options), /center/);
+  }
+});
+
 test('trained PLY parser rejects truncated, unsupported and invalid source records before preparation', () => {
   const valid = binaryPly([vertex({})]);
   assert.throws(() => parseGaussianSplatPly(valid.slice(0, valid.byteLength - 1)), /truncated/);
