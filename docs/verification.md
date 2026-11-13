@@ -1,6 +1,6 @@
 # 测试说明
 
-当前测试集共 **368 项**：93 项 Rust、129 项 Node、146 项 Chromium。PLY 基准新增独立进程内存探针与同实现对照；加载耗时使用独立基准记录，不在 CI 中断言速度。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
+当前测试集共 **369 项**：93 项 Rust、130 项 Node、146 项 Chromium。PLY 基准新增独立进程内存探针与同实现对照；加载耗时使用独立基准记录，不在 CI 中断言速度。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
 
 ## 覆盖范围
 

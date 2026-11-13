@@ -2,6 +2,12 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-13 · 零阶球谐颜色允许在高斯中心求值
+
+- 独立 PLY 颜色接口此前在相机与任一高斯中心重合时拒绝整批求值。零阶现在直接使用 DC 系数：测试中，相机分别位于两个高斯中心和坐标原点时，两组 RGB 都与解码颜色逐项一致。负值仍截为零，大于 1 的线性颜色保留。一至三阶依赖观察方向，重合时仍报错。
+- 验证：2 项 Rust、11 项 PLY 集成测试、11 项 Chromium 渲染测试通过，覆盖整幅与瓦片绘制、相机穿过中心以及高阶颜色的像素对照。TypeScript strict、Clippy 和生产构建通过。可用 `npx tsx --test tests/gaussian-ply.test.ts` 复现；本项未测量帧率。
+- 参考：[AESplat 对零阶与高阶外观的区分](https://arxiv.org/abs/2609.36693)（2026-09），[gsplat 按阶数计算观察方向的 CUDA 实现](https://github.com/nerfstudio-project/gsplat/blob/fd6ccddc0500e7f4d860aa8420e63d60d639e384/gsplat/cuda/csrc/SphericalHarmonicsCUDA.cu#L58-L68)（Apache-2.0）。
+
 ## 2026-11-12 · 可见高斯筛选先于 SH 求值
 
 - PLY 视图先完成几何筛选，再按源 ID 收集模型空间中心与 SH 系数，由 Rust/WASM 求保留项的颜色。此前相机恰好位于某个高斯中心时，即使该点应被剔除，也会因方向归一化失败中断整帧；现在其余可见点继续绘制。独立 SH 求值接口仍拒绝零方向，没有为高阶 SH 虚设观察方向。

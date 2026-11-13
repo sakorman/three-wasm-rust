@@ -53,14 +53,39 @@ fn finite_f32(value: f64, message: &str) -> Result<f32, String> {
     }
 }
 
-fn sh_basis(degree: u32, [x, y, z]: [f64; 3]) -> [f64; 16] {
+fn sh_basis(
+    degree: u32,
+    center: &[f32; 3],
+    camera: &[f32; 3],
+    index: usize,
+) -> Result<[f64; 16], String> {
     let mut result = [0.; 16];
     result[0] = SH_C0;
-    if degree >= 1 {
-        result[1] = -SH_C1 * y;
-        result[2] = SH_C1 * z;
-        result[3] = -SH_C1 * x;
+    if degree == 0 {
+        return Ok(result);
     }
+    let direction = [
+        f64::from(center[0]) - f64::from(camera[0]),
+        f64::from(center[1]) - f64::from(camera[1]),
+        f64::from(center[2]) - f64::from(camera[2]),
+    ];
+    let maximum = direction
+        .iter()
+        .fold(0_f64, |maximum, value| maximum.max(value.abs()));
+    if maximum == 0. {
+        return Err(format!(
+            "Gaussian SH camera position coincides with splat {index}"
+        ));
+    }
+    let unit = direction.map(|value| value / maximum);
+    let length = maximum * (unit.iter().map(|value| value * value).sum::<f64>()).sqrt();
+    if !length.is_finite() || length == 0. {
+        return Err(format!("Gaussian SH direction is invalid at splat {index}"));
+    }
+    let [x, y, z] = direction.map(|value| value / length);
+    result[1] = -SH_C1 * y;
+    result[2] = SH_C1 * z;
+    result[3] = -SH_C1 * x;
     if degree >= 2 {
         let xx = x * x;
         let yy = y * y;
@@ -83,7 +108,7 @@ fn sh_basis(degree: u32, [x, y, z]: [f64; 3]) -> [f64; 16] {
         result[14] = SH_C3[5] * z * (xx - yy);
         result[15] = SH_C3[6] * x * (xx - 3. * yy);
     }
-    result
+    Ok(result)
 }
 
 fn affine_camera_matrix<'a>(values: &'a [f32], label: &str) -> Result<&'a Mat4, String> {
@@ -254,6 +279,8 @@ pub fn gaussian_covariances_from_log_scales_rotations(
 ///
 /// `coefficients` is packed per splat as coefficient-major RGB triples: `[r0, g0, b0,
 /// r1, g1, b1, ...]`. Centers and `camera_position` must use the same coordinate system.
+/// Degree zero uses only the DC coefficient and allows coincident centers and camera.
+/// Degrees one through three require a nonzero viewing direction for each center.
 /// The output is non-negative linear RGB after the original 3DGS `+0.5` bias.
 #[wasm_bindgen]
 pub fn gaussian_sh_colors(
@@ -289,25 +316,7 @@ pub fn gaussian_sh_colors(
         if !center.iter().all(|value| value.is_finite()) {
             return Err(format!("Gaussian SH center is non-finite at splat {index}"));
         }
-        let direction = [
-            f64::from(center[0]) - f64::from(camera_position[0]),
-            f64::from(center[1]) - f64::from(camera_position[1]),
-            f64::from(center[2]) - f64::from(camera_position[2]),
-        ];
-        let maximum = direction
-            .iter()
-            .fold(0_f64, |maximum, value| maximum.max(value.abs()));
-        if maximum == 0. {
-            return Err(format!(
-                "Gaussian SH camera position coincides with splat {index}"
-            ));
-        }
-        let unit = direction.map(|value| value / maximum);
-        let length = maximum * (unit.iter().map(|value| value * value).sum::<f64>()).sqrt();
-        if !length.is_finite() || length == 0. {
-            return Err(format!("Gaussian SH direction is invalid at splat {index}"));
-        }
-        let basis = sh_basis(degree, direction.map(|value| value / length));
+        let basis = sh_basis(degree, center, camera_position, index)?;
         let coefficient_offset = index * coefficient_count * 3;
         for channel in 0..3 {
             let mut color = 0.;
@@ -1568,7 +1577,16 @@ mod tests {
         assert!(gaussian_sh_colors(&centers, &coefficients, 4, &[0., 0., 0.]).is_err());
         assert!(gaussian_sh_colors(&centers, &[], 0, &[0., 0., 0.]).is_err());
         assert!(gaussian_sh_colors(&centers, &coefficients, 0, &[0., 0.]).is_err());
-        assert!(gaussian_sh_colors(&centers, &coefficients, 0, &[0., 0., 1.]).is_err());
+        for degree in 1..=3_u32 {
+            let coefficients = vec![0.; 3 * (degree as usize + 1).pow(2)];
+            assert!(
+                gaussian_sh_colors(&centers, &coefficients, degree, &centers)
+                    .unwrap_err()
+                    .contains("coincides")
+            );
+        }
+        assert!(gaussian_sh_colors(&[0., f32::NAN, 1.], &coefficients, 0, &centers).is_err());
+        assert!(gaussian_sh_colors(&centers, &coefficients, 0, &[0., 0., f32::INFINITY]).is_err());
         assert!(gaussian_sh_colors(&centers, &[f32::NAN, 0., 0.], 0, &[0., 0., 0.]).is_err());
     }
 

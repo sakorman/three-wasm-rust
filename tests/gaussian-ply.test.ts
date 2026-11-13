@@ -92,6 +92,21 @@ test('trained binary PLY decodes activated attributes and degree-zero SH into th
   close(prepared.colors[3], cameraSource.colors[0]);
 });
 
+test('degree-zero PLY colors match decoded DC at every splat center and away from the model', () => {
+  const source = parseGaussianSplatPly(binaryPly([
+    vertex({ x: 1, y: 2, z: 3, f_dc_0: -4, f_dc_2: 3 }),
+    vertex({ x: -1, y: -2, z: -3, f_dc_1: 1 }),
+  ], fields.filter(name => !name.startsWith('f_rest_'))));
+  assert.equal(source.shDegree, 0);
+  const expected = source.colors.slice();
+  source.colors.fill(0); // The evaluator must read the SH coefficients, not cached RGB.
+  for (const camera of [source.centers.slice(0, 3), source.centers.slice(3), new Float32Array(3)]) {
+    assert.deepEqual(evaluateGaussianPlyShColors(source, camera), expected);
+  }
+  assert.equal(expected[0], 0);
+  assert.ok(expected[2] > 1);
+});
+
 test('complete degree-one PLY coefficients produce view-dependent linear RGB in model coordinates', () => {
   const source = parseGaussianSplatPly(binaryPly([vertex({ f_rest_4: 1 })]));
   const evaluated = evaluateGaussianPlyShColors(source, new Float32Array([0, 0, 0]));
