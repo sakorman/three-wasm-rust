@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-14 · 离屏高斯不再中断裁切视图
+
+- 半空间裁切系数只为视口筛选后的高斯计算，并直接按最终绘制顺序输出。此前，已离屏的有限坐标仍参与系数求值：回归场景中两点的 x 为 ±1e35，开启裁切就因系数超过 f32 范围而拒绝整帧；现在正常保留源 ID `[3, 1]` 的两点，全部离屏时返回空视图。
+- 非法源几何仍整批拒绝，空视图仍校验裁切平面；可见点的系数溢出仍报错。32×32 场景在三组平面下，整幅和瓦片路径均与只含可见点的参考图逐字节一致；关闭裁切会改变像素，确认裁切实际生效。上下文恢复、空帧、重新上传和释放均通过回归。
+- 10 项 Node、6 项 Chromium、TypeScript strict 和生产构建通过。复现：`npx tsx --test tests/gaussian-clip-culling.test.ts`；`npx playwright test tests/browser/gaussian-clip-culling.spec.ts`。本项只修正准备阶段的求值范围，未测速度或内存峰值；高斯入口尚未接入首页 Mesh 对照，跨相机平面的投影误差仍待评估。
+- 系数模型参考 [XClipGS v2](https://arxiv.org/abs/2608.07760v2)（2026-10-01，仿射 EWA 与条件 CDF）；可见性阶段对照 [gsplat 的视口边界筛选](https://github.com/nerfstudio-project/gsplat/blob/9c68e4ccd49825baa50c8b6c7a03cd98ecff1c48/gsplat/cuda/csrc/ProjectionEWA3DGSFused.cu#L195-L204)（Apache-2.0）。未引入外部代码或论文实验数据。
+
 ## 2026-11-13 · 零阶球谐颜色允许在高斯中心求值
 
 - 独立 PLY 颜色接口此前在相机与任一高斯中心重合时拒绝整批求值。零阶现在直接使用 DC 系数：测试中，相机分别位于两个高斯中心和坐标原点时，两组 RGB 都与解码颜色逐项一致。负值仍截为零，大于 1 的线性颜色保留。一至三阶依赖观察方向，重合时仍报错。
