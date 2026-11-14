@@ -174,9 +174,11 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
     screenCenters, halfExtents, localIndices(supported.length), camera.width, camera.height,
   );
   const order = gaussian_depth_order(depths, viewport);
+  // Only retained splats need clip coefficients. Culled geometry has already been validated.
   const clipCoefficients = clipPlane
     ? gaussian_halfspace_clip_coefficients(
-      candidateCenters, candidateCovariances, camera.focalX, camera.focalY, clipPlane.normal, clipPlane.offset,
+      gather(candidateCenters, 3, order), gather(candidateCovariances, 6, order),
+      camera.focalX, camera.focalY, clipPlane.normal, clipPlane.offset,
     )
     : undefined;
   const originalIds = Uint32Array.from(order, index => supported[index]);
@@ -188,7 +190,7 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
     colors: gather(colors, 3, originalIds),
     depths: gather(depths, 1, order),
     halfExtents: gather(halfExtents, 2, order),
-    ...(clipCoefficients && { clipCoefficients: gather(clipCoefficients, 3, order) }),
+    ...(clipCoefficients && { clipCoefficients }),
   };
   if (options.tileSize !== undefined) {
     const columns = Math.ceil(camera.width / options.tileSize);

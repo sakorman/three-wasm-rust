@@ -335,6 +335,8 @@ const ids = orderedPacked.subarray(tileCount + 1);
 
 `prepareGaussianRaster()` 将已有的 WASM 内核组合为一份相机视图数据：不透明度筛选、近远支持范围筛选、投影、可选屏幕滤波、范围、视口筛选和中心深度排序依次执行；可选地附加半空间裁切系数和瓦片分箱。它不创建 WebGL 资源，因此可用于不同的 WebGL/WebGPU 上传策略。
 
+裁切系数只对视口保留项计算，直接采用最终紧凑顺序；不再因离屏项的系数超过 f32 范围而拒绝可见视图。源几何仍整批校验，空输出仍会检查平面参数，可见项的系数溢出继续报错。这不改变仿射 EWA 投影和 CDF 公式。`tests/browser/gaussian-clip-culling.spec.ts` 覆盖非连续源 ID、三组平面的像素对照、整幅/瓦片绘制、空帧及上下文恢复。
+
 ```ts
 import { init, prepareGaussianRaster } from './web/engine/index.ts';
 
