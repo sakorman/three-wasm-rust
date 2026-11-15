@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-15 · 高斯裁切边缘与屏幕滤波一致
+
+- 修复同时开启屏幕滤波和半空间裁切时，轮廓已变宽、裁切 CDF 却仍使用原始协方差的问题。Rust 新增带滤波方差的系数接口，准备链路统一使用滤波后的屏幕协方差计算条件分布；保留旧接口和零滤波结果，拒绝非法滤波及输出溢出。
+- 以“先裁切密度、再做高斯卷积”的独立数值积分作参考：三种平面方向、三档滤波方差（0.25、1、4）的 32×32 图像，修复前 RGBA 最大误差为 57/255；修复后整幅与瓦片共 18 幅图像逐字节一致，WebGL 错误为零。另有 225 个连续位置采样，alpha 误差均小于 `3e-6`。这些是合成场景正确性结果，不代表真实模型 PSNR 或帧率收益。
+- 94 项 Rust、15 项相关 Node、9 项 Chromium 回归、TypeScript strict、原生与 WASM Clippy、生产构建通过。复现：`npx tsx --test tests/gaussian-filtered-clip.test.ts`；`npx playwright test tests/browser/gaussian-filtered-clip.spec.ts`，像素报告写入 `test-results/**/filtered-clip.json`。局部仿射 EWA 近似及条件方差 `1e-8` 下限仍保留；首页仍是 Mesh 对照，真实模型、多高斯重叠和跨相机平面的误差待验证。
+- 参考 [XClipGS v2](https://arxiv.org/abs/2608.07760v2)（2026-10-01）的条件 CDF，以及 [gsplat 屏幕滤波实现](https://github.com/nerfstudio-project/gsplat/blob/4561ac47389150e81a980ea05743d816077dff88/gsplat/cuda/include/Utils.cuh#L455-L463)（2026-07-09，Apache-2.0）与[抗锯齿参数说明](https://docs.gsplat.studio/main/apis/rasterization.html)。这里独立扩展联合高斯模型，未引入外部 CUDA 代码或论文实验数据；文档同时明确平面正比例缩放才保持同一保留侧。
+
 ## 2026-11-14 · 离屏高斯不再中断裁切视图
 
 - 半空间裁切系数只为视口筛选后的高斯计算，并直接按最终绘制顺序输出。此前，已离屏的有限坐标仍参与系数求值：回归场景中两点的 x 为 ±1e35，开启裁切就因系数超过 f32 范围而拒绝整帧；现在正常保留源 ID `[3, 1]` 的两点，全部离屏时返回空视图。

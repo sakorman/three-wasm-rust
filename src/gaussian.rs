@@ -683,6 +683,35 @@ pub fn gaussian_halfspace_clip_coefficients(
     plane_normal: &[f32],
     plane_offset: f32,
 ) -> Result<Vec<f32>, String> {
+    gaussian_filtered_halfspace_clip_coefficients(
+        centers,
+        covariances,
+        focal_x,
+        focal_y,
+        plane_normal,
+        plane_offset,
+        0.,
+    )
+}
+
+/// Half-space coefficients after isotropic screen-space Gaussian filtering.
+///
+/// Independent screen blur changes the conditional distribution through
+/// `A + filter_variance * I`, but leaves `J * Sigma * normal` unchanged.
+/// Projection and filtering round to f32 in the same order as the raster pipeline.
+#[wasm_bindgen]
+pub fn gaussian_filtered_halfspace_clip_coefficients(
+    centers: &[f32],
+    covariances: &[f32],
+    focal_x: f32,
+    focal_y: f32,
+    plane_normal: &[f32],
+    plane_offset: f32,
+    filter_variance: f32,
+) -> Result<Vec<f32>, String> {
+    if !filter_variance.is_finite() || filter_variance < 0. {
+        return Err("Gaussian filter variance must be finite and nonnegative".into());
+    }
     if !centers.len().is_multiple_of(3)
         || covariances.len() != centers.len() / 3 * 6
         || centers.len() / 3 > MAX_SPLATS
@@ -763,6 +792,27 @@ pub fn gaussian_halfspace_clip_coefficients(
             ));
         }
         let covariance_2d = covariance_2d.map(f64::from);
+        let covariance_2d = if filter_variance == 0. {
+            covariance_2d
+        } else {
+            let filtered = [
+                finite_f32(
+                    covariance_2d[0] + f64::from(filter_variance),
+                    "filtered Gaussian covariance exceeds f32 range",
+                )?,
+                covariance_2d[1] as f32,
+                finite_f32(
+                    covariance_2d[2] + f64::from(filter_variance),
+                    "filtered Gaussian covariance exceeds f32 range",
+                )?,
+            ];
+            if !valid_screen_covariance(&filtered) {
+                return Err(format!(
+                    "filtered Gaussian covariance is not positive definite in f32 at splat {index}"
+                ));
+            }
+            filtered.map(f64::from)
+        };
         let determinant = covariance_2d[0] * covariance_2d[2] - covariance_2d[1] * covariance_2d[1];
         let inverse = [
             covariance_2d[2] / determinant,
@@ -1729,6 +1779,57 @@ mod tests {
         for (value, scaled) in coefficients.iter().zip(scaled) {
             assert!((value - scaled).abs() < 2e-6);
         }
+    }
+
+    #[test]
+    fn filtered_halfspace_matches_the_blurred_joint_distribution() {
+        let centers = [0., 0., 2.];
+        let covariance = [1. / 64., 0., 0., 1. / 64., 0., 1. / 64.];
+        let normal = [1., 0., 0.];
+        let unfiltered =
+            gaussian_halfspace_clip_coefficients(&centers, &covariance, 16., 16., &normal, 0.0625)
+                .unwrap();
+        assert_eq!(unfiltered, [1250., 0., 625.]);
+        let coefficients = |variance| {
+            gaussian_filtered_halfspace_clip_coefficients(
+                &centers,
+                &covariance,
+                16.,
+                16.,
+                &normal,
+                0.0625,
+                variance,
+            )
+        };
+        assert_eq!(coefficients(0.).unwrap(), unfiltered);
+        let filtered = coefficients(1.).unwrap();
+        // Unit screen variance plus unit blur gives conditional variance 1/128.
+        assert!((filtered[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
+        assert_eq!(filtered[1], 0.);
+        assert_eq!(filtered[0], filtered[2]);
+        for variance in [-1., f32::NAN, f32::INFINITY] {
+            assert!(coefficients(variance).is_err());
+            assert!(gaussian_filtered_halfspace_clip_coefficients(
+                &[],
+                &[],
+                16.,
+                16.,
+                &normal,
+                0.,
+                variance,
+            )
+            .is_err());
+        }
+        assert!(gaussian_filtered_halfspace_clip_coefficients(
+            &centers,
+            &[f32::MAX, 0., 0., f32::MAX, 0., f32::MAX],
+            2.,
+            2.,
+            &normal,
+            0.,
+            f32::MAX,
+        )
+        .is_err());
     }
 
     #[test]
