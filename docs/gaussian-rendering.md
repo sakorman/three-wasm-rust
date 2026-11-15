@@ -121,7 +121,7 @@ J = [ fx/z       0       -fx*x/z² ]
 
 ### 半空间裁切系数
 
-`gaussian_halfspace_clip_coefficients()` 为每个相机空间高斯准备一个裁切三元组 `[kx, ky, h]`。平面保留侧为 `dot(normal, position) ≤ offset`；法线与偏移会一起归一化，因此按同一非零比例缩放两者仍表示同一平面。近平面 `z ≥ near` 可传入 `normal = [0, 0, -1]`、`offset = -near`。
+`gaussian_halfspace_clip_coefficients()` 为每个相机空间高斯准备一个裁切三元组 `[kx, ky, h]`。平面保留侧为 `dot(normal, position) ≤ offset`；法线与偏移会一起归一化，因此按同一正比例缩放两者仍表示同一保留半空间。近平面 `z ≥ near` 可传入 `normal = [0, 0, -1]`、`offset = -near`。
 
 对投影中心与当前像素的位移 `delta = screenCenter - pixel`，片元阶段将原有 alpha 乘以：
 
@@ -149,7 +149,9 @@ const clip = gaussian_halfspace_clip_coefficients(
 
 接口使用与投影接口一致的 f32 屏幕协方差，并拒绝无效中心、协方差、焦距或平面。仿射条件方差因屏幕坐标已确定某个平面方向而退化时，`s²` 最小按 `1e-8` 处理以保持输出有限；这是一项数值保护，不是更精确的几何裁切。
 
-当前结果只准备系数，主渲染器尚未上传它或在片元中实现 CDF。该模型只覆盖局部仿射 EWA 近似；宽视场、相机接近或位于高斯内部、多个高斯的合成顺序仍需在完整渲染路径中验证。它不提供模型级 PSNR、SSIM、GPU 时间或帧率结论。公式参考 [XClipGS](https://arxiv.org/abs/2608.07760)，实现不包含其代码、模型或实验数据。
+启用屏幕低通滤波时，应调用 `gaussian_filtered_halfspace_clip_coefficients(centers, covariances, focalX, focalY, normal, offset, filterVariance)`。独立的屏幕高斯噪声将上述 `A` 替换为 `Aε = A + εI`，而 `b` 和 `nᵀΣn` 不变；求逆、条件方差和 `k` 均采用 `Aε`。这对应先限制半空间密度、再做屏幕卷积，不能对已滤波的轮廓继续使用未滤波的 CDF 系数。两次 f32 舍入与投影和滤波阶段一致；零滤波与旧接口输出相同，负值、非有限滤波和输出溢出报错。`prepareGaussianRaster()` 自动传递同一 `filterVariance`。
+
+接口只准备系数，`GaussianRasterRenderer` 在片元应用 CDF；首页仍是 Mesh 对照。该模型只覆盖局部仿射 EWA 近似；宽视场、相机接近或位于高斯内部、多个高斯的合成顺序仍需在完整渲染路径中验证。它不提供模型级 PSNR、SSIM、GPU 时间或帧率结论。条件 CDF 公式参考 [XClipGS v2](https://arxiv.org/abs/2608.07760v2)；加入独立屏幕滤波是这里对联合高斯的扩展，未引入论文代码、模型或实验数据。
 
 ### 屏幕低通滤波
 

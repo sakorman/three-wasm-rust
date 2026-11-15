@@ -2,7 +2,7 @@ import {
   gaussian_clip_depth_support_indices,
   gaussian_depth_order,
   gaussian_filter_screen_covariances,
-  gaussian_halfspace_clip_coefficients,
+  gaussian_filtered_halfspace_clip_coefficients,
   gaussian_project_covariances,
   gaussian_screen_bounds,
   gaussian_tile_bins,
@@ -176,9 +176,9 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
   const order = gaussian_depth_order(depths, viewport);
   // Only retained splats need clip coefficients. Culled geometry has already been validated.
   const clipCoefficients = clipPlane
-    ? gaussian_halfspace_clip_coefficients(
+    ? gaussian_filtered_halfspace_clip_coefficients(
       gather(candidateCenters, 3, order), gather(candidateCovariances, 6, order),
-      camera.focalX, camera.focalY, clipPlane.normal, clipPlane.offset,
+      camera.focalX, camera.focalY, clipPlane.normal, clipPlane.offset, filterVariance,
     )
     : undefined;
   const originalIds = Uint32Array.from(order, index => supported[index]);
