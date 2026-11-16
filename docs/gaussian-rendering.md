@@ -147,7 +147,9 @@ const clip = gaussian_halfspace_clip_coefficients(
 // 每项 [kx, ky, h]；片元阶段以 normal CDF 乘原有 alpha。
 ```
 
-接口使用与投影接口一致的 f32 屏幕协方差，并拒绝无效中心、协方差、焦距或平面。仿射条件方差因屏幕坐标已确定某个平面方向而退化时，`s²` 最小按 `1e-8` 处理以保持输出有限；这是一项数值保护，不是更精确的几何裁切。
+接口使用与投影接口一致的 f32 屏幕协方差，并拒绝无效中心、协方差、焦距或平面。仿射条件方差因屏幕坐标已确定某个平面方向而退化时，`s²` 最小按 `1e-8 × nᵀΣn` 处理以保持输出有限。下限随沿法线的边际方差变化，避免固定世界单位阈值让小尺度场景的裁切变淡。正比例换算中心、相机距离和平面偏移、按比例平方换算协方差时，屏幕投影与裁切系数应保持一致；焦距、分辨率和屏幕滤波方差不随世界单位改变。
+
+相对下限仍是数值保护，退化位置保留有限宽度的 CDF 近似，不是精确阶跃；高条件数相消、非二进制缩放的 f32 量化和透视近似误差仍需单独验证。`tests/gaussian-clip-scale.test.ts` 与 `tests/browser/gaussian-clip-scale.spec.ts` 覆盖 `2^-40` 至 `2^40` 的六档比例、三种平面和三档滤波，报告保存在 `test-results/**/clip-scale.json`。
 
 启用屏幕低通滤波时，应调用 `gaussian_filtered_halfspace_clip_coefficients(centers, covariances, focalX, focalY, normal, offset, filterVariance)`。独立的屏幕高斯噪声将上述 `A` 替换为 `Aε = A + εI`，而 `b` 和 `nᵀΣn` 不变；求逆、条件方差和 `k` 均采用 `Aε`。这对应先限制半空间密度、再做屏幕卷积，不能对已滤波的轮廓继续使用未滤波的 CDF 系数。两次 f32 舍入与投影和滤波阶段一致；零滤波与旧接口输出相同，负值、非有限滤波和输出溢出报错。`prepareGaussianRaster()` 自动传递同一 `filterVariance`。
 
