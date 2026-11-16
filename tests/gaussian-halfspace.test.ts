@@ -19,7 +19,7 @@ function referenceCoefficients(center: number[], covariance: number[], focalX: n
   const b = [mx[0] * sigmaNormal[0] + mx[2] * sigmaNormal[2], my[1] * sigmaNormal[1] + my[2] * sigmaNormal[2]];
   const inverseB = [inverse[0] * b[0] + inverse[1] * b[1], inverse[1] * b[0] + inverse[2] * b[1]];
   const variance = normal.reduce((sum, value, index) => sum + value * sigmaNormal[index], 0);
-  const standardDeviation = Math.sqrt(Math.max(variance - b[0] * inverseB[0] - b[1] * inverseB[1], 1e-8));
+  const standardDeviation = Math.sqrt(Math.max(variance - b[0] * inverseB[0] - b[1] * inverseB[1], variance * 1e-8));
   return [inverseB[0] / standardDeviation, inverseB[1] / standardDeviation,
     (offset - normal[0] * x - normal[1] * y - normal[2] * z) / standardDeviation].map(Math.fround);
 }

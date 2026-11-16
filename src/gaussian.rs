@@ -842,8 +842,9 @@ pub fn gaussian_filtered_halfspace_clip_coefficients(
             return Err(format!("invalid Gaussian clip variance at splat {index}"));
         }
         // The affine conditional distribution can degenerate when a plane coordinate
-        // is determined by screen position. Keep the shader coefficients finite.
-        let standard_deviation = conditional_variance.max(1e-8).sqrt();
+        // is determined by screen position. Scale the floor by the marginal variance
+        // so changing world units does not change the projected clip transition.
+        let standard_deviation = conditional_variance.max(variance * 1e-8).sqrt();
         let signed_distance = offset - (normal[0] * x + normal[1] * y + normal[2] * z);
         result.extend_from_slice(&[
             finite_f32(
@@ -1789,7 +1790,9 @@ mod tests {
         let unfiltered =
             gaussian_halfspace_clip_coefficients(&centers, &covariance, 16., 16., &normal, 0.0625)
                 .unwrap();
-        assert_eq!(unfiltered, [1250., 0., 625.]);
+        assert!(unfiltered[0].is_finite() && unfiltered[0] > 0.);
+        assert_eq!(unfiltered[1], 0.);
+        assert_eq!(unfiltered[2] / unfiltered[0], 0.5);
         let coefficients = |variance| {
             gaussian_filtered_halfspace_clip_coefficients(
                 &centers,
@@ -1830,6 +1833,27 @@ mod tests {
             f32::MAX,
         )
         .is_err());
+    }
+
+    #[test]
+    fn halfspace_clipping_preserves_world_units_for_tiny_and_large_gaussians() {
+        for scale in [2_f32.powi(-40), 1., 2_f32.powi(40)] {
+            for filter in [0., 0.25, 1.] {
+                let variance = scale * scale / 64.;
+                let coefficients = gaussian_filtered_halfspace_clip_coefficients(
+                    &[0., 0., 2. * scale],
+                    &[variance, 0., 0., variance, 0., variance],
+                    16.,
+                    16.,
+                    &[0., 0., -1.],
+                    -2.0625 * scale,
+                    filter,
+                )
+                .unwrap();
+                // Independent depth marginal: (plane - center) / sigma = -0.5.
+                assert_eq!(coefficients, [0., 0., -0.5]);
+            }
+        }
     }
 
     #[test]
