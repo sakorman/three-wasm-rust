@@ -378,6 +378,11 @@ export function modelCameraPositionFromThreeWorld(modelToWorld: Float32Array, th
  * a standard Three.js negative-z view matrix.
  */
 export function transformGaussianPlyToCameraSpace(source: GaussianPlySource, worldToCamera: Float32Array): GaussianCameraSource {
+  return { ...transformGaussianPlyGeometry(source, worldToCamera),
+    opacities: source.opacities.slice(), colors: source.colors.slice() };
+}
+
+function transformGaussianPlyGeometry(source: GaussianPlySource, worldToCamera: Float32Array): Pick<GaussianCameraSource, 'centers' | 'covariances'> {
   validateSource(source);
   const packed = gaussian_transform_camera_space(source.centers, source.covariances, worldToCamera);
   const count = source.centers.length / 3;
@@ -388,7 +393,7 @@ export function transformGaussianPlyToCameraSpace(source: GaussianPlySource, wor
     centers.set(packed.subarray(sourceOffset, sourceOffset + 3), index * 3);
     covariances.set(packed.subarray(sourceOffset + 3, sourceOffset + 9), index * 6);
   }
-  return { centers, covariances, opacities: source.opacities.slice(), colors: source.colors.slice() };
+  return { centers, covariances };
 }
 
 /**
@@ -411,8 +416,10 @@ export function prepareGaussianPlyForThreeCamera({
 }: GaussianPlyThreeCameraOptions): PreparedGaussianRaster {
   const modelCameraPosition = modelCameraPositionFromThreeWorld(modelToWorld, threeCameraWorldPosition);
   const worldToCamera = composeThreeModelToPositiveZCamera(modelToWorld, threeWorldToView);
-  const cameraSource = transformGaussianPlyToCameraSpace(source, worldToCamera);
-  const prepared = prepareGaussianRaster({ ...cameraSource, cutoff, camera, filterVariance, clipPlane, tileSize });
+  const geometry = transformGaussianPlyGeometry(source, worldToCamera);
+  // Raster preparation only reads these attributes and owns its compact output arrays.
+  const prepared = prepareGaussianRaster({ ...geometry, opacities: source.opacities, colors: source.colors,
+    cutoff, camera, filterVariance, clipPlane, tileSize });
   // Geometry culling precedes direction normalization: a culled center may coincide with the camera.
   const count = prepared.originalIds.length, stride = 3 * (source.shDegree + 1) ** 2;
   const centers = new Float32Array(count * 3), coefficients = new Float32Array(count * stride);

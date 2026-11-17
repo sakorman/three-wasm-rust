@@ -319,3 +319,43 @@ test('trained PLY prepares a Three.js camera view without mixing SH and raster c
     cutoff: .1, camera: rasterCamera,
   }), /three values/);
 });
+
+test('prepared PLY views own their attributes independently of sources and other views', () => {
+  for (const degree of [0, 1, 2, 3] as const) for (const tiled of [false, true]) {
+    const source = parseGaussianSplatPly(gaussianPlyFixture(3, degree).buffer);
+    source.opacities[1] = .001;
+    const options = { source,
+      modelToWorld: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+      threeWorldToView: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1]),
+      threeCameraWorldPosition: new Float32Array([0, 0, 5]), cutoff: .01, filterVariance: .3,
+      camera: { focalX: 32, focalY: 32, principalX: 32, principalY: 24, near: .1, far: 100, width: 64, height: 48 },
+      clipPlane: { normal: new Float32Array([.2, .1, -1]), offset: -2.5 },
+      ...(tiled && { tileSize: 16 }),
+    };
+    const inputBefore = structuredClone(options);
+    const view = prepareGaussianPlyForThreeCamera(options), reference = structuredClone(view);
+    assert.ok(view.originalIds.length > 0);
+    assert.ok(!view.originalIds.includes(1));
+    assert.deepEqual(options, inputBefore);
+    for (const value of Object.values(view)) {
+      if (ArrayBuffer.isView(value)) (value as Float32Array | Uint32Array).fill(777);
+    }
+    view.tiles?.packed.fill(777);
+    assert.deepEqual(options, inputBefore);
+    assert.deepEqual(prepareGaussianPlyForThreeCamera(options), reference);
+
+    const preserved = prepareGaussianPlyForThreeCamera(options);
+    for (const value of Object.values(source)) if (value instanceof Float32Array) value.fill(0);
+    options.modelToWorld.fill(0); options.threeWorldToView.fill(0); options.threeCameraWorldPosition.fill(0);
+    options.clipPlane.normal.fill(0);
+    assert.deepEqual(preserved, reference);
+
+    // Invalid attributes must still be checked even when the corresponding splat is culled.
+    const invalid = structuredClone(inputBefore);
+    invalid.source.colors[3] = NaN;
+    assert.throws(() => prepareGaussianPlyForThreeCamera(invalid), /color/);
+    invalid.source.colors[3] = 0;
+    invalid.source.opacities[1] = -1;
+    assert.throws(() => prepareGaussianPlyForThreeCamera(invalid), /opacit/);
+  }
+});
