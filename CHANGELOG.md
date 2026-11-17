@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-17 · 减少 PLY 视图准备的临时复制
+
+- 相机或模型变化时，准备链路此前先复制整批不透明度与 DC 颜色，再生成独立的紧凑视图。现在内部只变换几何，同步筛选阶段直接读取源属性；公开相机空间转换接口仍返回独立副本，准备结果与源数据、其他视图互不共享，非法的已剔除属性仍被拒绝。
+- 10 万高斯、SH0/SH3、整幅/瓦片四组对照均保留 68,572 项，全部输出逐项一致、输入不变。每次准备的直接源属性 `slice` 分配由 1,600,000 字节降至 0；同实现控制组两边均为 1,600,000 字节。Apple M5、Node 20.20.2 上三轮预热、九轮 AB/BA 交替采样，中位耗时分别为 57.17→57.02、59.91→59.44、68.63→68.40、71.22→71.11 ms，差异不到 1%，不宣称稳定提速或帧率收益。[完整采样与校验信息](docs/benchmarks/2026-11-17-ply-view.json)；复现：`npx tsx tests/benchmarks/ply-view.ts 5af6bbc 100000 9`。
+- 16 项相关 Node、15 项 Chromium 回归、TypeScript strict 和生产构建通过；浏览器检查整幅/瓦片像素、相机穿越、静止视图复用、上传失败和上下文恢复。统计仅覆盖直接源属性副本，不等于浏览器堆峰值；几何、可见属性与 SH 子集仍有分配和 JS/WASM 复制，未改变数量、精度或绘制策略。
+- 测量边界参考 [Gaussian Splatting for Real-Time Scene Reconstruction](https://arxiv.org/html/2610.17513v1#S2.SS7)（2026-10-13）对准备、更新和光栅耗时的区分；同类项目对照 [Gaussian-Splat-Lite v1.9.0](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/releases/tag/v1.9.0)（2026-11-16，Apache-2.0）及其[分层驻留选择](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/03914d2da079360d03293bcc4e1819a797b523af/src/loaders/stream/chunk-stream/LodTreeScheduler.js)。这里只优化本地同步准备的所有权边界，未引入该项目的流式格式、LoD 或外部代码。
+
 ## 2026-11-16 · 裁切不再受世界单位影响
 
 - 半空间条件方差的保护下限由固定 `1e-8` 改为沿平面法线边际方差的 `1e-8` 倍。此前同比缩小中心、相机距离和平面偏移、按平方缩小协方差后，投影不变却会改变裁切透明度；现在下限随世界单位变化，零滤波和屏幕滤波路径都保持同一投影结果。
