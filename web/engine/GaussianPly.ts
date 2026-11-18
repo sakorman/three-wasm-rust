@@ -390,8 +390,8 @@ function transformGaussianPlyGeometry(source: GaussianPlySource, worldToCamera: 
   const centers = new Float32Array(count * 3), covariances = new Float32Array(count * 6);
   for (let index = 0; index < count; index++) {
     const sourceOffset = index * 9;
-    centers.set(packed.subarray(sourceOffset, sourceOffset + 3), index * 3);
-    covariances.set(packed.subarray(sourceOffset + 3, sourceOffset + 9), index * 6);
+    for (let component = 0; component < 3; component++) centers[index * 3 + component] = packed[sourceOffset + component];
+    for (let component = 0; component < 6; component++) covariances[index * 6 + component] = packed[sourceOffset + 3 + component];
   }
   return { centers, covariances };
 }
@@ -425,8 +425,8 @@ export function prepareGaussianPlyForThreeCamera({
   const centers = new Float32Array(count * 3), coefficients = new Float32Array(count * stride);
   for (let index = 0; index < count; index++) {
     const id = prepared.originalIds[index];
-    centers.set(source.centers.subarray(id * 3, (id + 1) * 3), index * 3);
-    coefficients.set(source.shCoefficients.subarray(id * stride, (id + 1) * stride), index * stride);
+    for (let component = 0; component < 3; component++) centers[index * 3 + component] = source.centers[id * 3 + component];
+    for (let component = 0; component < stride; component++) coefficients[index * stride + component] = source.shCoefficients[id * stride + component];
   }
   prepared.colors = gaussian_sh_colors(centers, coefficients, source.shDegree, modelCameraPosition);
   return prepared;
