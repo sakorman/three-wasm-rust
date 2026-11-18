@@ -50,6 +50,23 @@ function sourceSliceBytes(source: GaussianPlySource, run: () => void): number {
   }
 }
 const historical = await preparePlyParser(revision);
+
+// Count temporary f32 views in a separate synchronous pass, without changing timed runs.
+function subarrayCalls<T>(run: () => T): { result: T; calls: number } {
+  const descriptor = Object.getOwnPropertyDescriptor(Float32Array.prototype, 'subarray');
+  const original = Float32Array.prototype.subarray;
+  let calls = 0;
+  Object.defineProperty(Float32Array.prototype, 'subarray', { configurable: true, writable: true,
+    value(this: Float32Array, begin?: number, end?: number) {
+      calls++;
+      return original.call(this, begin, end);
+    } });
+  try { return { result: run(), calls }; }
+  finally {
+    if (descriptor) Object.defineProperty(Float32Array.prototype, 'subarray', descriptor);
+    else Reflect.deleteProperty(Float32Array.prototype, 'subarray');
+  }
+}
 try {
   await init({ module_or_path: await readFile(new URL('pkg/three_wasm_rust_bg.wasm', root)) });
   const { prepareGaussianPlyForThreeCamera: baseline } = await import(historical.url) as {
@@ -81,14 +98,17 @@ try {
       else { after.push(run(current)); before.push(run(baseline)); }
     }
     assert.deepEqual(sourceKeys.map(key => sha256(bytes(source[key]))), sourceHashes);
+    const countedBaseline = subarrayCalls(() => baseline(options)), countedCurrent = subarrayCalls(() => current(options));
+    assert.deepEqual(countedBaseline.result, reference);
+    assert.deepEqual(countedCurrent.result, reference);
     results.push({ degree, tiled, count, retained: reference.originalIds.length,
-      baselineSliceBytes, currentSliceBytes, before, after,
+      baselineSliceBytes, currentSliceBytes, baselineSubarrayCalls: countedBaseline.calls, currentSubarrayCalls: countedCurrent.calls, before, after,
       baselineMedianMs: median(before), currentMedianMs: median(after), identicalOutput: true, unchangedSource: true });
   }
   process.stdout.write(JSON.stringify({ baselineSha: historical.commit, baselineSourceSha256: historical.sourceSha256,
     currentSourceSha256: sha256(await readFile(new URL('web/engine/GaussianPly.ts', root))),
     wasmSha256: sha256(await readFile(new URL('pkg/three_wasm_rust_bg.wasm', root))), node: process.version,
     platform: process.platform, arch: process.arch, cpu: cpus()[0]?.model, warmup: 3, rounds,
-    scope: 'Synchronous PLY view preparation only; excludes decode, upload and GPU. Historical PLY module with current dependencies and shared warmed WASM. Slice byte counts are separate instrumented runs, not peak memory.',
+    scope: 'Synchronous PLY view preparation only; excludes decode, upload and GPU. Historical PLY module with current dependencies and shared warmed WASM. Slice bytes and f32 subarray calls are separate instrumented runs, not peak memory or total allocations.',
     results }, null, 2) + '\n');
 } finally { await historical.dispose(); }
