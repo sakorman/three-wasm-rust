@@ -82,8 +82,8 @@ export interface PackedGaussianRasterUpload {
 function gather(values: Float32Array, stride: number, indices: Uint32Array): Float32Array {
   const result = new Float32Array(indices.length * stride);
   for (let output = 0; output < indices.length; output++) {
-    const inputOffset = indices[output] * stride;
-    result.set(values.subarray(inputOffset, inputOffset + stride), output * stride);
+    const inputOffset = indices[output] * stride, outputOffset = output * stride;
+    for (let component = 0; component < stride; component++) result[outputOffset + component] = values[inputOffset + component];
   }
   return result;
 }
@@ -157,16 +157,17 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
   const screenCovariances = new Float32Array(supported.length * 3);
   for (let index = 0; index < supported.length; index++) {
     const projectedOffset = index * 6;
-    screenCenters.set(projected.subarray(projectedOffset, projectedOffset + 2), index * 2);
+    screenCenters[index * 2] = projected[projectedOffset];
+    screenCenters[index * 2 + 1] = projected[projectedOffset + 1];
     depths[index] = projected[projectedOffset + 2];
-    screenCovariances.set(projected.subarray(projectedOffset + 3, projectedOffset + 6), index * 3);
+    for (let component = 0; component < 3; component++) screenCovariances[index * 3 + component] = projected[projectedOffset + 3 + component];
   }
   const filtered = gaussian_filter_screen_covariances(screenCovariances, candidateOpacities, filterVariance);
   const filteredCovariances = new Float32Array(supported.length * 3);
   const filteredOpacities = new Float32Array(supported.length);
   for (let index = 0; index < supported.length; index++) {
     const filteredOffset = index * 4;
-    filteredCovariances.set(filtered.subarray(filteredOffset, filteredOffset + 3), index * 3);
+    for (let component = 0; component < 3; component++) filteredCovariances[index * 3 + component] = filtered[filteredOffset + component];
     filteredOpacities[index] = filtered[filteredOffset + 3];
   }
   const halfExtents = gaussian_screen_bounds(filteredCovariances, filteredOpacities, cutoff);

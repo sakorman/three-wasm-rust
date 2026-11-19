@@ -10,8 +10,8 @@ export const root = new URL('../../', import.meta.url);
 export const sourceKeys = ['centers', 'covariances', 'opacities', 'colors', 'shCoefficients'] as const;
 export const sha256 = (data: string | Uint8Array) => createHash('sha256').update(data).digest('hex');
 
-/** Load only the historical parser; its dependencies use the current checkout. */
-export async function preparePlyParser(revision: string | undefined, instrument = false) {
+/** Load the historical parser and optionally raster preparation; other dependencies use the current checkout. */
+export async function preparePlyParser(revision: string | undefined, instrument = false, includeRaster = false) {
   if (revision !== undefined && !/^[a-f\d]{7,40}$/i.test(revision)) throw new Error('Supply a baseline commit SHA');
   const git = (args: string[]) => execFileSync('git', args, { cwd: fileURLToPath(root), encoding: 'utf8' }).trimEnd();
   const commit = git(['rev-parse', revision ?? 'HEAD']);
@@ -37,9 +37,22 @@ function gaussian_covariances_from_log_scales_rotations(scales: Float32Array, ro
   }
   const temporary = await mkdtemp(join(tmpdir(), 'ply-parser-'));
   try {
+    let rasterSha256: string | undefined;
+    if (includeRaster) {
+      const rasterPath = 'web/engine/gaussian.ts';
+      const raster = revision === undefined ? await readFile(new URL(rasterPath, root), 'utf8')
+        : execFileSync('git', ['show', `${commit}:${rasterPath}`], { cwd: fileURLToPath(root), encoding: 'utf8' });
+      rasterSha256 = sha256(raster);
+      const rasterFile = join(temporary, 'gaussian.mts');
+      await writeFile(rasterFile, raster.replace(/from '([^']+)'/g, (match: string, specifier: string) => specifier.startsWith('.')
+        ? `from '${new URL(specifier, new URL(rasterPath, root)).href}'` : match));
+      const rasterImport = `from '${new URL(rasterPath, root).href}'`;
+      assert.equal(source.split(rasterImport).length, 2, 'Expected exactly one raster preparation import');
+      source = source.replace(rasterImport, `from '${pathToFileURL(rasterFile).href}'`);
+    }
     const path = join(temporary, 'parser.mts');
     await writeFile(path, source);
-    return { url: pathToFileURL(path).href, commit, sourceSha256: sha256(original),
+    return { url: pathToFileURL(path).href, commit, sourceSha256: sha256(original), rasterSha256,
       dispose: () => rm(temporary, { recursive: true, force: true }) };
   } catch (error) {
     await rm(temporary, { recursive: true, force: true });

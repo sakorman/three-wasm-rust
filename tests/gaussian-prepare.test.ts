@@ -51,6 +51,36 @@ test('Gaussian preparation keeps source IDs while compacting, clipping and tilin
   assert.deepEqual(colors, savedColors);
 });
 
+test('Gaussian preparation respects source view offsets and owns compact output after reordering', () => {
+  const arrays = {
+    centers: new Float32Array([0, 0, 2, 0, 0, 3, 0, 0, 2.5, 10, 0, 2]),
+    covariances: repeatedCovariance(), opacities: new Float32Array([.5, .001, .7, .9]),
+    colors: new Float32Array([.1, .2, .3, .4, .5, .6, .7, .8, .9, .9, .8, .7]),
+  };
+  const padded = (source: Float32Array) => {
+    const storage = new Float32Array(source.length + 11).fill(NaN);
+    storage.set(source, 5);
+    return storage.subarray(5, 5 + source.length);
+  };
+  for (const tileSize of [undefined, 16]) for (const empty of [false, true]) {
+    const input = { centers: padded(arrays.centers), covariances: padded(arrays.covariances),
+      opacities: padded(arrays.opacities), colors: padded(arrays.colors) };
+    const options = { cutoff: empty ? .99 : .1, camera, filterVariance: .25, tileSize,
+      clipPlane: { normal: new Float32Array([.2, .1, -1]), offset: -1 } };
+    const expected = prepareGaussianRaster({ ...arrays, ...options });
+    const prepared = prepareGaussianRaster({ ...input, ...options });
+    assert.deepEqual(prepared, expected);
+    assert.deepEqual(Array.from(prepared.originalIds), empty ? [] : [2, 0]);
+    for (const key of ['centers', 'covariances', 'opacities', 'colors'] as const) {
+      assert.deepEqual(input[key], arrays[key]);
+      input[key].fill(NaN);
+    }
+    assert.deepEqual(prepared, expected);
+    prepared.colors.fill(0); prepared.opacities.fill(0); prepared.screenCenters.fill(0);
+    assert.deepEqual(prepareGaussianRaster({ ...arrays, ...options }), expected);
+  }
+});
+
 test('Gaussian preparation rejects mismatched source buffers and unsafe tile settings', () => {
   const input = {
     centers: new Float32Array([0, 0, 2]), covariances: new Float32Array([.04, 0, 0, .04, 0, .25]),
