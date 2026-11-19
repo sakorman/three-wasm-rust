@@ -1,6 +1,6 @@
 # 测试说明
 
-当前测试集共 **384 项**：95 项 Rust、137 项 Node、152 项 Chromium。PLY 基准分别记录加载和视图准备成本，包含同实现对照，不在 CI 中断言速度。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
+当前测试集共 **385 项**：95 项 Rust、138 项 Node、152 项 Chromium。PLY 基准分别记录加载和视图准备成本，包含同实现对照，不在 CI 中断言速度。验证命令及结果见 [CHANGELOG](../CHANGELOG.md)。完整运行记录见 [CI](https://github.com/sakorman/three-wasm-rust/actions/workflows/ci.yml)。
 
 ## 覆盖范围
 
@@ -13,6 +13,8 @@ PLY 重复加载：`GaussianPlyDecoder` 在 `GaussianPlyRenderer` 内复用行�
 PLY 视图准备：`npx tsx tests/benchmarks/ply-view.ts 5af6bbc 100000 9`。历史 PLY 模块使用当前依赖与共享预热 WASM；SH0/SH3 各测整幅/瓦片，固定筛选、滤波和裁切参数。三轮预热后按 AB/BA 交替采样，同步准备计时不含生成输入、PLY 解码、校验对照、上传或 GPU。另行拦截源属性的直接 `slice`，记录实际返回数组字节数，完成后移除探针；该值不代表总分配或堆峰值。每次输出与历史结果逐项比较，源属性前后核对 SHA-256；[报告](benchmarks/2026-11-17-ply-view.json)包含优化前的同实现控制。Node 回归另覆盖返回视图的双向数据隔离，以及已剔除项的非法属性拒绝。
 
 临时视图检查：`npx tsx tests/benchmarks/ply-view.ts 67e0d16 500000 9`。计时结束后另行统计准备调用内的 `Float32Array.subarray()` 次数，随后恢复原方法；它创建共享底层存储的新视图，不应按视图长度算作数据复制字节。[2026-11-18 报告](benchmarks/2026-11-18-ply-views.json)包含 10 万同实现控制，以及 10 万/50 万高斯的 SH0/SH3、整幅/瓦片对照。CPU 耗时仅代表固定输入的同步准备，未测浏览器堆峰值、连续运动 GC、GPU 或端到端帧率。
+
+光栅准备对照：`npx tsx tests/benchmarks/ply-view.ts a742f2b 500000 9`。基准现在同时载入指定提交的 `GaussianPly.ts` 与 `gaussian.ts`，并记录两者的 SHA-256，避免改动光栅准备后两边误用同一份当前实现。其余依赖与 WASM 仍共享当前构建。[2026-11-19 报告](benchmarks/2026-11-19-raster-views.json)保存同实现控制与两种规模的完整结果；此前报告保留当时仅替换 PLY 模块的范围。回归覆盖带非零 byteOffset、前后填充 NaN 的源视图、非连续 ID 重排、空结果，以及输入修改后的输出独立性。
 
 [2026-11-08 报告](benchmarks/2026-11-08-ply-memory.json)含 50 万项 SH0/SH3 的三轮探针、10 万项同实现对照和无探针计时。`samples` 是阶段快照，不能称作 JS 堆或 RSS 峰值；WASM 容量不是有效分配量，释放数组后不会缩小；`arrayBuffers` 已包含在 `external` 中，禁止相加。验证的是 Node 下同步加载，未包含浏览器、GPU 或真实模型画质。此前 [11-07 报告](benchmarks/2026-11-07-ply-covariance-chunks.json)对照 `0858abf`，包含行缓存与分块两项改动，其速度差不能单独归因于分块；该历史报告没有同实现对照。
 

@@ -49,7 +49,7 @@ function sourceSliceBytes(source: GaussianPlySource, run: () => void): number {
     for (const key of sourceKeys) Reflect.deleteProperty(source[key], 'slice');
   }
 }
-const historical = await preparePlyParser(revision);
+const historical = await preparePlyParser(revision, false, true);
 
 // Count temporary f32 views in a separate synchronous pass, without changing timed runs.
 function subarrayCalls<T>(run: () => T): { result: T; calls: number } {
@@ -107,8 +107,10 @@ try {
   }
   process.stdout.write(JSON.stringify({ baselineSha: historical.commit, baselineSourceSha256: historical.sourceSha256,
     currentSourceSha256: sha256(await readFile(new URL('web/engine/GaussianPly.ts', root))),
+    baselineRasterSha256: historical.rasterSha256,
+    currentRasterSha256: sha256(await readFile(new URL('web/engine/gaussian.ts', root))),
     wasmSha256: sha256(await readFile(new URL('pkg/three_wasm_rust_bg.wasm', root))), node: process.version,
     platform: process.platform, arch: process.arch, cpu: cpus()[0]?.model, warmup: 3, rounds,
-    scope: 'Synchronous PLY view preparation only; excludes decode, upload and GPU. Historical PLY module with current dependencies and shared warmed WASM. Slice bytes and f32 subarray calls are separate instrumented runs, not peak memory or total allocations.',
+    scope: 'Synchronous PLY view preparation only; excludes decode, upload and GPU. Historical PLY and raster preparation modules with other current dependencies and shared warmed WASM. Slice bytes and f32 subarray calls are separate instrumented runs, not peak memory or total allocations.',
     results }, null, 2) + '\n');
 } finally { await historical.dispose(); }
