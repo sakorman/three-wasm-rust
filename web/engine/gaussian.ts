@@ -89,7 +89,9 @@ function gather(values: Float32Array, stride: number, indices: Uint32Array): Flo
 }
 
 function localIndices(length: number): Uint32Array {
-  return Uint32Array.from({ length }, (_, index) => index);
+  const indices = new Uint32Array(length);
+  for (let index = 0; index < length; index++) indices[index] = index;
+  return indices;
 }
 
 function checkInputShape({ centers, covariances, opacities, colors }: GaussianRasterPreparationOptions): void {
@@ -182,7 +184,8 @@ export function prepareGaussianRaster(options: GaussianRasterPreparationOptions)
       camera.focalX, camera.focalY, clipPlane.normal, clipPlane.offset, filterVariance,
     )
     : undefined;
-  const originalIds = Uint32Array.from(order, index => supported[index]);
+  const originalIds = new Uint32Array(order.length);
+  for (let index = 0; index < order.length; index++) originalIds[index] = supported[order[index]];
   const prepared: PreparedGaussianRaster = {
     originalIds,
     screenCenters: gather(screenCenters, 2, order),

@@ -4,6 +4,8 @@
 
 ## 覆盖范围
 
+紧凑索引计时：`npx tsx tests/benchmarks/ply-view.ts 2c0ad6a 500000 9`；[10 万/50 万项原始记录](benchmarks/2026-11-20-index-fill.json)包含同实现控制、SH0/SH3、整幅/瓦片与全部准备数组对照。只计同步 CPU 准备，不据此推断排序内核、GPU、浏览器 GC 或帧率收益。
+
 PLY 解码计时：`npx tsx tests/benchmarks/ply-decode.ts 38493d8 500000 9`。指定提交只替换 PLY 解析器，依赖和 WASM 使用当前构建；报告保存解析器与 WASM 的 SHA-256。三轮预热后按 AB/BA 交替采样，比较五组完整输出字节并检查输入不变。仅计解码函数耗时，不强制 GC，不设置速度断言。两版共享已预热的 WASM，该脚本不测内存；旧版按顶点数推算的 `covarianceParameterBytes` 已移除，避免分块版本与自己比较仍显示减少。
 
 PLY 内存探针：`npx tsx tests/benchmarks/ply-memory.ts 38493d8 500000 3`。每个版本、SH 阶数和轮次各启一个独立 Node 进程与全新 WASM，顺序执行；协方差调用前后记录 `process.memoryUsage()` 和 WASM 线性内存容量，同时记录实际参数视图、底层缓冲和返回数组的字节数。输入与五组输出逐项比较 SHA-256；输入生成在解码前完成。显式 GC 只发生在解码前、保留输入/输出时和释放后，解码过程中不强制 GC；探针有额外开销，不能用此运行测耗时。
