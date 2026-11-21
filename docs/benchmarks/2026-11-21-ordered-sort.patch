@@ -1,0 +1,47 @@
+diff --git a/src/gaussian.rs b/src/gaussian.rs
+index 9c2c9ad..c7ae450 100644
+--- a/src/gaussian.rs
++++ b/src/gaussian.rs
+@@ -1470,7 +1470,12 @@ pub fn gaussian_clip_depth_support_indices(
+ pub fn gaussian_depth_order(depths: &[f32], indices: &[u32]) -> Result<Vec<u32>, String> {
+     validate_depth_candidates(depths, indices)?;
+     let mut order = indices.to_vec();
+-    if order.len() < 2 {
++    // An already ordered candidate list needs no radix scatter or scratch allocation.
++    // Numeric comparison keeps positive and negative zero tied in their input order.
++    if order
++        .windows(2)
++        .all(|ids| depths[ids[0] as usize] >= depths[ids[1] as usize])
++    {
+         return Ok(order);
+     }
+     let mut scratch = vec![0; order.len()];
+@@ -2491,6 +2496,28 @@ mod tests {
+         assert_eq!(gaussian_depth_order(&depths, &indices).unwrap(), expected);
+     }
+
++    #[test]
++    fn ordered_depth_candidates_keep_ties_and_detect_a_late_inversion() {
++        let mut depths = vec![3., 2., 2., 0., -0., -1.];
++        let indices = [0, 2, 1, 4, 3, 5];
++        let bins = [0, 6, 6, 0, 2, 1, 4, 3, 5];
++        assert_eq!(gaussian_depth_order(&depths, &indices).unwrap(), indices);
++        assert_eq!(gaussian_tile_depth_order(&depths, &bins, 2).unwrap(), bins);
++        depths[5] = 1.;
++        assert_eq!(
++            gaussian_depth_order(&depths, &indices).unwrap(),
++            [0, 2, 1, 5, 4, 3]
++        );
++        assert_eq!(
++            gaussian_tile_depth_order(&depths, &bins, 2).unwrap(),
++            [0, 6, 6, 0, 2, 1, 5, 4, 3]
++        );
++        // Validation also applies to sorted candidates and unreferenced depths.
++        assert!(gaussian_depth_order(&[3., 2., f32::NAN], &[0, 1]).is_err());
++        assert!(gaussian_depth_order(&[3., 2.], &[0, 0]).is_err());
++        assert!(gaussian_tile_depth_order(&[3., 2.], &[0, 2, 0, 0], 1).is_err());
++    }
++
+     #[test]
+     fn invalid_depth_batches_are_rejected_without_mutation() {
+         let depths = [1., 2., 3.];
