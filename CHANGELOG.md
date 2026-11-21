@@ -2,6 +2,14 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-21 · 独立排序基准与退化检查
+
+- 新增 Rust/WASM 排序 API 对照：分别载入已保存的基线与当前构建，固定输入并按 AB/BA 交替计时；覆盖相等/正负零、有序、末尾逆序、相邻 f32、相机深度范围和宽范围正负数，以及全局/瓦片两种接口。每次结果对照独立的稳定 JS 排序，核对输入哈希；记录构建哈希和全部样本，区分排序 API 与完整准备、GPU 和帧间隔。
+- 10 万/50 万项共 24 组对照，均与稳定排序一致、输入不变。相同构建的独立实例控制和恢复原实现后的控制均通过，控制组最大中位耗时偏差约 4.94%。新增基线保存工具拒绝覆盖已有目录及未提交的 Rust 输入；仍需先执行 `npm run build:wasm`，源码哈希不能替代构建来源验证。
+- 有序快捷路径未纳入引擎：相等/有序全局排序在两种规模下减少约 62%–70% API 耗时，但末尾逆序增加约 6.6%–6.7%，部分瓦片样本增加约 6.6%–8.5%。生产排序已恢复，不能宣称项目获得这些速度收益。[原始对照](docs/benchmarks/2026-11-21-sort-api.json)和[候选补丁](docs/benchmarks/2026-11-21-ordered-sort.patch)用于复现实验；合成数据尚不代表移动相机、真实模型或浏览器帧率，计时包含校验、JS/WASM 复制和返回分配。
+- 生产构建、TypeScript strict、基线保存及独立实例控制检查通过。生产 Rust/TS 渲染代码与上一提交一致；本项改进测量覆盖，不改变画面、接口或资源生命周期。复现命令见[测试说明](docs/verification.md#独立排序基准)。
+- 阶段划分参考 [RoofGS §III-C](https://arxiv.org/html/2608.15785v1#S3.SS3)（2026-08-16）；实现对照 [UnityGaussianSplatting 2.0.0](https://github.com/aras-p/UnityGaussianSplatting/releases/tag/v2.0.0)（2026-11-02）使用的 [DeviceRadixSort](https://github.com/aras-p/UnityGaussianSplatting/blob/0cc0bf8bb0e9af75ff1c002592024f86057ced58/package/Shaders/Resources/DeviceRadixSort.hlsl)（Thomas Smith / GPUSorting，MIT）。它是 GPU compute 实现，本项目基准测 Rust/WASM CPU；未引入外部代码、量化键或论文跑分。
+
 ## 2026-11-20 · 紧凑索引直接填充
 
 - 高斯视口/瓦片候选索引和排序后原始 ID 映射改为直接填充 `Uint32Array`，避免 `Uint32Array.from` 的逐项回调。保留完整 f32 深度排序、同深度顺序、源 ID、空结果和结果数组独立所有权；没有改变筛选数量、精度或绘制策略。

@@ -73,6 +73,30 @@ PLY 视图准备：`npx tsx tests/benchmarks/ply-view.ts 5af6bbc 100000 9`。历
 | 拓扑替换 | 顶点/索引数量变化、共享资源引用、绘制三角形统计、分配失败回滚、临时与旧句柄释放、恢复后拓扑 |
 | GPU 计时 | 样本完整性、非法时长、重复 begin、dispose 后禁用、disjoint、扩展缺失、上下文失效及查询释放；缺失原因统计及跨轮汇总 |
 
+## 独立排序基准
+
+在基线提交上构建 WASM，再保存到仓库外的新目录：
+
+```sh
+npm run build:wasm
+npx tsx tests/benchmarks/save-sort-baseline.ts /tmp/gaussian-sort-baseline
+npx tsx tests/benchmarks/gaussian-sort.ts /tmp/gaussian-sort-baseline 100000 15 control
+```
+
+保存器要求 Rust 输入已提交、目录尚不存在；记录提交、`src/gaussian.rs` 和 WASM 哈希。它复制已构建产物，不自动判断产物是否对应当前源码，必须先构建。比较时实际校验基线 WASM 哈希，两侧使用独立模块和线性内存；`control` 用基线构建创建第二实例。
+
+修改实现并重新构建后运行：
+
+```sh
+npm run build:wasm
+npx tsx tests/benchmarks/gaussian-sort.ts /tmp/gaussian-sort-baseline 100000 15
+npx tsx tests/benchmarks/gaussian-sort.ts /tmp/gaussian-sort-baseline 500000 15
+```
+
+五轮预热、十五轮交替采样，输入为六种确定性深度分布，全局与每 1,024 项一个瓦片分别计时。排序结果（包括偏移表和同深度顺序）逐项对照 JS 稳定排序，输入前后检查哈希。API 耗时包含验证、跨 WASM 复制及分配，不含输入生成、参考排序、结果检查、投影或 GPU；不测堆峰值，也不在 CI 中断言速度。
+
+[2026-11-21 记录](benchmarks/2026-11-21-sort-api.json)保存同实现控制、候选结果和恢复原实现后的控制。候选仅在全局列表已降序时跳过 radix，未修改瓦片排序函数；仍观察到部分瓦片接口计时退化，原因未定位，不归因为算法收益。末尾逆序需要完整预检后重新排序，也有成本。生产代码没有采用该方案；若需复现，在独立检出 `a119d60` 后应用[候选补丁](benchmarks/2026-11-21-ordered-sort.patch)并重新构建，再运行上述比较。补丁包含排序及无效输入回归，但不作为生产实现。
+
 ## 浏览器检查
 
 `gaussian-ply-renderer.spec.ts` 在 64×48 目标上逐帧对照缓存入口与完整准备、打包、上传链路。64 帧中，全屏缓冲写入为 1 对 64 次，瓦片为 2 对 128 次；RGBA 通道差异均为零。18 类输入修改各触发一次更新，后续同值输入不上传，CDF 开关不重建数据。`gaussian-ply-recovery.spec.ts` 覆盖无效输入保留视图、上传失败后切回旧相机、上下文恢复、丢失期间换模型或卸载、重载和重复释放。JSON 保存每帧更新标记、写入次数、像素差异和资源快照；使用三个合成训练高斯，不测量真实模型帧耗时或画质。
