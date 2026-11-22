@@ -37,6 +37,8 @@ lifecycle.dispose(); // 仅当调用方不再使用该生命周期对象时释�
 
 `loadPly()` 先解码再替换；无效文件保留原模型与视图，成功后不保留调用方的 PLY 原始缓冲。准备阶段拒绝的参数不影响已有缓存；上传失败会使缓存失效，重试时重新准备。正常上下文恢复由底层重传上传副本，无需再次准备；丢失期间可以加载或卸载模型，但不能绘制。`dispose()` 可重复调用，释放后加载、绘制与卸载均拒绝。
 
+绘制宽高须为正整数，且不超过当前 WebGL `MAX_VIEWPORT_DIMS` 的对应轴上限；这是设备能力，不是 CSS 或绘制缓冲尺寸。超限请求会在准备/上传前拒绝，保留旧视图，避免硬件截小视口而着色器仍使用原尺寸。`GaussianRasterRenderer.validateDrawOptions()` 可供调用方提前校验；它不要求已有上传，但要求可用的上下文和程序。上限在构造及上下文恢复时读取，不在每帧查询。无 GPU 的 `prepareGaussianRaster()` 不检查设备能力。
+
 `resourceStats()` 的 `sourceCount` / `sourceBytes` 只统计持有的解码属性，`upload` 单独报告恢复副本与可用 VBO 容量。它们不包含 PLY 原文、临时数组、JS 对象、WASM 堆或实际显存。该入口同步管理单模型、单视图，不提供流式加载、移动视角增量排序、Mesh 遮挡或主页面接入。
 
 64 帧合成视图回归中，全屏缓冲写入由 64 次降为 1 次，瓦片由 128 次降为 2 次，与每帧重算逐像素一致；这不是帧率测试。冗余排序处理可参考 [Spark 2.4.0](https://github.com/sparkjsdev/spark/releases/tag/v2.4.0)，时序排序复用研究见 [Neo](https://jinuhwang.github.io/papers/2026-asplos-neo.pdf)。此处只跳过完全不变的输入，未实现论文中的移动视角复用与更新，也未采用其代码、硬件或性能结果。

@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-22 · 高斯视口尺寸预检
+
+- 全屏、瓦片与 PLY 绘制入口按当前 WebGL `MAX_VIEWPORT_DIMS` 拒绝超限尺寸，避免硬件静默截小或整数转换回绕后，着色器仍按原尺寸定位像素。Chromium 设备上限 8192 的负对照中，单高斯宽度 64/16384/4294967360 分别产生 551/60/0 个有色像素，均未报告 GL 错误；现在后两者明确拒绝。
+- PLY 在准备和上传前预检，非法尺寸不替换已有 CPU/GPU 视图或缓存键。设备上限随 program/VAO 生命周期缓存，上下文恢复时重新读取；静止帧不增加上限查询，上传失败仍可在同一上下文重试。
+- 20 项相关 Node、12 项 Chromium、TypeScript strict 与生产构建通过。新增回归检查两个轴的上限等值、上限加一、32 位回绕、原像素与调用方状态不变、零上传/绘制、恢复后的新上限及释放。正常尺寸与恢复后的 RGBA 差异均为零；测试使用合成输入与 Chromium，尚未覆盖其他浏览器/硬件，不宣称性能收益。复现见[测试说明](docs/verification.md#高斯视口上限)。
+- 行为依据 [Khronos glViewport](https://github.com/KhronosGroup/OpenGL-Refpages/blob/main/es3.0/glViewport.xml) 的静默截小规则；接口对照 [PlayCanvas WebGL setViewport](https://github.com/playcanvas/engine/blob/373bc26396975e18f0bb6cedf77fb2a9adce5786/src/platform/graphics/webgl/webgl-graphics-device.js#L1294)（核对 2026-11-17 版本，MIT）。未引入外部实现代码；本项不改变高斯数量、精度、排序或光栅公式。
+
 ## 2026-11-21 · 独立排序基准与退化检查
 
 - 新增 Rust/WASM 排序 API 对照：分别载入已保存的基线与当前构建，固定输入并按 AB/BA 交替计时；覆盖相等/正负零、有序、末尾逆序、相邻 f32、相机深度范围和宽范围正负数，以及全局/瓦片两种接口。每次结果对照独立的稳定 JS 排序，核对输入哈希；记录构建哈希和全部样本，区分排序 API 与完整准备、GPU 和帧间隔。

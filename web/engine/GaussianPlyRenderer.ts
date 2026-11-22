@@ -80,6 +80,8 @@ export class GaussianPlyRenderer {
     this.assertActive();
     this.context.assertReady();
     if (!this.source) throw new Error('Gaussian PLY model is not loaded');
+    const draw = { width: options.camera.width, height: options.camera.height, cutoff: options.cutoff, applyClip: options.applyClip };
+    this.raster.validateDrawOptions(draw);
     const key = viewKey(options);
     const previousKey = this.key;
     const viewUpdated = !previousKey || key.length !== previousKey.length
@@ -91,7 +93,6 @@ export class GaussianPlyRenderer {
       this.raster.update(upload);
       this.key = key;
     }
-    const draw = { width: options.camera.width, height: options.camera.height, cutoff: options.cutoff, applyClip: options.applyClip };
     const recordCount = this.raster.uploads.recordCount;
     let submittedReferences = recordCount;
     if (options.tileSize !== undefined) submittedReferences = this.raster.drawTiles(draw);

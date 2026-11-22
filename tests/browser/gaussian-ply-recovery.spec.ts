@@ -53,6 +53,14 @@ for (const tiled of [false, true]) {
         await event('webglcontextrestored', () => extension.restoreContext());
         const restored = render();
 
+        // Preflight validation must still allow an upload failure to retry on the same context.
+        options.modelToWorld[12] = .125;
+        failNextWrite = true;
+        const immediateError = attempt(() => renderer.render(options));
+        const immediateRetry = render(), immediateStable = render();
+        options.modelToWorld[12] = 0;
+        const immediateReset = render();
+
         // A failed upload can restore its newer CPU copy. The previous camera key must stay invalid.
         options.modelToWorld[12] = .25;
         failNextWrite = true;
@@ -79,6 +87,10 @@ for (const tiled of [false, true]) {
         return {
           initialResources, invalid, afterInvalid, lostResources, lostReady, lostError,
           restored: { ...restored.frame, writes: restored.writes, difference: difference(baseline.pixels, restored.pixels) },
+          immediateError,
+          immediateRetry: { ...immediateRetry.frame, writes: immediateRetry.writes },
+          immediateStable: { ...immediateStable.frame, writes: immediateStable.writes },
+          immediateResetDifference: difference(baseline.pixels, immediateReset.pixels),
           uploadError, failedResources,
           retried: { ...retried.frame, writes: retried.writes, difference: difference(baseline.pixels, retried.pixels) },
           retryStable: { ...retryStable.frame, writes: retryStable.writes },
@@ -104,6 +116,10 @@ for (const tiled of [false, true]) {
     expect(result.lostResources.sourceBytes).toBe(result.initialResources.sourceBytes);
     expect(result.lostResources.upload.gpuBytes).toBe(0);
     expect(result.restored.viewUpdated).toBe(false); expect(result.restored.writes).toBe(0); expect(result.restored.difference).toBe(0);
+    expect(result.immediateError).toMatch(/Injected upload failure/);
+    expect(result.immediateRetry.viewUpdated).toBe(true); expect(result.immediateRetry.writes).toBeGreaterThan(0);
+    expect(result.immediateStable.viewUpdated).toBe(false); expect(result.immediateStable.writes).toBe(0);
+    expect(result.immediateResetDifference).toBe(0);
     expect(result.uploadError).toMatch(/Injected upload failure/); expect(result.failedResources.upload.gpuBytes).toBe(0);
     expect(result.retried.viewUpdated).toBe(true); expect(result.retried.writes).toBeGreaterThan(0); expect(result.retried.difference).toBe(0);
     expect(result.retryStable.viewUpdated).toBe(false); expect(result.retryStable.writes).toBe(0);

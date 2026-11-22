@@ -78,6 +78,7 @@ interface ProgramState {
   viewport: WebGLUniformLocation;
   cutoff: WebGLUniformLocation;
   applyClip: WebGLUniformLocation;
+  maxViewport: Int32Array;
 }
 
 function assertDrawOptions({ width, height, cutoff }: GaussianRasterDrawOptions): void {
@@ -127,6 +128,19 @@ export class GaussianRasterRenderer {
     return this.context.ready && !this.error && this.state !== undefined;
   }
 
+  /** Preflight a draw before preparing or replacing a view. Limits refresh on context restoration. */
+  validateDrawOptions(options: GaussianRasterDrawOptions): void {
+    if (this.disposed) throw new Error('Gaussian raster renderer is disposed');
+    assertDrawOptions(options);
+    this.context.assertReady();
+    if (this.currentError) throw this.currentError;
+    if (!this.state) throw new Error('Gaussian raster GPU resources are unavailable');
+    const [width, height] = this.state.maxViewport;
+    if (options.width > width || options.height > height) {
+      throw new Error(`Gaussian raster viewport exceeds device limit ${width} x ${height}`);
+    }
+  }
+
   update(upload: PackedGaussianRasterUpload): void {
     if (this.disposed) throw new Error('Gaussian raster renderer is disposed');
     this.withUploadVao(() => this.uploads.update(upload));
@@ -169,7 +183,7 @@ export class GaussianRasterRenderer {
 
   /** Intersect tile rectangles with the caller scissor. Returns submitted references, not draw-call count. */
   drawTiles(options: GaussianRasterDrawOptions): number {
-    assertDrawOptions(options);
+    this.validateDrawOptions(options);
     const tiles = this.uploads.tileLayout();
     if (!tiles) throw new Error('Gaussian raster tile data is unavailable');
     if (tiles.columns !== Math.ceil(options.width / tiles.tileSize) || tiles.rows !== Math.ceil(options.height / tiles.tileSize)) {
@@ -198,9 +212,7 @@ export class GaussianRasterRenderer {
 
   private withDraw<T>(options: GaussianRasterDrawOptions,
     draw: (upload: GaussianUploadBufferSnapshot, callerScissor: Int32Array | undefined) => T): T {
-    if (this.disposed) throw new Error('Gaussian raster renderer is disposed');
-    assertDrawOptions(options);
-    this.context.assertReady();
+    this.validateDrawOptions(options);
     if (this.error) throw this.error;
     const state = this.state, upload = this.uploads.snapshot();
     if (!state || !upload) throw new Error('Gaussian raster GPU resources are unavailable');
@@ -303,6 +315,8 @@ export class GaussianRasterRenderer {
   private createState(): void {
     if (this.state) return;
     this.context.assertReady();
+    // GL silently clamps oversized viewports; shader coordinates must use the same dimensions.
+    const maxViewport = this.gl.getParameter(this.gl.MAX_VIEWPORT_DIMS) as Int32Array;
     const program = this.createProgram();
     const vao = this.gl.createVertexArray();
     if (!vao) {
@@ -317,7 +331,7 @@ export class GaussianRasterRenderer {
       this.gl.deleteProgram(program);
       throw new Error('Gaussian raster shader uniform is unavailable');
     }
-    this.state = { program, vao, viewport, cutoff, applyClip };
+    this.state = { program, vao, viewport, cutoff, applyClip, maxViewport };
   }
 
   private createProgram(): WebGLProgram {
