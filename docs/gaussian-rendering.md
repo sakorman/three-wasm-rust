@@ -41,7 +41,7 @@ lifecycle.dispose(); // 仅当调用方不再使用该生命周期对象时释�
 
 `resourceStats()` 的 `sourceCount` / `sourceBytes` 只统计持有的解码属性，`upload` 单独报告恢复副本与可用 VBO 容量。它们不包含 PLY 原文、临时数组、JS 对象、WASM 堆或实际显存。该入口同步管理单模型、单视图，不提供流式加载、移动视角增量排序、Mesh 遮挡或主页面接入。
 
-64 帧合成视图回归中，全屏缓冲写入由 64 次降为 1 次，瓦片由 128 次降为 2 次，与每帧重算逐像素一致；这不是帧率测试。冗余排序处理可参考 [Spark 2.4.0](https://github.com/sparkjsdev/spark/releases/tag/v2.4.0)，时序排序复用研究见 [Neo](https://jinuhwang.github.io/papers/2026-asplos-neo.pdf)。此处只跳过完全不变的输入，未实现论文中的移动视角复用与更新，也未采用其代码、硬件或性能结果。
+64 帧合成视图回归中，全屏和瓦片缓冲写入均由每帧重算的 64 次降为 1 次，与每帧重算逐像素一致；瓦片表只在 CPU 保留，不产生额外 GPU 上传。这不是帧率测试。冗余排序处理可参考 [Spark 2.4.0](https://github.com/sparkjsdev/spark/releases/tag/v2.4.0)，时序排序复用研究见 [Neo](https://jinuhwang.github.io/papers/2026-asplos-neo.pdf)。此处只跳过完全不变的输入，未实现论文中的移动视角复用与更新，也未采用其代码、硬件或性能结果。
 
 ## 训练 PLY 输入
 
@@ -395,7 +395,7 @@ gl.bufferData(gl.ARRAY_BUFFER, upload.splatData, gl.DYNAMIC_DRAW);
 
 ### 可复用上传缓冲
 
-`GaussianUploadBuffers` 将上传记录保存在独立 CPU 副本中，并以指定的 `ContextLifecycle` 管理一对 WebGL2 缓冲。`update()` 在容量足够时使用 `bufferSubData`，增长时才重新分配；瓦片数据缺失时释放瓦片缓冲。`clear()` 会同时释放 CPU 副本和当前 VBO，但保留对象及其上下文订阅，供后续 `update()` 重新上传；清空后的上下文恢复不会重传旧视图。它只保存数据和句柄，不创建 VAO、shader 或绘制提交。
+`GaussianUploadBuffers` 将上传记录保存在独立 CPU 副本中，并以指定的 `ContextLifecycle` 管理 WebGL2 缓冲。`update()` 在容量足够时使用 `bufferSubData`，增长时才重新分配；瓦片数据缺失时释放瓦片缓冲。`clear()` 会同时释放 CPU 副本和当前 VBO，但保留对象及其上下文订阅，供后续 `update()` 重新上传；清空后的上下文恢复不会重传旧视图。它只保存数据和句柄，不创建 VAO、shader 或绘制提交。
 
 输入校验失败时，`update()` 不替换原 CPU 副本，不分配或写入 VBO，已有画面保持。上下文丢失期间的无效更新同样被拒绝，恢复仍使用上一次有效上传。
 
@@ -415,6 +415,8 @@ buffers.clear(); // 卸载当前视图；随后可调用 update(upload) 重新�
 上下文丢失时 `snapshot()` 返回 `undefined`，旧 WebGL 句柄不会再暴露；恢复后自动以内部副本新建缓冲并重传。调用方在恢复后的 `snapshot()` 中重新绑定 VAO 和属性即可。传入数组在 `update()` 后可以修改，不会影响恢复内容。该类尚未接入首页 Mesh 场景或完整高斯主渲染器；缓冲容量、上传次数和本节 WebGL 测试均不是 GPU 时间、帧率或显存收益结论。
 
 `GaussianUploadBuffers` 默认使用 `quadratic` 编码，GPU 偏移 4–6 仍为 `[a, b, c]` 逆协方差。第三个构造参数可选 `cholesky`，将内部副本的这三个值转换为 `[u, v, w]`：`u = sqrt(a)`、`v = b/u`、`w = sqrt((ac-b²)/a)`。输入始终使用原始二次型记录，`snapshot().conicEncoding` 标明 GPU 布局，记录步长仍为 60 字节；恢复重传已编码副本，不重复分解，不增加常驻数组或 VBO。
+
+第四个构造参数 `tileStorage` 默认为 `gpu`，继续上传瓦片 VBO；`cpu` 仅保留经过验证的瓦片副本，供 `forEachTileReference()` / `forEachTileBatch()` 使用。此时 `snapshot().tileBytes` 仍表示逻辑瓦片字节数，`tileBuffer` 为 `undefined`，`tileCapacityBytes` 与 `gpuTileCapacityBytes` 为零。`GaussianRasterRenderer` 使用 `cpu`，因为它按 CPU 瓦片表设置 scissor 和实例属性偏移，着色器不读取瓦片索引；恢复时也只重传记录。自定义 GPU 索引读取器应单独使用默认 `gpu` 上传对象。
 
 ### 独立光栅 pass
 

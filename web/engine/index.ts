@@ -24,7 +24,7 @@ export type { GaussianClipPlane, GaussianRasterCamera, GaussianRasterPreparation
 export { GAUSSIAN_PLY_COVARIANCE_CHUNK_SIZE, GaussianPlyDecoder, composeThreeModelToPositiveZCamera, evaluateGaussianPlyShColors, modelCameraPositionFromThreeWorld, parseGaussianSplatPly, prepareGaussianPlyForThreeCamera, transformGaussianPlyToCameraSpace } from './GaussianPly.ts';
 export type { GaussianCameraSource, GaussianPlySource, GaussianPlyThreeCameraOptions, GaussianShDegree } from './GaussianPly.ts';
 export { GaussianUploadBuffers } from './GaussianUploadBuffers.ts';
-export type { GaussianConicEncoding, GaussianUploadBufferSnapshot, GaussianUploadResourceStats, GaussianUploadTileLayout } from './GaussianUploadBuffers.ts';
+export type { GaussianConicEncoding, GaussianTileStorage, GaussianUploadBufferSnapshot, GaussianUploadResourceStats, GaussianUploadTileLayout } from './GaussianUploadBuffers.ts';
 export { GaussianRasterRenderer } from './GaussianRasterRenderer.ts';
 export type { GaussianRasterDrawOptions } from './GaussianRasterRenderer.ts';
 export { GaussianPlyRenderer } from './GaussianPlyRenderer.ts';

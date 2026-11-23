@@ -97,6 +97,17 @@ npx tsx tests/benchmarks/gaussian-sort.ts /tmp/gaussian-sort-baseline 500000 15
 
 [2026-11-21 记录](benchmarks/2026-11-21-sort-api.json)保存同实现控制、候选结果和恢复原实现后的控制。候选仅在全局列表已降序时跳过 radix，未修改瓦片排序函数；仍观察到部分瓦片接口计时退化，原因未定位，不归因为算法收益。末尾逆序需要完整预检后重新排序，也有成本。生产代码没有采用该方案；若需复现，在独立检出 `a119d60` 后应用[候选补丁](benchmarks/2026-11-21-ordered-sort.patch)并重新构建，再运行上述比较。补丁包含排序及无效输入回归，但不作为生产实现。
 
+## 高斯瓦片上传
+
+```sh
+npx tsx --test tests/gaussian-upload-buffers.test.ts
+npx playwright test tests/browser/gaussian-tile-storage.spec.ts tests/browser/gaussian-upload.spec.ts tests/browser/gaussian-ply-renderer.spec.ts tests/browser/gaussian-ply-recovery.spec.ts tests/browser/gaussian-buffer-references.spec.ts tests/browser/gaussian-tile-validation.spec.ts
+```
+
+`gaussian-tile-storage.spec.ts` 在 256×192 目标上使用四条记录、192 个瓦片和 128 条引用，检查首次上传、同容量更新和上下文恢复。GPU 瓦片存储基线每次写入 240 + 1,284 字节；CPU 提交路径仅写入 240 字节，VBO 容量从 1,524 降至 240 字节。CPU 副本仍为 1,540 字节，瓦片局部顺序和恢复语义保持。全屏/瓦片以及恢复前后的 RGBA 差异均为零，测试附件保存写入目标、字节数、容量与像素哈希；另检查调用方数组修改不污染恢复副本，卸载后不重传。
+
+Node 用例检查默认 GPU 模式兼容、CPU 模式分配失败后的重试、非法瓦片拒绝、丢失期间替换和释放；现有浏览器用例覆盖 VAO 引用清理、外部绑定与 PLY 缓存。这里统计 WebGL API 写入字节和 VBO 容量，不测驱动实际显存、带宽、CPU/GPU 耗时或帧率。主页尚未接入该高斯 pass。
+
 ## 高斯视口上限
 
 ```sh
@@ -109,7 +120,7 @@ npx playwright test tests/browser/gaussian-viewport-limits.spec.ts tests/browser
 
 ## 浏览器检查
 
-`gaussian-ply-renderer.spec.ts` 在 64×48 目标上逐帧对照缓存入口与完整准备、打包、上传链路。64 帧中，全屏缓冲写入为 1 对 64 次，瓦片为 2 对 128 次；RGBA 通道差异均为零。18 类输入修改各触发一次更新，后续同值输入不上传，CDF 开关不重建数据。`gaussian-ply-recovery.spec.ts` 覆盖无效输入保留视图、上传失败后切回旧相机、上下文恢复、丢失期间换模型或卸载、重载和重复释放。JSON 保存每帧更新标记、写入次数、像素差异和资源快照；使用三个合成训练高斯，不测量真实模型帧耗时或画质。
+`gaussian-ply-renderer.spec.ts` 在 64×48 目标上逐帧对照缓存入口与完整准备、打包、上传链路。64 帧中，全屏和瓦片缓冲写入均为 1 对 64 次；RGBA 通道差异均为零。18 类输入修改各触发一次更新，后续同值输入不上传，CDF 开关不重建数据。`gaussian-ply-recovery.spec.ts` 覆盖无效输入保留视图、上传失败后切回旧相机、上下文恢复、丢失期间换模型或卸载、重载和重复释放。JSON 保存每帧更新标记、写入次数、像素差异和资源快照；使用三个合成训练高斯，不测量真实模型帧耗时或画质。
 
 在逐对象模式下拦截实际 WebGL 调用，500 对象用例的两边每帧都是 500 次普通绘制、0 次实例化调用。正式报告还会核对双方每个样本的可见数和三角形数。
 

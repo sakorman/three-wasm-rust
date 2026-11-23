@@ -1,0 +1,251 @@
+{
+  "baseCommit": "3d74679280c0ca867ff7e7d822b98319b829a2fd",
+  "test": "tests/browser/gaussian-tile-storage.spec.ts",
+  "target": {
+    "width": 256,
+    "height": 192,
+    "cutoff": 0.01,
+    "tileSize": 16
+  },
+  "comparison": "Same Chromium run configuration and input; GPU tile storage versus CPU tile storage. WebGL upload bytes and buffer capacities only; no timing or physical VRAM measurement.",
+  "before": {
+    "rgbaSha256": "e275082213db5a459a8b92df9bbd9d89c47b00421485da9c02e2294cc5b35daf",
+    "initial": {
+      "writes": [
+        {
+          "target": 34962,
+          "bytes": 240
+        },
+        {
+          "target": 34963,
+          "bytes": 1284
+        }
+      ],
+      "resources": {
+        "disposed": false,
+        "recordCount": 4,
+        "cpuSplatBytes": 240,
+        "cpuOriginalIdBytes": 16,
+        "cpuTileBytes": 1284,
+        "cpuBytes": 1540,
+        "gpuReady": true,
+        "gpuSplatCapacityBytes": 240,
+        "gpuTileCapacityBytes": 1284,
+        "gpuBytes": 1524
+      },
+      "hasTileBuffer": true,
+      "tileBytes": 1284,
+      "fullDifference": 0,
+      "tileDifference": 0
+    },
+    "updated": {
+      "writes": [
+        {
+          "target": 34962,
+          "bytes": 240
+        },
+        {
+          "target": 34963,
+          "bytes": 1284
+        }
+      ],
+      "resources": {
+        "disposed": false,
+        "recordCount": 4,
+        "cpuSplatBytes": 240,
+        "cpuOriginalIdBytes": 16,
+        "cpuTileBytes": 1284,
+        "cpuBytes": 1540,
+        "gpuReady": true,
+        "gpuSplatCapacityBytes": 240,
+        "gpuTileCapacityBytes": 1284,
+        "gpuBytes": 1524
+      },
+      "hasTileBuffer": true,
+      "tileBytes": 1284,
+      "fullDifference": 0,
+      "tileDifference": 0
+    },
+    "restored": {
+      "writes": [
+        {
+          "target": 34962,
+          "bytes": 240
+        },
+        {
+          "target": 34963,
+          "bytes": 1284
+        }
+      ],
+      "resources": {
+        "disposed": false,
+        "recordCount": 4,
+        "cpuSplatBytes": 240,
+        "cpuOriginalIdBytes": 16,
+        "cpuTileBytes": 1284,
+        "cpuBytes": 1540,
+        "gpuReady": true,
+        "gpuSplatCapacityBytes": 240,
+        "gpuTileCapacityBytes": 1284,
+        "gpuBytes": 1524
+      },
+      "hasTileBuffer": true,
+      "tileBytes": 1284,
+      "fullDifference": 0,
+      "tileDifference": 0
+    },
+    "lost": {
+      "disposed": false,
+      "recordCount": 4,
+      "cpuSplatBytes": 240,
+      "cpuOriginalIdBytes": 16,
+      "cpuTileBytes": 1284,
+      "cpuBytes": 1540,
+      "gpuReady": false,
+      "gpuSplatCapacityBytes": 0,
+      "gpuTileCapacityBytes": 0,
+      "gpuBytes": 0
+    },
+    "cleared": {
+      "disposed": false,
+      "recordCount": 0,
+      "cpuSplatBytes": 0,
+      "cpuOriginalIdBytes": 0,
+      "cpuTileBytes": 0,
+      "cpuBytes": 0,
+      "gpuReady": false,
+      "gpuSplatCapacityBytes": 0,
+      "gpuTileCapacityBytes": 0,
+      "gpuBytes": 0
+    },
+    "emptyRestoredWrites": [],
+    "disposed": {
+      "disposed": true,
+      "recordCount": 0,
+      "cpuSplatBytes": 0,
+      "cpuOriginalIdBytes": 0,
+      "cpuTileBytes": 0,
+      "cpuBytes": 0,
+      "gpuReady": false,
+      "gpuSplatCapacityBytes": 0,
+      "gpuTileCapacityBytes": 0,
+      "gpuBytes": 0
+    },
+    "visiblePixels": 10358,
+    "error": 0
+  },
+  "after": {
+    "rgbaSha256": "e275082213db5a459a8b92df9bbd9d89c47b00421485da9c02e2294cc5b35daf",
+    "initial": {
+      "writes": [
+        {
+          "target": 34962,
+          "bytes": 240
+        }
+      ],
+      "resources": {
+        "disposed": false,
+        "recordCount": 4,
+        "cpuSplatBytes": 240,
+        "cpuOriginalIdBytes": 16,
+        "cpuTileBytes": 1284,
+        "cpuBytes": 1540,
+        "gpuReady": true,
+        "gpuSplatCapacityBytes": 240,
+        "gpuTileCapacityBytes": 0,
+        "gpuBytes": 240
+      },
+      "hasTileBuffer": false,
+      "tileBytes": 1284,
+      "fullDifference": 0,
+      "tileDifference": 0
+    },
+    "updated": {
+      "writes": [
+        {
+          "target": 34962,
+          "bytes": 240
+        }
+      ],
+      "resources": {
+        "disposed": false,
+        "recordCount": 4,
+        "cpuSplatBytes": 240,
+        "cpuOriginalIdBytes": 16,
+        "cpuTileBytes": 1284,
+        "cpuBytes": 1540,
+        "gpuReady": true,
+        "gpuSplatCapacityBytes": 240,
+        "gpuTileCapacityBytes": 0,
+        "gpuBytes": 240
+      },
+      "hasTileBuffer": false,
+      "tileBytes": 1284,
+      "fullDifference": 0,
+      "tileDifference": 0
+    },
+    "restored": {
+      "writes": [
+        {
+          "target": 34962,
+          "bytes": 240
+        }
+      ],
+      "resources": {
+        "disposed": false,
+        "recordCount": 4,
+        "cpuSplatBytes": 240,
+        "cpuOriginalIdBytes": 16,
+        "cpuTileBytes": 1284,
+        "cpuBytes": 1540,
+        "gpuReady": true,
+        "gpuSplatCapacityBytes": 240,
+        "gpuTileCapacityBytes": 0,
+        "gpuBytes": 240
+      },
+      "hasTileBuffer": false,
+      "tileBytes": 1284,
+      "fullDifference": 0,
+      "tileDifference": 0
+    },
+    "lost": {
+      "disposed": false,
+      "recordCount": 4,
+      "cpuSplatBytes": 240,
+      "cpuOriginalIdBytes": 16,
+      "cpuTileBytes": 1284,
+      "cpuBytes": 1540,
+      "gpuReady": false,
+      "gpuSplatCapacityBytes": 0,
+      "gpuTileCapacityBytes": 0,
+      "gpuBytes": 0
+    },
+    "cleared": {
+      "disposed": false,
+      "recordCount": 0,
+      "cpuSplatBytes": 0,
+      "cpuOriginalIdBytes": 0,
+      "cpuTileBytes": 0,
+      "cpuBytes": 0,
+      "gpuReady": false,
+      "gpuSplatCapacityBytes": 0,
+      "gpuTileCapacityBytes": 0,
+      "gpuBytes": 0
+    },
+    "emptyRestoredWrites": [],
+    "disposed": {
+      "disposed": true,
+      "recordCount": 0,
+      "cpuSplatBytes": 0,
+      "cpuOriginalIdBytes": 0,
+      "cpuTileBytes": 0,
+      "cpuBytes": 0,
+      "gpuReady": false,
+      "gpuSplatCapacityBytes": 0,
+      "gpuTileCapacityBytes": 0,
+      "gpuBytes": 0
+    },
+    "visiblePixels": 10358,
+    "error": 0
+  }
+}

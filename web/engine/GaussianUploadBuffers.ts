@@ -4,6 +4,7 @@ import type { PackedGaussianRasterUpload } from './gaussian.ts';
 import type { ContextLifecycle } from './ContextLifecycle.ts';
 
 export type GaussianConicEncoding = 'quadratic' | 'cholesky';
+export type GaussianTileStorage = 'cpu' | 'gpu';
 
 export interface GaussianUploadBufferSnapshot {
   /** Encoding of the three GPU values at record offsets 4–6. */
@@ -13,6 +14,7 @@ export interface GaussianUploadBufferSnapshot {
   splatBytes: number;
   splatCapacityBytes: number;
   tileBuffer?: WebGLBuffer;
+  /** Logical tile data size, including when only the CPU copy is retained. */
   tileBytes: number;
   tileCapacityBytes: number;
 }
@@ -107,9 +109,12 @@ export class GaussianUploadBuffers {
     readonly gl: WebGL2RenderingContext,
     readonly context: ContextLifecycle,
     readonly conicEncoding: GaussianConicEncoding = 'quadratic',
+    /** Keep only CPU tile data when draw submission does not read a GPU index buffer. */
+    readonly tileStorage: GaussianTileStorage = 'gpu',
   ) {
     if (context.gl !== gl) throw new Error('Gaussian upload buffers require the lifecycle WebGL context');
     if (conicEncoding !== 'quadratic' && conicEncoding !== 'cholesky') throw new Error('Unknown Gaussian conic encoding');
+    if (tileStorage !== 'cpu' && tileStorage !== 'gpu') throw new Error('Unknown Gaussian tile storage');
     this.unsubscribe = context.subscribe(() => this.onContextStateChange());
   }
 
@@ -137,7 +142,7 @@ export class GaussianUploadBuffers {
     }
   }
 
-  /** Release the current CPU copy and both GPU buffers while keeping this instance reusable. */
+  /** Release the current CPU copy and GPU buffers while keeping this instance reusable. */
   clear(): void {
     if (this.disposed || this.context.state === 'disposed') throw new Error('Gaussian upload buffers are disposed');
     this.deleteHandles();
@@ -269,7 +274,7 @@ export class GaussianUploadBuffers {
       this.splatBuffer ??= this.allocateBuffer();
       this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.splatBuffer);
       this.splatCapacityBytes = this.upload(this.gl.ARRAY_BUFFER, this.source.splatData, this.splatCapacityBytes);
-      if (this.source.tiles) {
+      if (this.source.tiles && this.tileStorage === 'gpu') {
         this.tileBuffer ??= this.allocateBuffer();
         this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.tileBuffer);
         this.tileCapacityBytes = this.upload(this.gl.ELEMENT_ARRAY_BUFFER, this.source.tiles.packed, this.tileCapacityBytes);

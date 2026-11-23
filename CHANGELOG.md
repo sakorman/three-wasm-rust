@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-23 · 省去未使用的瓦片 GPU 上传
+
+- 高斯光栅 pass 按 CPU 瓦片表提交实例，之前仍额外创建、更新和恢复一份未被读取的 GPU 瓦片缓冲；现在仅上传记录。瓦片校验、CPU 恢复副本、局部顺序和绘制策略保持一致。独立 `GaussianUploadBuffers` 默认仍上传瓦片，新增 `cpu` 存储选项；光栅 pass 的快照不再提供 `tileBuffer`，逻辑 `tileBytes` 保留。
+- 256×192 合成用例含四条记录、192 个瓦片与 128 条引用：首次上传、同容量更新及恢复均由两次写入、1,524 字节降为一次、240 字节，VBO 容量同步减少 1,284 字节。CPU 副本仍为 1,540 字节；前后 RGBA SHA-256 相同，10,358 个可见像素，全屏/瓦片与恢复后的通道差异均为零。[原始对照](docs/benchmarks/2026-11-23-tile-storage.json)记录调用和容量，不代表实际显存、耗时或帧率收益。
+- 9 项 Node、14 项 Chromium 回归、TypeScript strict 与生产构建通过；覆盖默认 GPU 模式兼容、分配失败重试、非法瓦片拒绝、调用方数组隔离、VAO 清理、上下文恢复及卸载。64 帧 PLY 瓦片缓存用例由两次写入减为一次，逐帧重算对照由 128 次减为 64 次，像素一致。该 pass 尚未接入主页，尚未验证其他浏览器和真实模型性能；复现见[测试说明](docs/verification.md#高斯瓦片上传)。
+- 上传设计对照 [SceneView v4.68.0 的 SplatBuffers](https://github.com/sceneview/sceneview/blob/v4.68.0/sceneview/src/main/java/io/github/sceneview/splat/SplatBuffers.kt#L202)（2026-11-11，Apache-2.0）：其 GPU 间接寻址需要顺序纹理，本项目当前 CPU 提交无需索引 VBO。近期研究 [MatrixSplat §4.4](https://arxiv.org/html/2611.15153v1#S4.SS4)（2026-11-11）按需读取特征以降低存储压力，但依赖 GPU MMA 与不同的合成公式，未移植到 WebGL2；未引入外部代码或论文性能数字。
+
 ## 2026-11-22 · 高斯视口尺寸预检
 
 - 全屏、瓦片与 PLY 绘制入口按当前 WebGL `MAX_VIEWPORT_DIMS` 拒绝超限尺寸，避免硬件静默截小或整数转换回绕后，着色器仍按原尺寸定位像素。Chromium 设备上限 8192 的负对照中，单高斯宽度 64/16384/4294967360 分别产生 551/60/0 个有色像素，均未报告 GL 错误；现在后两者明确拒绝。

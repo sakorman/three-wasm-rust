@@ -63,8 +63,8 @@ for (const tiled of [false, true]) {
     await writeFile(path, JSON.stringify(result, null, 2));
     await info.attach('gaussian-ply-view.json', { path, contentType: 'application/json' });
     expect(result.staticFrames.filter(frame => frame.viewUpdated)).toHaveLength(1);
-    expect(result.staticFrames.reduce((sum, frame) => sum + frame.uploadWrites, 0)).toBe(tiled ? 2 : 1);
-    expect(result.staticFrames.reduce((sum, frame) => sum + frame.referenceWrites, 0)).toBe(tiled ? 128 : 64);
+    expect(result.staticFrames.reduce((sum, frame) => sum + frame.uploadWrites, 0)).toBe(1);
+    expect(result.staticFrames.reduce((sum, frame) => sum + frame.referenceWrites, 0)).toBe(64);
     for (const frame of result.staticFrames) { expect(frame.difference).toBe(0); expect(frame.recordCount).toBe(3); }
     for (const entry of result.changes) {
       expect(entry.frame.viewUpdated, entry.name).toBe(true);

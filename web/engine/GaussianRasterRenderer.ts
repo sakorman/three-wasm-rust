@@ -109,7 +109,7 @@ export class GaussianRasterRenderer {
     readonly context: ContextLifecycle,
   ) {
     if (context.gl !== gl) throw new Error('Gaussian raster renderer requires the lifecycle WebGL context');
-    this.uploads = new GaussianUploadBuffers(gl, context, 'cholesky');
+    this.uploads = new GaussianUploadBuffers(gl, context, 'cholesky', 'cpu');
     this.unsubscribe = context.subscribe(() => this.onContextStateChange());
     try {
       this.createState();

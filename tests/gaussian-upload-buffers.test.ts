@@ -149,6 +149,56 @@ test('Gaussian upload buffers reject a silent storage allocation failure and all
   lifecycle.dispose();
 });
 
+test('CPU tile storage keeps ordered recovery data without allocating a tile VBO', () => {
+  const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl);
+  const buffers = new GaussianUploadBuffers(fake.gl, lifecycle, 'cholesky', 'cpu');
+  const batches = () => {
+    const result: number[][] = [];
+    buffers.forEachTileBatch((...batch) => result.push(batch));
+    return result;
+  };
+  fake.failNextBufferData();
+  assert.throws(() => buffers.update(upload()), /storage allocation failed/);
+  assert.equal(buffers.resourceStats().gpuBytes, 0);
+  assert.equal(buffers.resourceStats().cpuTileBytes, 24);
+  buffers.update(upload());
+  assert.equal(buffers.error, undefined);
+  assert.equal(buffers.snapshot()!.tileBuffer, undefined);
+  assert.equal(buffers.snapshot()!.tileBytes, 24);
+  assert.equal(buffers.snapshot()!.tileCapacityBytes, 0);
+  assert.equal(buffers.resourceStats().gpuBytes, 180);
+  assert.deepEqual(fake.stats(), { creates: 2, deletes: 1, dataCalls: 2, subDataCalls: 0 });
+  const expectedBatches = batches();
+  assert.deepEqual(expectedBatches, [[0, 0, 16, 0, 2], [1, 0, 16, 2, 1]]);
+  const invalid = upload(); invalid.tiles!.packed[4] = 0;
+  assert.throws(() => buffers.update(invalid), /duplicate/);
+  assert.deepEqual(batches(), expectedBatches);
+
+  fake.lose();
+  const replacement = upload(); replacement.splatData[0] = 42;
+  buffers.update(replacement);
+  replacement.splatData.fill(0); replacement.tiles!.packed.fill(99);
+  fake.restore();
+  assert.equal(fake.floatAt(buffers.snapshot()!.splatBuffer), 42);
+  assert.equal(buffers.snapshot()!.tileBuffer, undefined);
+  assert.equal(buffers.resourceStats().gpuTileCapacityBytes, 0);
+  assert.equal(buffers.resourceStats().gpuBytes, 180);
+  assert.deepEqual(batches(), expectedBatches);
+  assert.deepEqual(fake.stats(), { creates: 3, deletes: 1, dataCalls: 3, subDataCalls: 0 });
+  buffers.clear();
+  assert.equal(buffers.resourceStats().cpuBytes, 0);
+  assert.equal(buffers.tileLayout(), undefined);
+  const clearedCalls = fake.stats();
+  fake.lose(); fake.restore();
+  assert.deepEqual(fake.stats(), clearedCalls);
+  buffers.update(upload());
+  buffers.dispose();
+  assert.equal(buffers.resourceStats().cpuBytes, 0);
+  assert.equal(buffers.resourceStats().gpuBytes, 0);
+  assert.deepEqual(fake.stats(), { creates: 4, deletes: 3, dataCalls: 4, subDataCalls: 0 });
+  lifecycle.dispose();
+});
+
 test('Gaussian upload buffers clear copied data and handles without restoring an unloaded view', () => {
   const fake = fakeContext(), lifecycle = new ContextLifecycle(fake.gl), buffers = new GaussianUploadBuffers(fake.gl, lifecycle);
   buffers.update(upload());
