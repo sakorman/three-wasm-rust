@@ -140,11 +140,26 @@ test('Gaussian upload buffers reuse capacity and restore copied data after WebGL
       canvas.addEventListener(name, () => setTimeout(resolve, 0), { once: true }); action();
     });
     try {
+      const callerVao = gl.createVertexArray(), callerIndex = gl.createBuffer();
+      if (!callerVao || !callerIndex) throw new Error('Caller resource allocation failed');
+      gl.bindVertexArray(callerVao);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, callerIndex);
       const initialUpload = makeUpload(); buffers.update(initialUpload);
+      const callerIndexPreserved = gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING) === callerIndex;
       const initial = buffers.snapshot(); if (!initial) throw new Error('Missing initial Gaussian buffers');
       const initialStats = buffers.resourceStats();
       const smaller = { splatData: initialUpload.splatData.slice(0, 30), originalIds: initialUpload.originalIds.slice(0, 2) };
+      if (!initial.tileBuffer) throw new Error('Missing GPU tile buffer');
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, initial.tileBuffer);
       buffers.update(smaller);
+      const removedTile = {
+        error: gl.getError(),
+        deleted: !gl.isBuffer(initial.tileBuffer),
+        bindingCleared: gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING) === null,
+        vaoPreserved: gl.getParameter(gl.VERTEX_ARRAY_BINDING) === callerVao,
+      };
+      gl.deleteVertexArray(callerVao);
+      gl.deleteBuffer(callerIndex);
       const reused = buffers.snapshot(); if (!reused) throw new Error('Missing reused Gaussian buffer');
       const reusedStats = buffers.resourceStats();
       await event('webglcontextlost', () => extension.loseContext());
@@ -164,10 +179,12 @@ test('Gaussian upload buffers reuse capacity and restore copied data after WebGL
         reusedBytes: reused.splatBytes, reusedCapacity: reused.splatCapacityBytes, reusedHasTile: Boolean(reused.tileBuffer),
         duringLoss, restoredBytes: restored.splatBytes, restoredTileBytes: restored.tileBytes,
         sameHandle: restored.splatBuffer === initial.splatBuffer, expectedCenter, restoredCenter: values[0], error, calls,
-        initialStats, reusedStats, duringLossStats, waitingRestoreStats, restoredStats,
+        initialStats, reusedStats, duringLossStats, waitingRestoreStats, restoredStats, removedTile, callerIndexPreserved,
       };
     } finally { buffers.dispose(); lifecycle.dispose(); }
   });
+  expect(result.callerIndexPreserved).toBe(true);
+  expect(result.removedTile).toEqual({ error: 0, deleted: true, bindingCleared: true, vaoPreserved: true });
   expect(result.initialBytes).toBe(180);
   expect(result.initialCapacity).toBe(180);
   expect(result.initialTileBytes).toBe(980);
@@ -180,7 +197,7 @@ test('Gaussian upload buffers reuse capacity and restore copied data after WebGL
   expect(result.sameHandle).toBe(false);
   expect(result.restoredCenter).toBe(result.expectedCenter);
   expect(result.error).toBe(0);
-  expect(result.calls).toEqual({ create: 4, delete: 3, data: 4, subData: 1 });
+  expect(result.calls).toEqual({ create: 5, delete: 4, data: 4, subData: 1 });
   expect(result.initialStats).toEqual({
     disposed: false, recordCount: 3, cpuSplatBytes: 180, cpuOriginalIdBytes: 12, cpuTileBytes: 980, cpuBytes: 1172,
     gpuReady: true, gpuSplatCapacityBytes: 180, gpuTileCapacityBytes: 980, gpuBytes: 1160,

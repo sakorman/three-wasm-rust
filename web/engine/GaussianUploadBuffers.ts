@@ -267,25 +267,17 @@ export class GaussianUploadBuffers {
 
   private createOrUpdate(): void {
     this.context.assertReady();
-    const previousArrayBuffer = this.gl.getParameter(this.gl.ARRAY_BUFFER_BINDING) as WebGLBuffer | null;
-    const previousElementBuffer = this.gl.getParameter(this.gl.ELEMENT_ARRAY_BUFFER_BINDING) as WebGLBuffer | null;
-    try {
-      if (!this.source) return;
-      this.splatBuffer ??= this.allocateBuffer();
-      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.splatBuffer);
-      this.splatCapacityBytes = this.upload(this.gl.ARRAY_BUFFER, this.source.splatData, this.splatCapacityBytes);
-      if (this.source.tiles && this.tileStorage === 'gpu') {
-        this.tileBuffer ??= this.allocateBuffer();
-        this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.tileBuffer);
-        this.tileCapacityBytes = this.upload(this.gl.ELEMENT_ARRAY_BUFFER, this.source.tiles.packed, this.tileCapacityBytes);
-      } else if (this.tileBuffer) {
-        this.gl.deleteBuffer(this.tileBuffer);
-        this.tileBuffer = undefined;
-        this.tileCapacityBytes = 0;
-      }
-    } finally {
-      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, previousArrayBuffer);
-      this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, previousElementBuffer);
+    const source = this.source;
+    if (!source) return;
+    this.splatBuffer ??= this.allocateBuffer();
+    this.splatCapacityBytes = this.upload(this.gl.ARRAY_BUFFER, this.splatBuffer, source.splatData, this.splatCapacityBytes);
+    if (source.tiles && this.tileStorage === 'gpu') {
+      this.tileBuffer ??= this.allocateBuffer();
+      this.tileCapacityBytes = this.upload(this.gl.ELEMENT_ARRAY_BUFFER, this.tileBuffer, source.tiles.packed, this.tileCapacityBytes);
+    } else if (this.tileBuffer) {
+      this.gl.deleteBuffer(this.tileBuffer);
+      this.tileBuffer = undefined;
+      this.tileCapacityBytes = 0;
     }
   }
 
@@ -295,22 +287,29 @@ export class GaussianUploadBuffers {
     return buffer;
   }
 
-  private upload(target: number, data: Float32Array | Uint32Array, capacityBytes: number): number {
-    let expectedCapacity = capacityBytes;
-    if (data.byteLength > capacityBytes) {
-      this.gl.bufferData(target, data, this.gl.DYNAMIC_DRAW);
-      expectedCapacity = data.byteLength;
-    } else if (capacityBytes === 0) {
-      this.gl.bufferData(target, data.byteLength, this.gl.DYNAMIC_DRAW);
-      expectedCapacity = 0;
-    } else if (data.byteLength) {
-      this.gl.bufferSubData(target, 0, data);
+  private upload(target: number, buffer: WebGLBuffer, data: Float32Array | Uint32Array, capacityBytes: number): number {
+    const binding = target === this.gl.ARRAY_BUFFER ? this.gl.ARRAY_BUFFER_BINDING : this.gl.ELEMENT_ARRAY_BUFFER_BINDING;
+    const previous = this.gl.getParameter(binding) as WebGLBuffer | null;
+    try {
+      this.gl.bindBuffer(target, buffer);
+      let expectedCapacity = capacityBytes;
+      if (data.byteLength > capacityBytes) {
+        this.gl.bufferData(target, data, this.gl.DYNAMIC_DRAW);
+        expectedCapacity = data.byteLength;
+      } else if (capacityBytes === 0) {
+        this.gl.bufferData(target, data.byteLength, this.gl.DYNAMIC_DRAW);
+        expectedCapacity = 0;
+      } else if (data.byteLength) {
+        this.gl.bufferSubData(target, 0, data);
+      }
+      const actualCapacity = this.gl.getBufferParameter(target, this.gl.BUFFER_SIZE);
+      if (!Number.isSafeInteger(actualCapacity) || actualCapacity !== expectedCapacity) {
+        throw new Error('Gaussian upload buffer storage allocation failed');
+      }
+      return expectedCapacity;
+    } finally {
+      this.gl.bindBuffer(target, previous);
     }
-    const actualCapacity = this.gl.getBufferParameter(target, this.gl.BUFFER_SIZE);
-    if (!Number.isSafeInteger(actualCapacity) || actualCapacity !== expectedCapacity) {
-      throw new Error('Gaussian upload buffer storage allocation failed');
-    }
-    return expectedCapacity;
   }
 
   private clearHandles(): void {

@@ -2,6 +2,12 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-24 · 修复卸载高斯瓦片索引时的 WebGL 错误
+
+- 调用方将瓦片缓冲绑定到当前 VAO 后，切换为无瓦片视图曾触发 `INVALID_OPERATION`（1282）。上传器现在只恢复本次写入目标的绑定。移除瓦片会释放旧缓冲，让当前 VAO 的索引绑定清空。上传瓦片时，调用方自己的索引绑定仍可恢复。
+- Chromium 在相同切换步骤下返回 `NO_ERROR`（0），原 VAO 继续有效，上下文恢复后可读回正确的高斯记录。9 项 Node、9 项浏览器回归、严格类型检查与生产构建通过。验证范围为 WebGL2 缓冲生命周期。复现命令为 `npx playwright test tests/browser/gaussian-upload.spec.ts -g "reuse capacity"`。
+- 删除后绑定的行为依据 [Khronos WebGL 规范](https://registry.khronos.org/webgl/specs/latest/1.0/#5.3)。相关实现见 [PlayCanvas v2.24.3 的缓冲销毁逻辑](https://github.com/playcanvas/engine/blob/v2.24.3/src/platform/graphics/webgl/webgl-buffer.js)（MIT）。高斯瓦片缓存的生命周期研究可参阅 [BoundedGS](https://arxiv.org/abs/2610.34233)，其评估对象为训练管线。
+
 ## 2026-11-23 · 省去未使用的瓦片 GPU 上传
 
 - 高斯光栅 pass 按 CPU 瓦片表提交实例，之前仍额外创建、更新和恢复一份未被读取的 GPU 瓦片缓冲；现在仅上传记录。瓦片校验、CPU 恢复副本、局部顺序和绘制策略保持一致。独立 `GaussianUploadBuffers` 默认仍上传瓦片，新增 `cpu` 存储选项；光栅 pass 的快照不再提供 `tileBuffer`，逻辑 `tileBytes` 保留。
