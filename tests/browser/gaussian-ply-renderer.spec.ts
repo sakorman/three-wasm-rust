@@ -82,3 +82,30 @@ for (const tiled of [false, true]) {
     expect(result.error).toBe(0);
   });
 }
+
+test('a tile larger than u32 renders the same PLY pixels as a full draw', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('引擎已就绪');
+  const result = await page.evaluate(async () => {
+    const { ContextLifecycle, GaussianPlyRenderer } = await import('../../web/engine/index.ts');
+    const { syntheticPly, viewOptions, pixels, difference, clear } = await import('../../tests/browser/fixtures/gaussian-ply-view.ts');
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 48;
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: true });
+    if (!gl) throw new Error('WebGL2 unavailable');
+    const lifecycle = new ContextLifecycle(gl), renderer = new GaussianPlyRenderer(gl, lifecycle);
+    try {
+      renderer.loadPly(syntheticPly());
+      const options = viewOptions(false);
+      clear(gl);
+      renderer.render(options);
+      const full = pixels(gl);
+      clear(gl);
+      const stats = renderer.render({ ...options, tileSize: 2 ** 32 + 16 });
+      return { difference: difference(full, pixels(gl)), colored: full.some(value => value > 0),
+        references: stats.submittedReferences, error: gl.getError() };
+    } finally { renderer.dispose(); lifecycle.dispose(); }
+  });
+  expect(result).toEqual({ difference: 0, colored: true, references: 3, error: 0 });
+});

@@ -2,6 +2,13 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-25 · 修复高斯瓦片尺寸回绕和视口边缘误剔除
+
+- 在 64×48 视口中，瓦片边长 `2³²+16` 曾在 WASM 入口回绕为 16，生成 4×3 网格，导致按 1×1 网格上传失败。现在按传入的正安全整数分块，超出 100 万瓦片的网格在分配前被拒绝。
+- 视口宽高按双精度传入剔除函数。宽度为 `2³²+64` 时，左边缘恰好接触视口右边的高斯现在会保留，视口缩小一像素后才被剔除。大尺寸用例验证 CPU 准备阶段，实际绘制受设备视口上限约束。
+- Chromium 中，64×48 的三高斯 PLY 单瓦片绘制提交 3 条引用，与全屏绘制的 12,288 个 RGBA 通道值逐一相同。95 项 Rust、16 项相关 Node、4 项浏览器测试、严格类型检查和生产构建通过。像素对照可用 `npx playwright test -g "a tile larger than u32"` 复现。
+- 数值转换依据 [WebAssembly JavaScript 接口规范](https://www.w3.org/TR/wasm-js-api/Overview.html)。瓦片偏移的整数宽度可参阅 [gsplat 的 CUDA 实现（Apache-2.0）](https://github.com/nerfstudio-project/gsplat/commit/81c13e668250fd5c3e78f1d87058b4ac071ebb31)，瓦片内的深度分组见 [TileGS 论文](https://arxiv.org/abs/2609.03613)。
+
 ## 2026-11-24 · 修复卸载高斯瓦片索引时的 WebGL 错误
 
 - 调用方将瓦片缓冲绑定到当前 VAO 后，切换为无瓦片视图曾触发 `INVALID_OPERATION`（1282）。上传器现在只恢复本次写入目标的绑定。移除瓦片会释放旧缓冲，让当前 VAO 的索引绑定清空。上传瓦片时，调用方自己的索引绑定仍可恢复。

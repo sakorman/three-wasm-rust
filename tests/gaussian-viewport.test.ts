@@ -20,6 +20,15 @@ test('viewport filtering retains touching bounds in candidate order and owns its
   assert.equal(gaussian_viewport_indices(centers, extents, new Uint32Array([0]), 1, 1).length, 0);
 });
 
+test('viewport filtering retains bounds touching a dimension between adjacent f32 values', () => {
+  const edge = 2 ** 32 + 64;
+  const centers = Float32Array.of(2 ** 32 + 512, 24, 32, 2 ** 32 + 512);
+  const extents = Float32Array.of(448, 1, 1, 448);
+  const ids = Uint32Array.of(1, 0);
+  assert.deepEqual(gaussian_viewport_indices(centers, extents, ids, edge, edge), ids);
+  assert.deepEqual(gaussian_viewport_indices(centers, extents, ids, edge - 1, edge - 1), new Uint32Array());
+});
+
 test('viewport filtering never excludes exact intersections across the finite f32 range', () => {
   const n = 4097, centers = new Float32Array(n * 2), extents = new Float32Array(n * 2);
   const centerBits = new Uint32Array(centers.buffer), extentBits = new Uint32Array(extents.buffer);

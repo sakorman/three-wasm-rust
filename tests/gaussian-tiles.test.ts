@@ -43,6 +43,26 @@ test('tile bins retain conservative edge tiles and the candidate order within ea
   assert.deepEqual(Array.from(bins), [0, 2, 4, 4, 5, 6, 6, 2, 0, 0, 1, 0, 0]);
 });
 
+test('tile grids preserve positive safe integers across the WASM boundary', () => {
+  const wide = 2 ** 32, max = Number.MAX_SAFE_INTEGER;
+  const centers = new Float32Array([32, 24, wide, wide]);
+  const extents = new Float32Array([4, 4, 1, 1]);
+  const ids = Uint32Array.of(1, 0);
+  for (const [width, height, size] of [
+    [64, 48, wide - 1], [64, 48, wide], [64, 48, wide + 16], [64, 48, max],
+    [wide + 64, wide + 48, wide], [max, max, (max - 1) / 2],
+  ]) {
+    assert.deepEqual(gaussian_tile_bins(centers, extents, ids, width, height, size),
+      referenceBins(centers, extents, ids, width, height, size));
+  }
+  for (const invalid of [-1, 1.5, Infinity, NaN, max + 1]) {
+    for (const [width, height, size] of [[invalid, 1, 1], [1, invalid, 1], [1, 1, invalid]]) {
+      assert.throws(() => gaussian_tile_bins(centers, extents, ids, width, height, size), /positive safe integers/);
+    }
+  }
+  assert.throws(() => gaussian_tile_bins(centers, extents, ids, max, max, 1), /1000000 Gaussian tiles/);
+});
+
 test('tile bins match an independent row-major reference across 4097 bounded splats', () => {
   const count = 4097, width = 257, height = 193, tileSize = 16;
   const centers = new Float32Array(count * 2), extents = new Float32Array(count * 2);
