@@ -2,6 +2,12 @@
 
 按日期倒序记录功能、修复与验证结果。详细测试范围见 [测试说明](docs/verification.md)。
 
+## 2026-11-26 · 修复高斯深度排序误收非法瓦片数
+
+- 单瓦片排序曾将 `1.5`、`2³²+1` 和 `1−2³²` 都当作 1，按错误的网格解释偏移表。现在 WASM 入口先校验原始数值，只接受 1 到 1,000,000 的整数。打包数组仍需调用方提供原网格的瓦片数。
+- Node 回归覆盖回绕、小数、非有限值及 100 万空瓦片。Chromium 固定场景中，按瓦片排序与全屏排序的 RGBA 通道差异为 0，跳过排序的对照有 1,651 个通道值不同。复现命令为 `npx tsx --test tests/gaussian-tiles.test.ts` 和 `npx playwright test tests/browser/gaussian-tiles.spec.ts`。
+- JavaScript 整数转换见 [WebAssembly 接口规范](https://www.w3.org/TR/wasm-js-api/)。瓦片编号与局部深度区间可对照 [gsplat CUDA 实现（Apache-2.0）](https://github.com/nerfstudio-project/gsplat/blob/81c13e668250fd5c3e78f1d87058b4ac071ebb31/gsplat/cuda/csrc/IntersectTile.cu)及 [TileGS 论文](https://arxiv.org/abs/2609.03613)。
+
 ## 2026-11-25 · 修复高斯瓦片尺寸回绕和视口边缘误剔除
 
 - 在 64×48 视口中，瓦片边长 `2³²+16` 曾在 WASM 入口回绕为 16，生成 4×3 网格，导致按 1×1 网格上传失败。现在按传入的正安全整数分块，超出 100 万瓦片的网格在分配前被拒绝。

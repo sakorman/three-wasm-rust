@@ -1237,17 +1237,13 @@ pub fn gaussian_tile_bins(
 fn validate_tile_bin_ranges(
     depths: &[f32],
     tile_bins: &[u32],
-    tile_count: u32,
+    tile_count: usize,
 ) -> Result<usize, String> {
     if depths.len() > MAX_SPLATS {
         return Err("at most 1000000 Gaussian depths are supported".into());
     }
     if depths.iter().any(|value| !value.is_finite()) {
         return Err("Gaussian depths must be finite".into());
-    }
-    let tile_count = tile_count as usize;
-    if tile_count == 0 || tile_count > MAX_TILES {
-        return Err("Gaussian tile count must be in 1..=1000000".into());
     }
     let offset_count = tile_count + 1;
     if tile_bins.len() < offset_count {
@@ -1333,8 +1329,12 @@ fn stable_descending_depth_order(depths: &[f32], order: &mut [u32], scratch: &mu
 pub fn gaussian_tile_depth_order(
     depths: &[f32],
     tile_bins: &[u32],
-    tile_count: u32,
+    tile_count: f64,
 ) -> Result<Vec<u32>, String> {
+    if !(1.0..=MAX_TILES as f64).contains(&tile_count) || tile_count.fract() != 0.0 {
+        return Err("Gaussian tile count must be an integer in 1..=1000000".into());
+    }
+    let tile_count = tile_count as usize;
     let offset_count = validate_tile_bin_ranges(depths, tile_bins, tile_count)?;
     let offsets = &tile_bins[..offset_count];
     let largest_tile = offsets
@@ -1345,7 +1345,7 @@ pub fn gaussian_tile_depth_order(
     let mut result = tile_bins.to_vec();
     let entries = &mut result[offset_count..];
     let mut scratch = vec![0_u32; largest_tile];
-    for tile in 0..tile_count as usize {
+    for tile in 0..tile_count {
         let start = offsets[tile] as usize;
         let end = offsets[tile + 1] as usize;
         stable_descending_depth_order(depths, &mut entries[start..end], &mut scratch);
@@ -2181,25 +2181,25 @@ mod tests {
         // Three tiles: [0, 2, 1], [3, 0], then an empty tile.
         let bins = [0, 3, 5, 5, 0, 2, 1, 3, 0];
         assert_eq!(
-            gaussian_tile_depth_order(&depths, &bins, 3).unwrap(),
+            gaussian_tile_depth_order(&depths, &bins, 3.).unwrap(),
             [0, 3, 5, 5, 2, 1, 0, 3, 0]
         );
         assert_eq!(
-            gaussian_tile_depth_order(&[1., 2.], &[0, 1, 2, 0, 0], 2).unwrap(),
+            gaussian_tile_depth_order(&[1., 2.], &[0, 1, 2, 0, 0], 2.).unwrap(),
             [0, 1, 2, 0, 0]
         );
     }
 
     #[test]
     fn tile_depth_order_rejects_malformed_offsets_and_tile_entries() {
-        assert!(gaussian_tile_depth_order(&[1.], &[0], 0).is_err());
-        assert!(gaussian_tile_depth_order(&[1.], &[1, 1], 1).is_err());
-        assert!(gaussian_tile_depth_order(&[1.], &[0, 2], 1).is_err());
-        assert!(gaussian_tile_depth_order(&[1.], &[0, 1, 0], 2).is_err());
-        assert!(gaussian_tile_depth_order(&[1.], &[0, 1, 2], 1).is_err());
-        assert!(gaussian_tile_depth_order(&[1., 2.], &[0, 2, 0, 0], 1).is_err());
-        assert!(gaussian_tile_depth_order(&[f32::NAN], &[0, 0], 1).is_err());
-        assert!(gaussian_tile_depth_order(&[], &[0], 1_000_001).is_err());
+        assert!(gaussian_tile_depth_order(&[1.], &[0], 0.).is_err());
+        assert!(gaussian_tile_depth_order(&[1.], &[1, 1], 1.).is_err());
+        assert!(gaussian_tile_depth_order(&[1.], &[0, 2], 1.).is_err());
+        assert!(gaussian_tile_depth_order(&[1.], &[0, 1, 0], 2.).is_err());
+        assert!(gaussian_tile_depth_order(&[1.], &[0, 1, 2], 1.).is_err());
+        assert!(gaussian_tile_depth_order(&[1., 2.], &[0, 2, 0, 0], 1.).is_err());
+        assert!(gaussian_tile_depth_order(&[f32::NAN], &[0, 0], 1.).is_err());
+        assert!(gaussian_tile_depth_order(&[], &[0], 1_000_001.).is_err());
     }
 
     #[test]

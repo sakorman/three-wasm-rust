@@ -323,7 +323,7 @@ const ids = packed.subarray(tileCount + 1);
 
 ### 瓦片内深度顺序
 
-`gaussian_tile_depth_order(depths, packed, tileCount)` 复制 `gaussian_tile_bins()` 的偏移—ID 缓冲，并对每个瓦片的 ID 按中心深度从远到近稳定排序。偏移表保持不变；同深度（含正负零）保持该瓦片内原始顺序。由于打包缓冲不带元数据，调用方必须传入原网格的 `tileCount`。
+`gaussian_tile_depth_order(depths, packed, tileCount)` 复制 `gaussian_tile_bins()` 的偏移—ID 缓冲，并对每个瓦片的 ID 按中心深度从远到近稳定排序。偏移表保持不变；同深度（含正负零）保持该瓦片内原始顺序。由于打包缓冲不带元数据，调用方必须传入原网格的 `tileCount`，取值为 1 到 1,000,000 的整数。
 
 ```ts
 import { gaussian_tile_bins, gaussian_tile_depth_order } from './web/engine/index.ts';

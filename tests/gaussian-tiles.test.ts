@@ -99,6 +99,17 @@ test('tile depth order matches an independent stable sort for every bin across 4
   assert.deepEqual(actual.slice(0, tileCount + 1), bins.slice(0, tileCount + 1));
 });
 
+test('tile depth order checks the original JS count before interpreting offsets', () => {
+  const depths = Float32Array.of(1, 2);
+  const bins = Uint32Array.of(0, 2, 0, 1);
+  for (const count of [1.5, 2 ** 32 + 1, 1 - 2 ** 32, 1_000_001, NaN, Infinity]) {
+    assert.throws(() => gaussian_tile_depth_order(depths, bins, count), /tile count/);
+  }
+  assert.deepEqual(gaussian_tile_depth_order(depths, bins, 1), Uint32Array.of(0, 2, 1, 0));
+  const emptyTiles = new Uint32Array(1_000_001);
+  assert.deepEqual(gaussian_tile_depth_order(new Float32Array(), emptyTiles, 1_000_000), emptyTiles);
+});
+
 test('tile bins reject invalid dimensions and complete batches', () => {
   const centers = new Float32Array([8, 8, 12, 12]), extents = new Float32Array([2, 2, 2, 2]);
   for (const [width, height, tileSize] of [[0, 1, 1], [1, 0, 1], [1, 1, 0]] as const)
