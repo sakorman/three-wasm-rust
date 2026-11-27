@@ -1210,13 +1210,17 @@ pub fn gaussian_tile_bins(
         }
         ranges.push(range);
     }
-    let mut offsets = Vec::with_capacity(tile_count + 1);
-    offsets.push(0);
-    for count in counts {
-        offsets.push(offsets.last().unwrap() + count);
+    let mut result = vec![0_u32; tile_count + 1 + reference_count];
+    let (offsets, entries) = result.split_at_mut(tile_count + 1);
+    let mut cursors = counts;
+    let mut start = 0;
+    for (tile, cursor) in cursors.iter_mut().enumerate() {
+        let count = *cursor;
+        *cursor = start;
+        offsets[tile] = start as u32;
+        start += count;
     }
-    let mut cursors = offsets[..tile_count].to_vec();
-    let mut entries = vec![0_u32; reference_count];
+    offsets[tile_count] = reference_count as u32;
     for (&id, range) in indices.iter().zip(ranges) {
         if let Some((x0, x1, y0, y1)) = range {
             for y in y0..=y1 {
@@ -1228,9 +1232,6 @@ pub fn gaussian_tile_bins(
             }
         }
     }
-    let mut result = Vec::with_capacity(tile_count + 1 + reference_count);
-    result.extend(offsets.into_iter().map(|offset| offset as u32));
-    result.extend(entries);
     Ok(result)
 }
 
